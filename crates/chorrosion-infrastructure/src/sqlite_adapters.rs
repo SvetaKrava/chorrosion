@@ -542,4 +542,93 @@ mod tests {
         assert_eq!(fetched.name, "Test Artist");
         assert!(fetched.monitored);
     }
+
+    #[tokio::test]
+    async fn artist_get_by_name_and_foreign_id() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        let mut artist = chorrosion_domain::Artist::new("Alpha");
+        artist.foreign_artist_id = Some("mbid:alpha".to_string());
+        repo.create(artist.clone()).await.expect("create alpha");
+
+        let by_name = repo.get_by_name("Alpha").await.expect("by name").expect("exists");
+        assert_eq!(by_name.name, "Alpha");
+
+        let by_foreign = repo
+            .get_by_foreign_id("mbid:alpha")
+            .await
+            .expect("by foreign")
+            .expect("exists");
+        assert_eq!(by_foreign.id, by_name.id);
+    }
+
+    #[tokio::test]
+    async fn artist_list_monitored_and_status_filters() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        // A: monitored=true, continuing
+        let a = chorrosion_domain::Artist::new("A");
+        repo.create(a.clone()).await.expect("create A");
+
+        // B: monitored=false, continuing
+        let mut b = chorrosion_domain::Artist::new("B");
+        b.monitored = false;
+        repo.create(b.clone()).await.expect("create B");
+
+        // C: monitored=true, ended
+        let mut c = chorrosion_domain::Artist::new("C");
+        c.status = chorrosion_domain::ArtistStatus::Ended;
+        repo.create(c.clone()).await.expect("create C");
+
+        let monitored = repo.list_monitored(10, 0).await.expect("monitored");
+        assert!(monitored.iter().all(|x| x.monitored));
+        assert!(monitored.iter().any(|x| x.name == "A"));
+        assert!(monitored.iter().any(|x| x.name == "C"));
+        assert!(monitored.iter().all(|x| x.name != "B"));
+
+        let continuing = repo
+            .get_by_status(chorrosion_domain::ArtistStatus::Continuing, 10, 0)
+            .await
+            .expect("continuing");
+        assert!(continuing.iter().any(|x| x.name == "A"));
+        assert!(continuing.iter().any(|x| x.name == "B"));
+        assert!(continuing.iter().all(|x| x.name != "C"));
+
+        let ended = repo
+            .get_by_status(chorrosion_domain::ArtistStatus::Ended, 10, 0)
+            .await
+            .expect("ended");
+        assert!(ended.iter().any(|x| x.name == "C"));
+        assert!(ended.iter().all(|x| x.name != "A" && x.name != "B"));
+    }
+
+    #[tokio::test]
+    async fn artist_update_and_delete_flow() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        let mut artist = chorrosion_domain::Artist::new("Before");
+        let id = artist.id;
+        let created = repo.create(artist.clone()).await.expect("create");
+        assert_eq!(created.name, "Before");
+
+        // Update fields
+        artist.name = "After".to_string();
+        artist.path = Some("/music/after".to_string());
+        artist.monitored = false;
+        let updated = repo.update(artist.clone()).await.expect("update");
+        assert_eq!(updated.name, "After");
+        assert!(!updated.monitored);
+
+        let fetched = repo.get_by_id(id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "After");
+        assert_eq!(fetched.path.as_deref(), Some("/music/after"));
+
+        // Delete and ensure gone
+        repo.delete(id.to_string()).await.expect("delete");
+        let absent = repo.get_by_id(id.to_string()).await.expect("get");
+        assert!(absent.is_none());
+    }
 }
