@@ -1,0 +1,16 @@
+[package]
+name = "lidarr-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+lidarr-api = { path = "../lidarr-api" }
+lidarr-application = { path = "../lidarr-application" }
+lidarr-config = { path = "../lidarr-config" }
+lidarr-infrastructure = { path = "../lidarr-infrastructure" }
+lidarr-scheduler = { path = "../lidarr-scheduler" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,31 @@
+/target/
+**/*.rs.bk
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Rust tooling caches
+/.cargo/
+/.rustup/
+
+# Build artifacts
+*.log
+*.tmp
+
+# Env/config
+.env
+.env.*
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Databases/backups
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.bak

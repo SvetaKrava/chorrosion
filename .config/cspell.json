@@ -1,0 +1,43 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "ignorePaths": [
+    "target",
+    "node_modules",
+    "**/dist",
+    ".git",
+    ".gitignore",
+    ".vscode",
+    ".idea",
+    ".cargo",
+    "Cargo.lock"
+  ],
+  "words": [
+    "axum",
+    "backpressure",
+    "Bnzbd",
+    "Brainz",
+    "chromaprint",
+    "chrono",
+    "clippy",
+    "figment",
+    "fpcalc",
+    "hardlink",
+    "hardlinking",
+    "hardlinks",
+    "Hotspots",
+    "Jackett",
+    "Lidarr",
+    "Newznab",
+    "Prowlarr",
+    "reqwest",
+    "retag",
+    "retriable",
+    "serde",
+    "sqlx",
+    "Tokio",
+    "Torznab",
+    "utoipa"
+  ],
+  "flagWords": []
+}

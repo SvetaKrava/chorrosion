@@ -1,0 +1,13 @@
+[package]
+name = "lidarr-infrastructure"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+lidarr-config = { path = "../lidarr-config" }
+lidarr-domain = { path = "../lidarr-domain" }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["migrate"] }
+tracing = { workspace = true }
