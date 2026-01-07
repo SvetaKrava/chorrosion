@@ -233,12 +233,15 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
+    // Helper to parse ProfileId from optional string
+    let parse_profile_id = |s| parse_uuid_opt(s, chorrosion_domain::ProfileId::from_uuid);
+
     Ok(Artist {
         id,
         name,
         foreign_artist_id,
-        metadata_profile_id: parse_uuid_opt(metadata_profile_id, chorrosion_domain::ProfileId::from_uuid)?,
-        quality_profile_id: parse_uuid_opt(quality_profile_id, chorrosion_domain::ProfileId::from_uuid)?,
+        metadata_profile_id: parse_profile_id(metadata_profile_id)?,
+        quality_profile_id: parse_profile_id(quality_profile_id)?,
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
