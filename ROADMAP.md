@@ -45,11 +45,17 @@
 ## Phase 2: Metadata Integration (Q1-Q2 2026)
 
 ### 2.1 MusicBrainz Integration
+_(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [ ] MusicBrainz API client implementation
   - [ ] Artist search and lookup
   - [ ] Album (release group) search and lookup
   - [ ] Recording (track) lookup
   - [ ] Cover art fetching
+  - [ ] Fingerprint-based matching (Chromaprint/AcoustID) as primary
+    - [ ] Generate audio fingerprints during import/scan
+    - [ ] Resolve via AcoustID to MusicBrainz IDs (MBIDs)
+    - [ ] Confidence thresholds and tie-breakers
+  - [ ] Fallback matching using embedded tags, then filename heuristics
 - [ ] Metadata refresh jobs
   - [ ] Scheduled artist metadata updates
   - [ ] Album metadata updates
@@ -58,10 +64,12 @@
   - [ ] MusicBrainz ID storage
   - [ ] Genre and style mapping
   - [ ] Artist relationships
+  - [ ] Matching precedence: fingerprint > embedded tags > filename
 
 ### 2.2 Additional Metadata Sources
 - [ ] Last.fm integration for additional metadata
 - [ ] Discogs integration (optional)
+- [ ] Fanart.tv artwork integration (alternative art source) — see [design notes](DESIGN.md#artwork-fanarttv-integration)
 - [ ] Cover art fallback sources
 - [ ] Lyrics fetching (optional enhancement)
 
@@ -167,6 +175,19 @@
   - [ ] Cutoff management
 - [ ] File replacement workflow
 - [ ] Backup of replaced files (optional)
+
+### 5.4 Tagging & Embedding
+_(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
+- [ ] Embed metadata and artwork in supported formats
+  - [ ] ID3v2 (MP3): tags + front cover artwork
+  - [ ] Vorbis Comments (FLAC/OGG): tags + embedded pictures
+  - [ ] MP4/M4A atoms: tags + cover art (`covr`)
+  - [ ] Safe, atomic writes with backup/rollback on failure
+  - [ ] Charset/normalization handling and tag sanitation
+  - [ ] Configurable per profile (enable/disable, overwrite rules)
+  - [ ] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh
+  - [ ] Read-only tag mode that never modifies source files
+  - [ ] Fallback behavior for unsupported file types
 
 ---
 
