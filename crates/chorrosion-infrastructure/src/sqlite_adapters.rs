@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
     Track,
 };
 use sqlx::SqlitePool;
+use sqlx::Row;
 use tracing::debug;
+use uuid::Uuid;
+use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::repositories::{
     AlbumRepository, ArtistRepository, MetadataProfileRepository, QualityProfileRepository,
@@ -28,33 +31,104 @@ impl SqliteArtistRepository {
 impl Repository<Artist> for SqliteArtistRepository {
     async fn create(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "creating artist");
-        // Stub: would execute INSERT query
+        // Insert artist row
+        let q = r#"
+            INSERT INTO artists (
+                id, name, foreign_artist_id, metadata_profile_id, quality_profile_id,
+                status, path, monitored, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let id_str = entity.id.to_string();
+        let foreign_id = entity.foreign_artist_id.clone();
+        let metadata_id = entity.metadata_profile_id.map(|p| p.to_string());
+        let quality_id = entity.quality_profile_id.map(|p| p.to_string());
+        let status = entity.status.to_string();
+        let path = entity.path.clone();
+        let monitored = entity.monitored;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(id_str)
+            .bind(entity.name.clone())
+            .bind(foreign_id)
+            .bind(metadata_id)
+            .bind(quality_id)
+            .bind(status)
+            .bind(path)
+            .bind(monitored)
+            .bind(created_at)
+            .bind(updated_at)
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Artist>> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "fetching artist by id");
-        // Stub: would execute SELECT query
-        Ok(None)
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching artist by id");
+        let row = sqlx::query("SELECT * FROM artists WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_artist(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
         debug!(target: "repository", limit, offset, "listing artists");
-        // Stub: would execute SELECT query with LIMIT/OFFSET
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM artists ORDER BY name LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_artist(&r)?);
+        }
+        Ok(out)
     }
 
     async fn update(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "updating artist");
-        // Stub: would execute UPDATE query
+        let q = r#"
+            UPDATE artists SET
+                name = ?,
+                foreign_artist_id = ?,
+                metadata_profile_id = ?,
+                quality_profile_id = ?,
+                status = ?,
+                path = ?,
+                monitored = ?,
+                updated_at = ?
+            WHERE id = ?
+        "#;
+        sqlx::query(q)
+            .bind(entity.name.clone())
+            .bind(entity.foreign_artist_id.clone())
+            .bind(entity.metadata_profile_id.map(|p| p.to_string()))
+            .bind(entity.quality_profile_id.map(|p| p.to_string()))
+            .bind(entity.status.to_string())
+            .bind(entity.path.clone())
+            .bind(entity.monitored)
+            .bind(entity.updated_at.to_rfc3339())
+            .bind(entity.id.to_string())
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "deleting artist");
-        // Stub: would execute DELETE query
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting artist");
+        sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
@@ -63,20 +137,32 @@ impl Repository<Artist> for SqliteArtistRepository {
 impl ArtistRepository for SqliteArtistRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", name, "fetching artist by name");
-        // Stub: would execute SELECT WHERE name = ? query
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM artists WHERE name = ? LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| row_to_artist(&r)).transpose()?)
     }
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", foreign_id, "fetching artist by foreign_id");
-        // Stub
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM artists WHERE foreign_artist_id = ? LIMIT 1")
+            .bind(foreign_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| row_to_artist(&r)).transpose()?)
     }
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
         debug!(target: "repository", limit, offset, "listing monitored artists");
-        // Stub
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM artists WHERE monitored = 1 ORDER BY name LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows { out.push(row_to_artist(&r)?); }
+        Ok(out)
     }
 
     async fn get_by_status(
@@ -86,9 +172,76 @@ impl ArtistRepository for SqliteArtistRepository {
         offset: i64,
     ) -> Result<Vec<Artist>> {
         debug!(target: "repository", ?status, limit, offset, "fetching artists by status");
-        // Stub
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM artists WHERE status = ? ORDER BY name LIMIT ? OFFSET ?")
+            .bind(status.to_string())
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows { out.push(row_to_artist(&r)?); }
+        Ok(out)
     }
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+fn parse_uuid_opt(s: Option<String>) -> Result<Option<chorrosion_domain::ProfileId>> {
+    match s {
+        Some(val) => {
+            let uuid = Uuid::parse_str(&val)?;
+            Ok(Some(chorrosion_domain::ProfileId::from_uuid(uuid)))
+        }
+        None => Ok(None),
+    }
+}
+
+fn parse_artist_status(s: &str) -> Result<ArtistStatus> {
+    match s {
+        "continuing" => Ok(ArtistStatus::Continuing),
+        "ended" => Ok(ArtistStatus::Ended),
+        other => Err(anyhow!("unknown artist status: {}", other)),
+    }
+}
+
+fn parse_dt(s: String) -> Result<DateTime<Utc>> {
+    // Try RFC3339 first
+    if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    // Fallback to SQLite default CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
+    let ndt = NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")?;
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+}
+
+fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
+    let id_str: String = row.try_get("id")?;
+    let id = ArtistId::from_uuid(Uuid::parse_str(&id_str)?);
+
+    let name: String = row.try_get("name")?;
+    let foreign_artist_id: Option<String> = row.try_get("foreign_artist_id")?;
+    let metadata_profile_id: Option<String> = row.try_get("metadata_profile_id")?;
+    let quality_profile_id: Option<String> = row.try_get("quality_profile_id")?;
+    let status_str: String = row.try_get("status")?;
+    let path: Option<String> = row.try_get("path")?;
+    let monitored: bool = row.try_get("monitored")?;
+    let created_at_s: String = row.try_get("created_at")?;
+    let updated_at_s: String = row.try_get("updated_at")?;
+
+    Ok(Artist {
+        id,
+        name,
+        foreign_artist_id,
+        metadata_profile_id: parse_uuid_opt(metadata_profile_id)?,
+        quality_profile_id: parse_uuid_opt(quality_profile_id)?,
+        status: parse_artist_status(&status_str)?,
+        path,
+        monitored,
+        created_at: parse_dt(created_at_s)?,
+        updated_at: parse_dt(updated_at_s)?,
+    })
 }
 
 // ============================================================================
