@@ -501,3 +501,45 @@ impl MetadataProfileRepository for SqliteMetadataProfileRepository {
         Ok(None)
     }
 }
+
+// ============================================================================
+// Tests (basic CRUD happy path for Artist)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn setup_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite");
+
+        sqlx::migrate!("../../migrations").run(&pool).await.expect("migrate");
+        pool
+    }
+
+    #[tokio::test]
+    async fn artist_create_and_get_by_id_round_trip() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let id = artist.id;
+
+        let created = repo.create(artist).await.expect("create artist");
+        assert_eq!(created.id, id);
+
+        let fetched = repo
+            .get_by_id(id.to_string())
+            .await
+            .expect("fetch artist")
+            .expect("artist exists");
+        assert_eq!(fetched.id, id);
+        assert_eq!(fetched.name, "Test Artist");
+        assert!(fetched.monitored);
+    }
+}
