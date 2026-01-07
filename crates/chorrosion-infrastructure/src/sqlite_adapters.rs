@@ -206,13 +206,13 @@ fn parse_artist_status(s: &str) -> Result<ArtistStatus> {
     }
 }
 
-fn parse_dt(s: String) -> Result<DateTime<Utc>> {
+fn parse_dt(s: &str) -> Result<DateTime<Utc>> {
     // Try RFC3339 first
-    if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
         return Ok(dt.with_timezone(&Utc));
     }
     // Fallback to SQLite default CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
-    let ndt = NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")?;
+    let ndt = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
     Ok(DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
 }
 
@@ -239,8 +239,8 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
-        created_at: parse_dt(created_at_s)?,
-        updated_at: parse_dt(updated_at_s)?,
+        created_at: parse_dt(&created_at_s)?,
+        updated_at: parse_dt(&updated_at_s)?,
     })
 }
 
