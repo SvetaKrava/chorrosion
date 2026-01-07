@@ -120,6 +120,6 @@ mod tests {
     #[test]
     fn test_windows_signals_available() {
         // Verify Windows ctrl_c compiles
-        let _ = tokio::signal::ctrl_c();
+        drop(tokio::signal::ctrl_c());
     }
 }
