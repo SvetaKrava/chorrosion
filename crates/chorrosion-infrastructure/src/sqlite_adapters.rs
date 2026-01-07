@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
     Track,
@@ -50,16 +50,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)
-            .bind(entity.name.clone())
-            .bind(foreign_id)
-            .bind(metadata_id)
-            .bind(quality_id)
-            .bind(status)
-            .bind(path)
-            .bind(monitored)
-            .bind(created_at)
-            .bind(updated_at)
+            .bind(id_str)                 // 1: id
+            .bind(entity.name.clone())    // 2: name
+            .bind(foreign_id)             // 3: foreign_artist_id
+            .bind(metadata_id)            // 4: metadata_profile_id
+            .bind(quality_id)             // 5: quality_profile_id
+            .bind(status)                 // 6: status
+            .bind(path)                   // 7: path
+            .bind(monitored)              // 8: monitored
+            .bind(created_at)             // 9: created_at
+            .bind(updated_at)             // 10: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -125,10 +125,13 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id = id.into();
         debug!(target: "repository", %id, "deleting artist");
-        sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(id)
+        let result = sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("artist not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -206,13 +209,13 @@ fn parse_artist_status(s: &str) -> Result<ArtistStatus> {
     }
 }
 
-fn parse_dt(s: &str) -> Result<DateTime<Utc>> {
+fn parse_dt(s: String) -> Result<DateTime<Utc>> {
     // Try RFC3339 first
-    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
         return Ok(dt.with_timezone(&Utc));
     }
     // Fallback to SQLite default CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
-    let ndt = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
+    let ndt = NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")?;
     Ok(DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
 }
 
@@ -230,11 +233,6 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
-    let created_at = parse_dt(&created_at_s)
-        .with_context(|| format!("Failed to parse created_at timestamp: '{}'", created_at_s))?;
-    let updated_at = parse_dt(&updated_at_s)
-        .with_context(|| format!("Failed to parse updated_at timestamp: '{}'", updated_at_s))?;
-
     Ok(Artist {
         id,
         name,
@@ -244,8 +242,8 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
-        created_at,
-        updated_at,
+        created_at: parse_dt(created_at_s)?,
+        updated_at: parse_dt(updated_at_s)?,
     })
 }
 
