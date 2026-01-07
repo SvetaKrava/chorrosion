@@ -125,10 +125,13 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id = id.into();
         debug!(target: "repository", %id, "deleting artist");
-        sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(id)
+        let result = sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("artist not found: {}", id));
+        }
         Ok(())
     }
 }
