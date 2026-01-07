@@ -32,7 +32,6 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn create(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "creating artist");
         // Insert artist row
-        // Note: Bind order must match the VALUES placeholder order below
         let q = r#"
             INSERT INTO artists (
                 id, name, foreign_artist_id, metadata_profile_id, quality_profile_id,
@@ -51,16 +50,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)               // ? for id
-            .bind(entity.name.clone())  // ? for name
-            .bind(foreign_id)           // ? for foreign_artist_id
-            .bind(metadata_id)          // ? for metadata_profile_id
-            .bind(quality_id)           // ? for quality_profile_id
-            .bind(status)               // ? for status
-            .bind(path)                 // ? for path
-            .bind(monitored)            // ? for monitored
-            .bind(created_at)           // ? for created_at
-            .bind(updated_at)           // ? for updated_at
+            .bind(id_str)                 // 1: id
+            .bind(entity.name.clone())    // 2: name
+            .bind(foreign_id)             // 3: foreign_artist_id
+            .bind(metadata_id)            // 4: metadata_profile_id
+            .bind(quality_id)             // 5: quality_profile_id
+            .bind(status)                 // 6: status
+            .bind(path)                   // 7: path
+            .bind(monitored)              // 8: monitored
+            .bind(created_at)             // 9: created_at
+            .bind(updated_at)             // 10: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -96,7 +95,6 @@ impl Repository<Artist> for SqliteArtistRepository {
 
     async fn update(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "updating artist");
-        // Note: Bind order must match the SET clause placeholder order, then WHERE clause
         let q = r#"
             UPDATE artists SET
                 name = ?,
@@ -110,15 +108,15 @@ impl Repository<Artist> for SqliteArtistRepository {
             WHERE id = ?
         "#;
         sqlx::query(q)
-            .bind(entity.name.clone())                                  // ? for name
-            .bind(entity.foreign_artist_id.clone())                     // ? for foreign_artist_id
-            .bind(entity.metadata_profile_id.map(|p| p.to_string()))    // ? for metadata_profile_id
-            .bind(entity.quality_profile_id.map(|p| p.to_string()))     // ? for quality_profile_id
-            .bind(entity.status.to_string())                            // ? for status
-            .bind(entity.path.clone())                                  // ? for path
-            .bind(entity.monitored)                                     // ? for monitored
-            .bind(entity.updated_at.to_rfc3339())                       // ? for updated_at
-            .bind(entity.id.to_string())                                // ? for id (WHERE clause)
+            .bind(entity.name.clone())
+            .bind(entity.foreign_artist_id.clone())
+            .bind(entity.metadata_profile_id.map(|p| p.to_string()))
+            .bind(entity.quality_profile_id.map(|p| p.to_string()))
+            .bind(entity.status.to_string())
+            .bind(entity.path.clone())
+            .bind(entity.monitored)
+            .bind(entity.updated_at.to_rfc3339())
+            .bind(entity.id.to_string())
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -127,10 +125,13 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id = id.into();
         debug!(target: "repository", %id, "deleting artist");
-        sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(id)
+        let result = sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("artist not found: {}", id));
+        }
         Ok(())
     }
 }
