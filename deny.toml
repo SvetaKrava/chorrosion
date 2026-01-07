@@ -1,0 +1,43 @@
+[advisories]
+# Keep advisories strict by default; set threshold to include all severities
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[licenses]
+# Allow GPL-3 compatible and common permissive licenses
+allow = [
+  "GPL-3.0-or-later",
+  "GPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "LGPL-3.0-only",
+  "AGPL-3.0-or-later",
+  "AGPL-3.0-only",
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MPL-2.0",
+  "BSL-1.0",
+  "Zlib",
+  "Unlicense",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Unicode-3.0",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
