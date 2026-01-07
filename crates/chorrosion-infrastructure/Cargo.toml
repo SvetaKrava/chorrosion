@@ -12,3 +12,8 @@ chorrosion-domain = { path = "../chorrosion-domain" }
 reqwest = { workspace = true }
 sqlx = { workspace = true, features = ["migrate"] }
 tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
