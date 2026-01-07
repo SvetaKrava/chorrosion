@@ -50,6 +50,12 @@ pub trait AlbumRepository: Repository<Album> {
         offset: i64,
     ) -> Result<Vec<Album>>;
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Album>>;
+    async fn get_by_album_type(
+        &self,
+        album_type: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Album>>;
 }
 
 /// Track repository with specialized queries

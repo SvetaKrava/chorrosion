@@ -209,6 +209,15 @@ fn parse_artist_status(s: &str) -> Result<ArtistStatus> {
     }
 }
 
+fn parse_album_status(s: &str) -> Result<AlbumStatus> {
+    match s {
+        "wanted" => Ok(AlbumStatus::Wanted),
+        "released" => Ok(AlbumStatus::Released),
+        "announced" => Ok(AlbumStatus::Announced),
+        other => Err(anyhow!("unknown album status: {}", other)),
+    }
+}
+
 fn parse_dt(s: String) -> Result<DateTime<Utc>> {
     // Try RFC3339 first
     if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
@@ -247,6 +256,36 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
     })
 }
 
+fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
+    let id_str: String = row.try_get("id")?;
+    let id = AlbumId::from_uuid(Uuid::parse_str(&id_str)?);
+
+    let artist_id_str: String = row.try_get("artist_id")?;
+    let artist_id = ArtistId::from_uuid(Uuid::parse_str(&artist_id_str)?);
+
+    let foreign_album_id: Option<String> = row.try_get("foreign_album_id")?;
+    let title: String = row.try_get("title")?;
+    let release_date: Option<String> = row.try_get("release_date")?;
+    let album_type: Option<String> = row.try_get("album_type")?;
+    let status_str: String = row.try_get("status")?;
+    let monitored: bool = row.try_get("monitored")?;
+    let created_at_s: String = row.try_get("created_at")?;
+    let updated_at_s: String = row.try_get("updated_at")?;
+
+    Ok(Album {
+        id,
+        artist_id,
+        foreign_album_id,
+        title,
+        release_date: release_date.and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+        album_type,
+        status: parse_album_status(&status_str)?,
+        monitored,
+        created_at: parse_dt(created_at_s)?,
+        updated_at: parse_dt(updated_at_s)?,
+    })
+}
+
 // ============================================================================
 
 /// SQLx-backed Album repository
@@ -265,28 +304,107 @@ impl SqliteAlbumRepository {
 impl Repository<Album> for SqliteAlbumRepository {
     async fn create(&self, entity: Album) -> Result<Album> {
         debug!(target: "repository", album_id = %entity.id, "creating album");
+        let q = r#"
+            INSERT INTO albums (
+                id, artist_id, foreign_album_id, title, release_date,
+                album_type, status, monitored, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let id_str = entity.id.to_string();
+        let artist_id_str = entity.artist_id.to_string();
+        let foreign_id = entity.foreign_album_id.clone();
+        let title = entity.title.clone();
+        let release_date = entity.release_date.map(|d| d.format("%Y-%m-%d").to_string());
+        let album_type = entity.album_type.clone();
+        let status = entity.status.to_string();
+        let monitored = entity.monitored;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(id_str)
+            .bind(artist_id_str)
+            .bind(foreign_id)
+            .bind(title)
+            .bind(release_date)
+            .bind(album_type)
+            .bind(status)
+            .bind(monitored)
+            .bind(created_at)
+            .bind(updated_at)
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Album>> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "fetching album by id");
-        Ok(None)
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching album by id");
+        let row = sqlx::query("SELECT * FROM albums WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_album(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing albums");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM albums ORDER BY title LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
     }
 
     async fn update(&self, entity: Album) -> Result<Album> {
         debug!(target: "repository", album_id = %entity.id, "updating album");
+        let q = r#"
+            UPDATE albums SET
+                artist_id = ?,
+                foreign_album_id = ?,
+                title = ?,
+                release_date = ?,
+                album_type = ?,
+                status = ?,
+                monitored = ?,
+                updated_at = ?
+            WHERE id = ?
+        "#;
+        sqlx::query(q)
+            .bind(entity.artist_id.to_string())
+            .bind(entity.foreign_album_id.clone())
+            .bind(entity.title.clone())
+            .bind(entity.release_date.map(|d| d.format("%Y-%m-%d").to_string()))
+            .bind(entity.album_type.clone())
+            .bind(entity.status.to_string())
+            .bind(entity.monitored)
+            .bind(entity.updated_at.to_rfc3339())
+            .bind(entity.id.to_string())
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "deleting album");
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting album");
+        let result = sqlx::query("DELETE FROM albums WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("album not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -300,12 +418,26 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", %artist_id, limit, offset, "fetching albums by artist");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM albums WHERE artist_id = ? ORDER BY title LIMIT ? OFFSET ?")
+            .bind(artist_id.to_string())
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
     }
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Album>> {
         debug!(target: "repository", foreign_id, "fetching album by foreign_id");
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM albums WHERE foreign_album_id = ? LIMIT 1")
+            .bind(foreign_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| row_to_album(&r)).transpose()?)
     }
 
     async fn get_by_status(
@@ -315,12 +447,51 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", ?status, limit, offset, "fetching albums by status");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM albums WHERE status = ? ORDER BY title LIMIT ? OFFSET ?")
+            .bind(status.to_string())
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
     }
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing monitored albums");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM albums WHERE monitored = 1 ORDER BY title LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn get_by_album_type(
+        &self,
+        album_type: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Album>> {
+        debug!(target: "repository", album_type, limit, offset, "fetching albums by type");
+        let rows = sqlx::query("SELECT * FROM albums WHERE album_type = ? ORDER BY title LIMIT ? OFFSET ?")
+            .bind(album_type)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
     }
 }
 
@@ -668,5 +839,301 @@ mod tests {
 
         let empty = repo.list(2, 6).await.expect("empty");
         assert!(empty.is_empty());
+    }
+
+    // ======================================================================
+    // Album Repository Tests
+    // ======================================================================
+
+    #[tokio::test]
+    async fn album_create_and_get_by_id_round_trip() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        // Create artist first (FK constraint)
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        // Create album
+        let mut album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        album.album_type = Some("studio".to_string());
+        album.status = AlbumStatus::Released;
+        let album_id = album.id;
+
+        let created = album_repo.create(album).await.expect("create album");
+        assert_eq!(created.id, album_id);
+        assert_eq!(created.artist_id, artist_id);
+
+        // Fetch and verify
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch album")
+            .expect("album exists");
+        assert_eq!(fetched.id, album_id);
+        assert_eq!(fetched.title, "Test Album");
+        assert_eq!(fetched.artist_id, artist_id);
+        assert_eq!(fetched.album_type.as_deref(), Some("studio"));
+        assert!(fetched.monitored);
+    }
+
+    #[tokio::test]
+    async fn album_get_by_artist_and_foreign_id() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        // Create two artists
+        let artist_a = chorrosion_domain::Artist::new("Artist A");
+        let id_a = artist_a.id;
+        artist_repo.create(artist_a).await.expect("create A");
+
+        let artist_b = chorrosion_domain::Artist::new("Artist B");
+        let id_b = artist_b.id;
+        artist_repo.create(artist_b).await.expect("create B");
+
+        // Create albums for artist A
+        let mut album1 = chorrosion_domain::Album::new(id_a, "Album 1");
+        album1.foreign_album_id = Some("mbid:album1".to_string());
+        album_repo.create(album1.clone()).await.expect("create 1");
+
+        let album2 = chorrosion_domain::Album::new(id_a, "Album 2");
+        album_repo.create(album2.clone()).await.expect("create 2");
+
+        // Create album for artist B
+        let album3 = chorrosion_domain::Album::new(id_b, "Album 3");
+        album_repo.create(album3.clone()).await.expect("create 3");
+
+        // Test get_by_artist
+        let albums_a = album_repo.get_by_artist(id_a, 10, 0).await.expect("get by artist A");
+        assert_eq!(albums_a.len(), 2);
+        assert!(albums_a.iter().all(|a| a.artist_id == id_a));
+
+        let albums_b = album_repo.get_by_artist(id_b, 10, 0).await.expect("get by artist B");
+        assert_eq!(albums_b.len(), 1);
+        assert_eq!(albums_b[0].title, "Album 3");
+
+        // Test get_by_foreign_id
+        let by_foreign = album_repo
+            .get_by_foreign_id("mbid:album1")
+            .await
+            .expect("by foreign")
+            .expect("exists");
+        assert_eq!(by_foreign.id, album1.id);
+        assert_eq!(by_foreign.title, "Album 1");
+    }
+
+    #[tokio::test]
+    async fn album_list_monitored_and_status_filters() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        // A: monitored=true, wanted
+        let a = chorrosion_domain::Album::new(artist_id, "A");
+        album_repo.create(a.clone()).await.expect("create A");
+
+        // B: monitored=false, released
+        let mut b = chorrosion_domain::Album::new(artist_id, "B");
+        b.monitored = false;
+        b.status = AlbumStatus::Released;
+        album_repo.create(b.clone()).await.expect("create B");
+
+        // C: monitored=true, announced
+        let mut c = chorrosion_domain::Album::new(artist_id, "C");
+        c.status = AlbumStatus::Announced;
+        album_repo.create(c.clone()).await.expect("create C");
+
+        // D: monitored=true, released
+        let mut d = chorrosion_domain::Album::new(artist_id, "D");
+        d.status = AlbumStatus::Released;
+        album_repo.create(d.clone()).await.expect("create D");
+
+        // Test monitored
+        let monitored = album_repo.list_monitored(10, 0).await.expect("monitored");
+        assert_eq!(monitored.len(), 3);
+        assert!(monitored.iter().all(|x| x.monitored));
+        assert!(monitored.iter().any(|x| x.title == "A"));
+        assert!(monitored.iter().any(|x| x.title == "C"));
+        assert!(monitored.iter().any(|x| x.title == "D"));
+        assert!(monitored.iter().all(|x| x.title != "B"));
+
+        // Test by status
+        let wanted = album_repo
+            .get_by_status(AlbumStatus::Wanted, 10, 0)
+            .await
+            .expect("wanted");
+        assert_eq!(wanted.len(), 1);
+        assert_eq!(wanted[0].title, "A");
+
+        let released = album_repo
+            .get_by_status(AlbumStatus::Released, 10, 0)
+            .await
+            .expect("released");
+        assert_eq!(released.len(), 2);
+        assert!(released.iter().any(|x| x.title == "B"));
+        assert!(released.iter().any(|x| x.title == "D"));
+
+        let announced = album_repo
+            .get_by_status(AlbumStatus::Announced, 10, 0)
+            .await
+            .expect("announced");
+        assert_eq!(announced.len(), 1);
+        assert_eq!(announced[0].title, "C");
+    }
+
+    #[tokio::test]
+    async fn album_get_by_album_type() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        // Create albums with different types
+        let mut studio1 = chorrosion_domain::Album::new(artist_id, "Studio 1");
+        studio1.album_type = Some("studio".to_string());
+        album_repo.create(studio1).await.expect("create studio1");
+
+        let mut studio2 = chorrosion_domain::Album::new(artist_id, "Studio 2");
+        studio2.album_type = Some("studio".to_string());
+        album_repo.create(studio2).await.expect("create studio2");
+
+        let mut live = chorrosion_domain::Album::new(artist_id, "Live");
+        live.album_type = Some("live".to_string());
+        album_repo.create(live).await.expect("create live");
+
+        let mut compilation = chorrosion_domain::Album::new(artist_id, "Compilation");
+        compilation.album_type = Some("compilation".to_string());
+        album_repo.create(compilation).await.expect("create compilation");
+
+        // Test get_by_album_type
+        let studio = album_repo.get_by_album_type("studio", 10, 0).await.expect("studio");
+        assert_eq!(studio.len(), 2);
+        assert!(studio.iter().all(|a| a.album_type.as_deref() == Some("studio")));
+
+        let live_albums = album_repo.get_by_album_type("live", 10, 0).await.expect("live");
+        assert_eq!(live_albums.len(), 1);
+        assert_eq!(live_albums[0].title, "Live");
+
+        let comps = album_repo.get_by_album_type("compilation", 10, 0).await.expect("compilation");
+        assert_eq!(comps.len(), 1);
+        assert_eq!(comps[0].title, "Compilation");
+    }
+
+    #[tokio::test]
+    async fn album_update_and_delete_flow() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let mut album = chorrosion_domain::Album::new(artist_id, "Before");
+        let album_id = album.id;
+        let created = album_repo.create(album.clone()).await.expect("create");
+        assert_eq!(created.title, "Before");
+
+        // Update fields
+        album.title = "After".to_string();
+        album.album_type = Some("live".to_string());
+        album.monitored = false;
+        album.status = AlbumStatus::Released;
+        album.release_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        let updated = album_repo.update(album.clone()).await.expect("update");
+        assert_eq!(updated.title, "After");
+        assert!(!updated.monitored);
+
+        let fetched = album_repo.get_by_id(album_id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.title, "After");
+        assert_eq!(fetched.album_type.as_deref(), Some("live"));
+        assert_eq!(fetched.release_date, Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
+
+        // Delete and ensure gone
+        album_repo.delete(album_id.to_string()).await.expect("delete");
+        let absent = album_repo.get_by_id(album_id.to_string()).await.expect("get");
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn album_list_ordering_and_pagination() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        // Create albums in shuffled order
+        for title in ["Zebra", "Alpha", "Bravo", "Echo", "Delta"] {
+            let album = chorrosion_domain::Album::new(artist_id, title);
+            album_repo.create(album).await.expect("create");
+        }
+
+        // Verify global ordering is by title ASC
+        let all = album_repo.list(10, 0).await.expect("list all");
+        let titles: Vec<_> = all.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(titles, vec!["Alpha", "Bravo", "Delta", "Echo", "Zebra"]);
+
+        // Pagination windows
+        let page1 = album_repo.list(2, 0).await.expect("page1");
+        let t1: Vec<_> = page1.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(t1, vec!["Alpha", "Bravo"]);
+
+        let page2 = album_repo.list(2, 2).await.expect("page2");
+        let t2: Vec<_> = page2.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(t2, vec!["Delta", "Echo"]);
+
+        let page3 = album_repo.list(2, 4).await.expect("page3");
+        let t3: Vec<_> = page3.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(t3, vec!["Zebra"]);
+
+        let empty = album_repo.list(2, 6).await.expect("empty");
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn album_cascading_delete_on_artist_removal() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        // Create albums
+        let album1 = chorrosion_domain::Album::new(artist_id, "Album 1");
+        let album1_id = album1.id;
+        album_repo.create(album1).await.expect("create album1");
+
+        let album2 = chorrosion_domain::Album::new(artist_id, "Album 2");
+        let album2_id = album2.id;
+        album_repo.create(album2).await.expect("create album2");
+
+        // Verify albums exist
+        let albums = album_repo.get_by_artist(artist_id, 10, 0).await.expect("get albums");
+        assert_eq!(albums.len(), 2);
+
+        // Delete artist (should cascade to albums due to FK constraint)
+        artist_repo.delete(artist_id.to_string()).await.expect("delete artist");
+
+        // Verify albums are also deleted
+        let absent1 = album_repo.get_by_id(album1_id.to_string()).await.expect("get1");
+        assert!(absent1.is_none());
+
+        let absent2 = album_repo.get_by_id(album2_id.to_string()).await.expect("get2");
+        assert!(absent2.is_none());
     }
 }

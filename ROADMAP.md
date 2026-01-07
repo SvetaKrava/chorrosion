@@ -20,10 +20,10 @@
 
 ### 1.1 Repository Implementation
 
-- [ ] Implement Artist repository with full CRUD
-  - [ ] Create/Read/Update/Delete operations
-  - [ ] Filtering by status, monitored state
-  - [ ] Search by name and foreign ID
+- [x] Implement Artist repository with full CRUD
+  - [x] Create/Read/Update/Delete operations
+  - [x] Filtering by status, monitored state
+  - [x] Search by name and foreign ID
 - [ ] Implement Album repository
   - [ ] CRUD operations with artist relationships
   - [ ] Filtering by status, release dates
