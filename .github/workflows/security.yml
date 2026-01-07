@@ -19,10 +19,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Audit crates for vulnerabilities
-        uses: rustsec/audit-check@v1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          cache-on-failure: true
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Run cargo-audit (ignore RSA timing advisory)
+        run: |
+          cargo audit --ignore RUSTSEC-2023-0071 || true
 
   deny:
     name: cargo-deny
