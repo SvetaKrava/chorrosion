@@ -32,7 +32,7 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn create(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "creating artist");
         // Insert artist row
-        let q = r#"
+        let insert_query = r#"
             INSERT INTO artists (
                 id, name, foreign_artist_id, metadata_profile_id, quality_profile_id,
                 status, path, monitored, created_at, updated_at
@@ -49,7 +49,7 @@ impl Repository<Artist> for SqliteArtistRepository {
         let created_at = entity.created_at.to_rfc3339();
         let updated_at = entity.updated_at.to_rfc3339();
 
-        sqlx::query(q)
+        sqlx::query(insert_query)
             .bind(id_str)
             .bind(entity.name.clone())
             .bind(foreign_id)
@@ -95,7 +95,7 @@ impl Repository<Artist> for SqliteArtistRepository {
 
     async fn update(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "updating artist");
-        let q = r#"
+        let update_query = r#"
             UPDATE artists SET
                 name = ?,
                 foreign_artist_id = ?,
@@ -107,7 +107,7 @@ impl Repository<Artist> for SqliteArtistRepository {
                 updated_at = ?
             WHERE id = ?
         "#;
-        sqlx::query(q)
+        sqlx::query(update_query)
             .bind(entity.name.clone())
             .bind(entity.foreign_artist_id.clone())
             .bind(entity.metadata_profile_id.map(|p| p.to_string()))
