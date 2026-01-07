@@ -286,6 +286,40 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
     })
 }
 
+fn row_to_track(row: &sqlx::sqlite::SqliteRow) -> Result<Track> {
+    let id_str: String = row.try_get("id")?;
+    let id = chorrosion_domain::TrackId::from_uuid(Uuid::parse_str(&id_str)?);
+
+    let album_id_str: String = row.try_get("album_id")?;
+    let album_id = AlbumId::from_uuid(Uuid::parse_str(&album_id_str)?);
+
+    let artist_id_str: String = row.try_get("artist_id")?;
+    let artist_id = ArtistId::from_uuid(Uuid::parse_str(&artist_id_str)?);
+
+    let foreign_track_id: Option<String> = row.try_get("foreign_track_id")?;
+    let title: String = row.try_get("title")?;
+    let track_number: Option<i32> = row.try_get("track_number")?;
+    let duration_ms: Option<i32> = row.try_get("duration_ms")?;
+    let has_file: bool = row.try_get("has_file")?;
+    let monitored: bool = row.try_get("monitored")?;
+    let created_at_s: String = row.try_get("created_at")?;
+    let updated_at_s: String = row.try_get("updated_at")?;
+
+    Ok(Track {
+        id,
+        album_id,
+        artist_id,
+        foreign_track_id,
+        title,
+        track_number: track_number.map(|n| n as u32),
+        duration_ms: duration_ms.map(|n| n as u32),
+        has_file,
+        monitored,
+        created_at: parse_dt(created_at_s)?,
+        updated_at: parse_dt(updated_at_s)?,
+    })
+}
+
 // ============================================================================
 
 /// SQLx-backed Album repository
@@ -513,28 +547,111 @@ impl SqliteTrackRepository {
 impl Repository<Track> for SqliteTrackRepository {
     async fn create(&self, entity: Track) -> Result<Track> {
         debug!(target: "repository", track_id = %entity.id, "creating track");
+        let q = r#"
+            INSERT INTO tracks (
+                id, album_id, artist_id, foreign_track_id, title, track_number,
+                duration_ms, has_file, monitored, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let id_str = entity.id.to_string();
+        let album_id_str = entity.album_id.to_string();
+        let artist_id_str = entity.artist_id.to_string();
+        let foreign_id = entity.foreign_track_id.clone();
+        let title = entity.title.clone();
+        let track_number = entity.track_number.map(|n| n as i32);
+        let duration_ms = entity.duration_ms.map(|n| n as i32);
+        let has_file = entity.has_file;
+        let monitored = entity.monitored;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(id_str)
+            .bind(album_id_str)
+            .bind(artist_id_str)
+            .bind(foreign_id)
+            .bind(title)
+            .bind(track_number)
+            .bind(duration_ms)
+            .bind(has_file)
+            .bind(monitored)
+            .bind(created_at)
+            .bind(updated_at)
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Track>> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "fetching track by id");
-        Ok(None)
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching track by id");
+        let row = sqlx::query("SELECT * FROM tracks WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_track(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM tracks ORDER BY track_number, title LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_track(&r)?);
+        }
+        Ok(out)
     }
 
     async fn update(&self, entity: Track) -> Result<Track> {
         debug!(target: "repository", track_id = %entity.id, "updating track");
+        let q = r#"
+            UPDATE tracks SET
+                album_id = ?,
+                artist_id = ?,
+                foreign_track_id = ?,
+                title = ?,
+                track_number = ?,
+                duration_ms = ?,
+                has_file = ?,
+                monitored = ?,
+                updated_at = ?
+            WHERE id = ?
+        "#;
+        sqlx::query(q)
+            .bind(entity.album_id.to_string())
+            .bind(entity.artist_id.to_string())
+            .bind(entity.foreign_track_id.clone())
+            .bind(entity.title.clone())
+            .bind(entity.track_number.map(|n| n as i32))
+            .bind(entity.duration_ms.map(|n| n as i32))
+            .bind(entity.has_file)
+            .bind(entity.monitored)
+            .bind(entity.updated_at.to_rfc3339())
+            .bind(entity.id.to_string())
+            .execute(&self.pool)
+            .await?;
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "deleting track");
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting track");
+        let result = sqlx::query("DELETE FROM tracks WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("track not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -543,7 +660,20 @@ impl Repository<Track> for SqliteTrackRepository {
 impl TrackRepository for SqliteTrackRepository {
     async fn get_by_album(&self, album_id: AlbumId, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", %album_id, limit, offset, "fetching tracks by album");
-        Ok(vec![])
+        let album_id_str = album_id.to_string();
+        let rows = sqlx::query(
+            "SELECT * FROM tracks WHERE album_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?"
+        )
+        .bind(album_id_str)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_track(&r)?);
+        }
+        Ok(out)
     }
 
     async fn get_by_artist(
@@ -553,22 +683,65 @@ impl TrackRepository for SqliteTrackRepository {
         offset: i64,
     ) -> Result<Vec<Track>> {
         debug!(target: "repository", %artist_id, limit, offset, "fetching tracks by artist");
-        Ok(vec![])
+        let artist_id_str = artist_id.to_string();
+        let rows = sqlx::query(
+            "SELECT * FROM tracks WHERE artist_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?"
+        )
+        .bind(artist_id_str)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_track(&r)?);
+        }
+        Ok(out)
     }
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Track>> {
         debug!(target: "repository", foreign_id, "fetching track by foreign_id");
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM tracks WHERE foreign_track_id = ? LIMIT 1")
+            .bind(foreign_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_track(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing monitored tracks");
-        Ok(vec![])
+        let rows = sqlx::query(
+            "SELECT * FROM tracks WHERE monitored = 1 ORDER BY track_number, title LIMIT ? OFFSET ?"
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_track(&r)?);
+        }
+        Ok(out)
     }
 
     async fn list_without_files(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks without files");
-        Ok(vec![])
+        let rows = sqlx::query(
+            "SELECT * FROM tracks WHERE has_file = 0 ORDER BY track_number, title LIMIT ? OFFSET ?"
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_track(&r)?);
+        }
+        Ok(out)
     }
 }
 
@@ -1136,4 +1309,324 @@ mod tests {
         let absent2 = album_repo.get_by_id(album2_id.to_string()).await.expect("get2");
         assert!(absent2.is_none());
     }
+
+    // ========================================================================
+    // Track repository tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn track_create_and_get_by_id_round_trip() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        let mut track = chorrosion_domain::Track::new(album_id, artist_id, "Track 1");
+        track.foreign_track_id = Some("mbid-123".to_string());
+        track.track_number = Some(1);
+        track.duration_ms = Some(180000);
+        track.has_file = true;
+        track.monitored = true;
+
+        let created = track_repo.create(track.clone()).await.expect("create");
+        assert_eq!(created.title, "Track 1");
+        assert_eq!(created.track_number, Some(1));
+
+        let fetched = track_repo.get_by_id(track.id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.title, "Track 1");
+        assert_eq!(fetched.album_id, album_id);
+        assert_eq!(fetched.artist_id, artist_id);
+        assert_eq!(fetched.foreign_track_id.as_deref(), Some("mbid-123"));
+        assert_eq!(fetched.track_number, Some(1));
+        assert_eq!(fetched.duration_ms, Some(180000));
+        assert!(fetched.has_file);
+        assert!(fetched.monitored);
+    }
+
+    #[tokio::test]
+    async fn track_get_by_album_and_artist() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        // Create two artists
+        let artist1 = chorrosion_domain::Artist::new("Artist 1");
+        let artist1_id = artist1.id;
+        artist_repo.create(artist1).await.expect("create artist1");
+
+        let artist2 = chorrosion_domain::Artist::new("Artist 2");
+        let artist2_id = artist2.id;
+        artist_repo.create(artist2).await.expect("create artist2");
+
+        // Create two albums for artist1
+        let album1 = chorrosion_domain::Album::new(artist1_id, "Album 1");
+        let album1_id = album1.id;
+        album_repo.create(album1).await.expect("create album1");
+
+        let album2 = chorrosion_domain::Album::new(artist1_id, "Album 2");
+        let album2_id = album2.id;
+        album_repo.create(album2).await.expect("create album2");
+
+        // Create tracks
+        let track1 = chorrosion_domain::Track::new(album1_id, artist1_id, "Track 1");
+        track_repo.create(track1).await.expect("create track1");
+
+        let track2 = chorrosion_domain::Track::new(album1_id, artist1_id, "Track 2");
+        track_repo.create(track2).await.expect("create track2");
+
+        let track3 = chorrosion_domain::Track::new(album2_id, artist1_id, "Track 3");
+        track_repo.create(track3).await.expect("create track3");
+
+        let track4 = chorrosion_domain::Track::new(album2_id, artist2_id, "Track 4");
+        track_repo.create(track4).await.expect("create track4");
+
+        // Query by album1
+        let album1_tracks = track_repo.get_by_album(album1_id, 10, 0).await.expect("get by album");
+        assert_eq!(album1_tracks.len(), 2);
+        assert_eq!(album1_tracks[0].title, "Track 1");
+        assert_eq!(album1_tracks[1].title, "Track 2");
+
+        // Query by artist1 (should include tracks from both albums)
+        let artist1_tracks = track_repo.get_by_artist(artist1_id, 10, 0).await.expect("get by artist");
+        assert_eq!(artist1_tracks.len(), 3);
+
+        // Query by artist2
+        let artist2_tracks = track_repo.get_by_artist(artist2_id, 10, 0).await.expect("get by artist");
+        assert_eq!(artist2_tracks.len(), 1);
+        assert_eq!(artist2_tracks[0].title, "Track 4");
+    }
+
+    #[tokio::test]
+    async fn track_get_by_foreign_id() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        let mut track = chorrosion_domain::Track::new(album_id, artist_id, "Track");
+        track.foreign_track_id = Some("mbid-456".to_string());
+        track_repo.create(track.clone()).await.expect("create");
+
+        let fetched = track_repo.get_by_foreign_id("mbid-456").await.unwrap().unwrap();
+        assert_eq!(fetched.title, "Track");
+        assert_eq!(fetched.id, track.id);
+
+        let absent = track_repo.get_by_foreign_id("nonexistent").await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn track_list_monitored_and_without_files() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        // Create tracks with different combinations
+        let mut track1 = chorrosion_domain::Track::new(album_id, artist_id, "Monitored with file");
+        track1.monitored = true;
+        track1.has_file = true;
+        track_repo.create(track1).await.expect("create");
+
+        let mut track2 = chorrosion_domain::Track::new(album_id, artist_id, "Monitored without file");
+        track2.monitored = true;
+        track2.has_file = false;
+        track_repo.create(track2).await.expect("create");
+
+        let mut track3 = chorrosion_domain::Track::new(album_id, artist_id, "Not monitored without file");
+        track3.monitored = false;
+        track3.has_file = false;
+        track_repo.create(track3).await.expect("create");
+
+        let mut track4 = chorrosion_domain::Track::new(album_id, artist_id, "Not monitored with file");
+        track4.monitored = false;
+        track4.has_file = true;
+        track_repo.create(track4).await.expect("create");
+
+        // Query monitored
+        let monitored = track_repo.list_monitored(10, 0).await.expect("list monitored");
+        assert_eq!(monitored.len(), 2);
+        let monitored_titles: Vec<_> = monitored.iter().map(|t| t.title.as_str()).collect();
+        assert!(monitored_titles.contains(&"Monitored with file"));
+        assert!(monitored_titles.contains(&"Monitored without file"));
+
+        // Query without files
+        let without_files = track_repo.list_without_files(10, 0).await.expect("list without files");
+        assert_eq!(without_files.len(), 2);
+        let without_files_titles: Vec<_> = without_files.iter().map(|t| t.title.as_str()).collect();
+        assert!(without_files_titles.contains(&"Monitored without file"));
+        assert!(without_files_titles.contains(&"Not monitored without file"));
+    }
+
+    #[tokio::test]
+    async fn track_update_and_delete_flow() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        let mut track = chorrosion_domain::Track::new(album_id, artist_id, "Before");
+        let track_id = track.id;
+        track_repo.create(track.clone()).await.expect("create");
+
+        // Update fields
+        track.title = "After".to_string();
+        track.track_number = Some(5);
+        track.duration_ms = Some(240000);
+        track.has_file = true;
+        track.monitored = false;
+        let updated = track_repo.update(track.clone()).await.expect("update");
+        assert_eq!(updated.title, "After");
+
+        let fetched = track_repo.get_by_id(track_id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.title, "After");
+        assert_eq!(fetched.track_number, Some(5));
+        assert_eq!(fetched.duration_ms, Some(240000));
+        assert!(fetched.has_file);
+        assert!(!fetched.monitored);
+
+        // Delete and ensure gone
+        track_repo.delete(track_id.to_string()).await.expect("delete");
+        let absent = track_repo.get_by_id(track_id.to_string()).await.expect("get");
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn track_list_ordering_and_pagination() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        // Create tracks with track numbers
+        for (num, title) in [(3, "Track 3"), (1, "Track 1"), (2, "Track 2")] {
+            let mut track = chorrosion_domain::Track::new(album_id, artist_id, title);
+            track.track_number = Some(num);
+            track_repo.create(track).await.expect("create");
+        }
+
+        // Create one without track number (SQLite sorts NULL first)
+        let track_no_num = chorrosion_domain::Track::new(album_id, artist_id, "Track No Number");
+        track_repo.create(track_no_num).await.expect("create");
+
+        // Verify ordering by track_number, then title
+        let all = track_repo.list(10, 0).await.expect("list");
+        assert_eq!(all.len(), 4);
+        // SQLite sorts NULL first, so NULL, then track_number 1,2,3
+        assert_eq!(all[0].title, "Track No Number");
+        assert_eq!(all[1].title, "Track 1");
+        assert_eq!(all[2].title, "Track 2");
+        assert_eq!(all[3].title, "Track 3");
+
+        // Test pagination
+        let page1 = track_repo.list(2, 0).await.expect("list page 1");
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].title, "Track No Number");
+        assert_eq!(page1[1].title, "Track 1");
+
+        let page2 = track_repo.list(2, 2).await.expect("list page 2");
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].title, "Track 2");
+        assert_eq!(page2[1].title, "Track 3");
+    }
+
+    #[tokio::test]
+    async fn track_cascading_delete_on_album_removal() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Track");
+        let track_id = track.id;
+        track_repo.create(track).await.expect("create track");
+
+        // Verify track exists
+        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        assert!(exists.is_some());
+
+        // Delete album should cascade to tracks
+        album_repo.delete(album_id.to_string()).await.expect("delete album");
+        let track_check = track_repo.get_by_id(track_id.to_string()).await.expect("query");
+        assert!(track_check.is_none(), "track should be gone when album deleted");
+    }
+
+    #[tokio::test]
+    async fn track_cascading_delete_on_artist_removal() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Track");
+        let track_id = track.id;
+        track_repo.create(track).await.expect("create track");
+
+        // Verify track exists
+        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        assert!(exists.is_some());
+
+        // Delete artist should cascade to both albums and tracks
+        artist_repo.delete(artist_id.to_string()).await.expect("delete artist");
+        let track_check = track_repo.get_by_id(track_id.to_string()).await.expect("query");
+        assert!(track_check.is_none(), "track should be gone when artist deleted");
+    }
 }
+
