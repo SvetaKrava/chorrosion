@@ -188,11 +188,14 @@ impl ArtistRepository for SqliteArtistRepository {
 // Helpers
 // ----------------------------------------------------------------------------
 
-fn parse_uuid_opt(s: Option<String>) -> Result<Option<chorrosion_domain::ProfileId>> {
+fn parse_uuid_opt<T, F>(s: Option<String>, from_uuid: F) -> Result<Option<T>>
+where
+    F: FnOnce(Uuid) -> T,
+{
     match s {
         Some(val) => {
             let uuid = Uuid::parse_str(&val)?;
-            Ok(Some(chorrosion_domain::ProfileId::from_uuid(uuid)))
+            Ok(Some(from_uuid(uuid)))
         }
         None => Ok(None),
     }
@@ -234,8 +237,8 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         id,
         name,
         foreign_artist_id,
-        metadata_profile_id: parse_uuid_opt(metadata_profile_id)?,
-        quality_profile_id: parse_uuid_opt(quality_profile_id)?,
+        metadata_profile_id: parse_uuid_opt(metadata_profile_id, chorrosion_domain::ProfileId::from_uuid)?,
+        quality_profile_id: parse_uuid_opt(quality_profile_id, chorrosion_domain::ProfileId::from_uuid)?,
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
