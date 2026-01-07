@@ -26,8 +26,10 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install cargo-audit
-        run: cargo install --locked cargo-audit
-      - name: Run cargo-audit (ignore RSA timing advisory)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+          cargo audit --ignore RUSTSEC-2023-0071
         run: |
           cargo audit --ignore RUSTSEC-2023-0071 || true
 
