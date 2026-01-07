@@ -631,4 +631,39 @@ mod tests {
         let absent = repo.get_by_id(id.to_string()).await.expect("get");
         assert!(absent.is_none());
     }
+
+    #[tokio::test]
+    async fn artist_list_ordering_and_pagination() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        // Intentionally insert in shuffled order
+        for name in ["Charlie", "Alpha", "Bravo", "Echo", "Delta"] {
+            let mut a = chorrosion_domain::Artist::new(name);
+            // Slightly tweak updated_at to avoid any tie-break edge cases
+            a.updated_at = a.updated_at + chrono::Duration::milliseconds(1);
+            repo.create(a).await.expect("create");
+        }
+
+        // Verify global ordering is by name ASC
+        let all = repo.list(10, 0).await.expect("list all");
+        let names: Vec<_> = all.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Bravo", "Charlie", "Delta", "Echo"]);
+
+        // Pagination windows
+        let page1 = repo.list(2, 0).await.expect("page1");
+        let n1: Vec<_> = page1.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(n1, vec!["Alpha", "Bravo"]);
+
+        let page2 = repo.list(2, 2).await.expect("page2");
+        let n2: Vec<_> = page2.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(n2, vec!["Charlie", "Delta"]);
+
+        let page3 = repo.list(2, 4).await.expect("page3");
+        let n3: Vec<_> = page3.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(n3, vec!["Echo"]);
+
+        let empty = repo.list(2, 6).await.expect("empty");
+        assert!(empty.is_empty());
+    }
 }
