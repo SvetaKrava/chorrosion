@@ -24,16 +24,21 @@
     "chrono",
     "clippy",
     "coverartarchive",
+    "covr",
+    "Discogs",
     "dtolnay",
     "fanart",
     "figment",
+    "FLAC",
     "fpcalc",
     "hardlink",
     "hardlinking",
     "hardlinks",
     "Hotspots",
+    "incompat",
     "Jackett",
     "Lidarr",
+    "mbid",
     "MBIDs",
     "Newznab",
     "Prowlarr",
@@ -50,7 +55,8 @@
     "Tokio",
     "Torznab",
     "trackno",
-    "utoipa"
+    "utoipa",
+    "Vorbis"
   ],
   "flagWords": []
 }
