@@ -28,10 +28,10 @@
   - [x] CRUD operations with artist relationships
   - [x] Filtering by status, release dates
   - [x] Album type handling (studio, live, compilation)
-- [ ] Implement Track repository
-  - [ ] CRUD with album/artist relationships
-  - [ ] Track file associations
-  - [ ] Duration and track numbers
+- [x] Implement Track repository
+  - [x] CRUD with album/artist relationships
+  - [x] Track file associations
+  - [x] Duration and track numbers
 - [ ] Implement Quality Profile repository
 - [ ] Implement Metadata Profile repository
 
