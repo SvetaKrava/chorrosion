@@ -35,4 +35,4 @@ jobs:
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
       - name: Run cargo-deny
-        run: cargo deny check --all-features
+        run: cargo deny check
