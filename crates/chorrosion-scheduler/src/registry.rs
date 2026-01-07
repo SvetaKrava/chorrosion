@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_suffix: linux
+            bin: chorrosion-cli
+            archive: tar.gz
+          - os: macos-latest
+            asset_suffix: macos
+            bin: chorrosion-cli
+            archive: tar.gz
+          - os: windows-latest
+            asset_suffix: windows
+            bin: chorrosion-cli.exe
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build release binary
+        run: cargo build --release -p chorrosion-cli --locked
+
+      - name: Package artifact (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/${{ matrix.bin }} dist/
+          tar -C dist -czf chorrosion-cli-${{ matrix.asset_suffix }}.tar.gz ${{ matrix.bin }}
+
+      - name: Package artifact (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force "target/release/${{ matrix.bin }}" dist/
+          Compress-Archive -Path "dist/${{ matrix.bin }}" -DestinationPath "chorrosion-cli-${{ matrix.asset_suffix }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chorrosion-cli-${{ matrix.asset_suffix }}
+          path: |
+            chorrosion-cli-${{ matrix.asset_suffix }}.tar.gz
+            chorrosion-cli-${{ matrix.asset_suffix }}.zip
+          if-no-files-found: warn
+
+  publish:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: List assets
+        run: ls -R release-assets
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
