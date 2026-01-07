@@ -1,0 +1,13 @@
+[package]
+name = "chorrosion-infrastructure"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chorrosion-config = { path = "../chorrosion-config" }
+chorrosion-domain = { path = "../chorrosion-domain" }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["migrate"] }
+tracing = { workspace = true }

@@ -1,13 +1,13 @@
 [workspace]
 members = [
-    "crates/lidarr-config",
-    "crates/lidarr-domain",
-    "crates/lidarr-application",
-    "crates/lidarr-infrastructure",
-    "crates/lidarr-realtime",
-    "crates/lidarr-scheduler",
-    "crates/lidarr-api",
-    "crates/lidarr-cli",
+    "crates/chorrosion-config",
+    "crates/chorrosion-domain",
+    "crates/chorrosion-application",
+    "crates/chorrosion-infrastructure",
+    "crates/chorrosion-realtime",
+    "crates/chorrosion-scheduler",
+    "crates/chorrosion-api",
+    "crates/chorrosion-cli",
 ]
 resolver = "2"
 

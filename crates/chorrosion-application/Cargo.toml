@@ -1,0 +1,10 @@
+[package]
+name = "chorrosion-application"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+chorrosion-config = { path = "../chorrosion-config" }
+chorrosion-domain = { path = "../chorrosion-domain" }
+tracing = { workspace = true }

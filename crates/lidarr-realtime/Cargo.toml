@@ -1,8 +1,0 @@
-[package]
-name = "lidarr-realtime"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-tracing = { workspace = true }
-async-trait = { workspace = true }

@@ -1,6 +1,7 @@
-# Lidarr-Rust Development Roadmap
+# Chorrosion Development Roadmap
 
 ## Current Status (v0.1.0) ✅
+
 - [x] Project structure and workspace setup
 - [x] Database schema and migrations (SQLite)
 - [x] Configuration management (Figment with env/TOML support)
@@ -18,6 +19,7 @@
 ## Phase 1: Core Data Layer (Q1 2026)
 
 ### 1.1 Repository Implementation
+
 - [ ] Implement Artist repository with full CRUD
   - [ ] Create/Read/Update/Delete operations
   - [ ] Filtering by status, monitored state
@@ -34,6 +36,7 @@
 - [ ] Implement Metadata Profile repository
 
 ### 1.2 Domain Models Enhancement
+
 - [ ] Add validation logic to entities
 - [ ] Implement domain events for state changes
 - [ ] Add file path generation logic
@@ -45,7 +48,9 @@
 ## Phase 2: Metadata Integration (Q1-Q2 2026)
 
 ### 2.1 MusicBrainz Integration
+
 _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
+
 - [ ] MusicBrainz API client implementation
   - [ ] Artist search and lookup
   - [ ] Album (release group) search and lookup
@@ -67,6 +72,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [ ] Matching precedence: fingerprint > embedded tags > filename
 
 ### 2.2 Additional Metadata Sources
+
 - [ ] Last.fm integration for additional metadata
 - [ ] Discogs integration (optional)
 - [ ] Fanart.tv artwork integration (alternative art source) — see [design notes](DESIGN.md#artwork-fanarttv-integration)
@@ -78,12 +84,14 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ## Phase 3: Indexer Integration (Q2 2026)
 
 ### 3.1 Indexer Framework
+
 - [ ] Indexer configuration model
 - [ ] Indexer trait definition
 - [ ] Indexer capability detection
 - [ ] Indexer testing endpoints
 
 ### 3.2 Protocol Implementations
+
 - [ ] Newznab protocol client
   - [ ] Search capabilities
   - [ ] RSS feed parsing
@@ -96,6 +104,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [ ] Music-specific search
 
 ### 3.3 Release Parsing
+
 - [ ] Release title parser
   - [ ] Artist/album extraction
   - [ ] Quality detection (MP3, FLAC, etc.)
@@ -109,6 +118,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ## Phase 4: Search & Download (Q2-Q3 2026)
 
 ### 4.1 Search Functionality
+
 - [ ] Manual search implementation
   - [ ] Artist search
   - [ ] Album search
@@ -123,6 +133,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [ ] Automatic grab logic
 
 ### 4.2 Download Client Integration
+
 - [ ] Download client trait definition
 - [ ] qBittorrent client
   - [ ] Add torrent support
@@ -135,6 +146,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [ ] Download queue management
 
 ### 4.3 Download Monitoring
+
 - [ ] Download status tracking
 - [ ] Completion detection
 - [ ] Failed download handling
@@ -146,6 +158,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ## Phase 5: File Management (Q3 2026)
 
 ### 5.1 Import System
+
 - [ ] File scanning and detection
 - [ ] Track file parsing (tags, duration, bitrate)
 - [ ] File matching algorithm
@@ -155,6 +168,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [ ] Manual import UI support
 
 ### 5.2 File Organization
+
 - [ ] File renaming implementation
   - [ ] Naming pattern engine
   - [ ] Token replacement (artist, album, track, etc.)
@@ -169,6 +183,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [ ] Permission handling
 
 ### 5.3 Quality Management
+
 - [ ] Quality upgrades detection
   - [ ] Compare existing vs. new quality
   - [ ] Upgrade decision logic
@@ -177,7 +192,9 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [ ] Backup of replaced files (optional)
 
 ### 5.4 Tagging & Embedding
+
 _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
+
 - [ ] Embed metadata and artwork in supported formats
   - [ ] ID3v2 (MP3): tags + front cover artwork
   - [ ] Vorbis Comments (FLAC/OGG): tags + embedded pictures
@@ -194,6 +211,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Phase 6: User Interface Enhancement (Q3-Q4 2026)
 
 ### 6.1 API Completion
+
 - [ ] Complete all artist endpoints
   - [ ] List with pagination and sorting
   - [ ] Detailed artist view
@@ -220,6 +238,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [ ] Download client management
 
 ### 6.2 WebSocket/SSE Support
+
 - [ ] Real-time updates implementation
   - [ ] Download progress
   - [ ] Import progress
@@ -228,6 +247,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Client connection management
 
 ### 6.3 Authentication & Authorization
+
 - [ ] API key generation and management
 - [ ] Basic authentication support
 - [ ] Forms authentication (optional)
@@ -238,6 +258,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Phase 7: Advanced Features (Q4 2026)
 
 ### 7.1 Wanted/Missing Management
+
 - [ ] Wanted album tracking
 - [ ] Missing album detection
 - [ ] Cutoff unmet detection
@@ -245,12 +266,14 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Manual search interface
 
 ### 7.2 Calendar
+
 - [ ] Upcoming releases calendar
 - - [ ] Release date tracking
   - [ ] Calendar API endpoints
   - [ ] iCal feed support
 
 ### 7.3 Notifications
+
 - [ ] Notification framework
 - [ ] Email notifications
 - [ ] Discord webhook
@@ -259,6 +282,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Custom scripts support
 
 ### 7.4 Lists Integration
+
 - [ ] List provider trait
 - [ ] MusicBrainz list import
 - [ ] Spotify playlist import (optional)
@@ -270,6 +294,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Phase 8: Performance & Reliability (Ongoing)
 
 ### 8.1 Performance Optimization
+
 - [ ] Database query optimization
   - [ ] Add indexes for common queries
   - [ ] Query profiling and tuning
@@ -281,6 +306,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Memory usage optimization
 
 ### 8.2 Reliability
+
 - [ ] Comprehensive error handling
   - [ ] Retry logic for external APIs
   - [ ] Timeout handling
@@ -295,6 +321,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [ ] Performance tracing
 
 ### 8.3 Testing
+
 - [ ] Unit test coverage
   - [ ] Repository tests
   - [ ] Business logic tests
@@ -306,17 +333,27 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [ ] Full workflow tests
   - [ ] Performance benchmarks
 
+### 8.4 Maintenance & Dependencies
+
+- [ ] Address future-incompat warnings in dependencies
+  - [ ] Upgrade `sqlx`/`sqlx-postgres` to 0.8.x or newer to resolve never-type fallback warnings
+  - [ ] Gate PostgreSQL behind a feature and disable by default to avoid pulling incompatible crates until upgraded
+  - [ ] Add a CI job to run `cargo report future-incompatibilities --id 2` and fail on new findings
+  - [ ] Track Rust 2024 edition changes (e.g., never type fallback) and ensure readiness before edition bump
+
 ---
 
 ## Phase 9: PostgreSQL Support (TBD)
 
 ### 9.1 Database Abstraction
+
 - [ ] Abstract database-specific queries
 - [ ] Add PostgreSQL-specific optimizations
 - [ ] Migration compatibility
 - [ ] Connection pooling tuning
 
 ### 9.2 Migration Tools
+
 - [ ] SQLite to PostgreSQL migration tool
 - [ ] Schema comparison tools
 - [ ] Data validation after migration
@@ -326,6 +363,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Phase 10: Optional Enhancements (Future)
 
 ### 10.1 Advanced Features
+
 - [ ] Custom formats support
 - [ ] Preferred word handling
 - [ ] Release restrictions
@@ -334,12 +372,14 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Duplicate detection and management
 
 ### 10.2 Community Features
+
 - [ ] Plugin system architecture
 - [ ] Extension API
 - [ ] Community indexer definitions
 - [ ] Custom script hooks
 
 ### 10.3 UI Improvements
+
 - [ ] Dark/light theme support
 - [ ] Mobile-responsive design
 - [ ] Keyboard shortcuts
@@ -351,13 +391,15 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Success Metrics
 
 ### Feature Parity Goals
-- [ ] 100% of core Lidarr features implemented
-- [ ] Compatible with existing Lidarr API clients
+
+- [ ] Parity with core Lidarr features where applicable
+- [ ] Compatible with existing Lidarr API clients where feasible
 - [ ] Support for major download clients
 - [ ] Support for major indexers
 - [ ] Complete metadata workflow
 
 ### Performance Goals
+
 - [ ] Startup time < 2 seconds
 - [ ] API response time < 100ms (p95)
 - [ ] Support 10,000+ artists without degradation
@@ -365,6 +407,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] CPU usage < 5% idle
 
 ### Quality Goals
+
 - [ ] 80%+ test coverage
 - [ ] Zero known critical bugs
 - [ ] All security vulnerabilities addressed
@@ -376,17 +419,20 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ## Notes
 
 **Priority Order:**
+
 1. Phase 1-2: Essential for basic functionality
 2. Phase 3-4: Required for automation
 3. Phase 5: Critical for file management
 4. Phase 6+: Enhancement and parity features
 
 **Compatibility:**
+
 - Maintain API compatibility with Lidarr v1.x where possible
 - Document any breaking changes
 - Provide migration guides for users
 
 **Community:**
+
 - Open to contributions after Phase 2 completion
 - Maintain clear contributing guidelines
 - Active issue tracking and triage

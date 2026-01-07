@@ -1,30 +1,30 @@
-# Lidarr-Rust • Copilot Instructions (Agent Guide)
+# Chorrosion • Copilot Instructions (Agent Guide)
 
 Purpose: Give AI agents the minimum, code-proven context to be productive fast. Prefer concrete patterns from this repo over generic advice.
 
 ## Project Snapshot
 - Backend: Axum + Tokio; workspace with focused crates.
 - DB: SQLx SqlitePool (default SQLite, Postgres support planned).
-- Config: Figment (defaults → optional TOML → env `LIDARR_` with `__` nesting).
+- Config: Figment (defaults → optional TOML → env `CHORROSION_` with `__` nesting).
 - API: utoipa OpenAPI + Swagger UI at `/docs`; health at `/health`.
 - Jobs: Tokio-based scheduler with concurrency and retry controls.
 - Platform: Cross-platform (Windows, Linux, macOS) with consistent behavior.
 
 ## Run & Debug
-- Dev server: `cargo run -p lidarr-cli`
+- Dev server: `cargo run -p chorrosion-cli`
   - Default bind: `127.0.0.1:5150` (see `HttpConfig`).
-  - Example: `RUST_LOG=info LIDARR_DATABASE__URL=sqlite://data/lidarr.db cargo run -p lidarr-cli`
+  - Example: `RUST_LOG=info CHORROSION_DATABASE__URL=sqlite://data/chorrosion.db cargo run -p chorrosion-cli`
 - Logs: Env filter via `RUST_LOG` (e.g., `RUST_LOG=info,api=debug,registry=debug`).
 - Migrations: Applied at startup from `./migrations` via `sqlx::migrate!` (no compile-time DB needed).
 
 ## Architecture Map (where things live)
-- CLI entry: crates/lidarr-cli/src/main.rs → sets tracing, loads config, runs migrations, starts scheduler, serves Axum.
-- API surface: crates/lidarr-api/src/lib.rs → routes, versioning, OpenAPI; handlers in handlers/*, auth in middleware/*.
-- Application state: crates/lidarr-application/src/lib.rs → `AppState` (currently holds `AppConfig`).
-- Domain model: crates/lidarr-domain/src/lib.rs → IDs (`ArtistId`, etc.), enums, entities; IDs wrap `Uuid` and serialize as strings.
-- Data layer: crates/lidarr-infrastructure/src/* → repository traits + SQLx adapters (currently stubs with tracing).
-- Scheduler: crates/lidarr-scheduler/src/* → `Job` trait, `JobRegistry`, canned jobs, interval-based schedules.
-- Config: crates/lidarr-config/src/lib.rs → `AppConfig` + env/TOML loading.
+- CLI entry: crates/chorrosion-cli/src/main.rs → sets tracing, loads config, runs migrations, starts scheduler, serves Axum.
+- API surface: crates/chorrosion-api/src/lib.rs → routes, versioning, OpenAPI; handlers in handlers/*, auth in middleware/*.
+- Application state: crates/chorrosion-application/src/lib.rs → `AppState` (currently holds `AppConfig`).
+- Domain model: crates/chorrosion-domain/src/lib.rs → IDs (`ArtistId`, etc.), enums, entities; IDs wrap `Uuid` and serialize as strings.
+- Data layer: crates/chorrosion-infrastructure/src/* → repository traits + SQLx adapters (currently stubs with tracing).
+- Scheduler: crates/chorrosion-scheduler/src/* → `Job` trait, `JobRegistry`, canned jobs, interval-based schedules.
+- Config: crates/chorrosion-config/src/lib.rs → `AppConfig` + env/TOML loading.
 
 ## Conventions & Patterns
 - API
@@ -40,8 +40,8 @@ Purpose: Give AI agents the minimum, code-proven context to be productive fast. 
   - Targets in use: `cli`, `api`, `application`, `infrastructure`, `scheduler`, `registry`, `jobs`, `auth`, `config`, `repository`.
 
 ## Configuration
-- Source order: code defaults → optional TOML file (path wiring pending in CLI) → env `LIDARR_` with `__` nesting.
-  - Examples: `LIDARR_DATABASE__URL`, `LIDARR_HTTP__HOST`, `LIDARR_HTTP__PORT`, `LIDARR_SCHEDULER__MAX_CONCURRENT_JOBS`.
+- Source order: code defaults → optional TOML file (path wiring pending in CLI) → env `CHORROSION_` with `__` nesting.
+  - Examples: `CHORROSION_DATABASE__URL`, `CHORROSION_HTTP__HOST`, `CHORROSION_HTTP__PORT`, `CHORROSION_SCHEDULER__MAX_CONCURRENT_JOBS`.
 - SQLite convenience: parent dir auto-created when URL starts with `sqlite://`.
 
 ## Common Tasks
@@ -52,9 +52,9 @@ Purpose: Give AI agents the minimum, code-proven context to be productive fast. 
 - SQLx offline: not required currently (no `query!` macros); migrations are embedded via `migrate!`.
 
 ## How to Extend (examples)
-- New endpoint: add handler in `crates/lidarr-api/src/handlers`, annotate with utoipa, wire in `router()`, add to `ApiDoc` `#[openapi(paths(...), components(...))]` lists.
-- New job: implement `Job` in `crates/lidarr-scheduler/src/jobs.rs` (or new module), then register in `Scheduler::register_jobs()` with an interval.
-- Repository impl: implement trait(s) from `crates/lidarr-infrastructure/src/repositories.rs` in a new adapter (use `SqlitePool`) and inject where used.
+- New endpoint: add handler in `crates/chorrosion-api/src/handlers`, annotate with utoipa, wire in `router()`, add to `ApiDoc` `#[openapi(paths(...), components(...))]` lists.
+- New job: implement `Job` in `crates/chorrosion-scheduler/src/jobs.rs` (or new module), then register in `Scheduler::register_jobs()` with an interval.
+- Repository impl: implement trait(s) from `crates/chorrosion-infrastructure/src/repositories.rs` in a new adapter (use `SqlitePool`) and inject where used.
 
 ## Integration Points (planned but stubbed)
 - Indexers (Torznab/Newznab/Gazelle), download clients, and MusicBrainz integration are not wired yet; use trait-first designs in infrastructure and application layers when adding.
@@ -73,13 +73,13 @@ Purpose: Give AI agents the minimum, code-proven context to be productive fast. 
   let db_url = format!("sqlite://{}?mode=rwc", path_str);
   ```
 - **Directory creation:** Always call `std::fs::create_dir_all()` for parent directories before connecting to SQLite.
-- See `crates/lidarr-infrastructure/src/lib.rs::init_database()` for reference implementation.
+- See `crates/chorrosion-infrastructure/src/lib.rs::init_database()` for reference implementation.
 
 ### Signal Handling
 - Use `#[cfg(unix)]` and `#[cfg(not(unix))]` attributes for platform-specific signal handling.
 - Unix: Handle both SIGINT and SIGTERM via `tokio::signal::unix`.
 - Windows: Use `tokio::signal::ctrl_c()` only.
-- See `crates/lidarr-cli/src/main.rs::shutdown_signal()` for reference implementation.
+- See `crates/chorrosion-cli/src/main.rs::shutdown_signal()` for reference implementation.
 
 ### Path Separators
 - **General rule:** Use `std::path::Path` and `PathBuf` for all file system operations.
@@ -97,10 +97,10 @@ Purpose: Give AI agents the minimum, code-proven context to be productive fast. 
   - File permissions and locking behavior
 
 ### Environment Variables
-- Format: `LIDARR_SECTION__KEY` (double underscore for nesting)
+- Format: `CHORROSION_SECTION__KEY` (double underscore for nesting)
 - Works identically on all platforms via Figment
-- PowerShell: `$env:LIDARR_DATABASE__URL="sqlite://data/lidarr.db"`
-- Bash/Zsh: `LIDARR_DATABASE__URL=sqlite://data/lidarr.db`
+- PowerShell: `$env:CHORROSION_DATABASE__URL="sqlite://data/chorrosion.db"`
+- Bash/Zsh: `CHORROSION_DATABASE__URL=sqlite://data/chorrosion.db`
 
 ---
 Notes for agents

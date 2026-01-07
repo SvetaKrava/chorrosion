@@ -1,0 +1,16 @@
+[package]
+name = "chorrosion-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+chorrosion-api = { path = "../chorrosion-api" }
+chorrosion-application = { path = "../chorrosion-application" }
+chorrosion-config = { path = "../chorrosion-config" }
+chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
+chorrosion-scheduler = { path = "../chorrosion-scheduler" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

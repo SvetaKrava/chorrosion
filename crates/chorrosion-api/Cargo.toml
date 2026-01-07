@@ -1,0 +1,14 @@
+[package]
+name = "chorrosion-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { workspace = true }
+chorrosion-application = { path = "../chorrosion-application" }
+chorrosion-domain = { path = "../chorrosion-domain" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }

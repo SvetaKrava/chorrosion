@@ -1,0 +1,12 @@
+[package]
+name = "chorrosion-scheduler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+chorrosion-config = { path = "../chorrosion-config" }
+tokio = { workspace = true }
+tracing = { workspace = true }

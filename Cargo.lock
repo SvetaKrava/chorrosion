@@ -285,6 +285,98 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "chorrosion-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chorrosion-application",
+ "chorrosion-domain",
+ "serde",
+ "serde_json",
+ "tracing",
+ "utoipa",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "chorrosion-application"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chorrosion-config",
+ "chorrosion-domain",
+ "tracing",
+]
+
+[[package]]
+name = "chorrosion-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chorrosion-api",
+ "chorrosion-application",
+ "chorrosion-config",
+ "chorrosion-infrastructure",
+ "chorrosion-scheduler",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "chorrosion-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "figment",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "chorrosion-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "chorrosion-infrastructure"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chorrosion-config",
+ "chorrosion-domain",
+ "reqwest",
+ "sqlx",
+ "tracing",
+]
+
+[[package]]
+name = "chorrosion-realtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tracing",
+]
+
+[[package]]
+name = "chorrosion-scheduler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chorrosion-config",
+ "chrono",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,98 +1221,6 @@ dependencies = [
  "cc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "lidarr-api"
-version = "0.1.0"
-dependencies = [
- "axum",
- "lidarr-application",
- "lidarr-domain",
- "serde",
- "serde_json",
- "tracing",
- "utoipa",
- "utoipa-swagger-ui",
-]
-
-[[package]]
-name = "lidarr-application"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "lidarr-config",
- "lidarr-domain",
- "tracing",
-]
-
-[[package]]
-name = "lidarr-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "lidarr-api",
- "lidarr-application",
- "lidarr-config",
- "lidarr-infrastructure",
- "lidarr-scheduler",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lidarr-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "figment",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "lidarr-domain"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "uuid",
-]
-
-[[package]]
-name = "lidarr-infrastructure"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "lidarr-config",
- "lidarr-domain",
- "reqwest",
- "sqlx",
- "tracing",
-]
-
-[[package]]
-name = "lidarr-realtime"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "tracing",
-]
-
-[[package]]
-name = "lidarr-scheduler"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "lidarr-config",
- "tokio",
- "tracing",
 ]
 
 [[package]]
