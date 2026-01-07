@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
     Track,
@@ -239,8 +239,10 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
-        created_at: parse_dt(created_at_s)?,
-        updated_at: parse_dt(updated_at_s)?,
+        created_at: parse_dt(created_at_s.clone())
+            .context(format!("Failed to parse created_at timestamp: '{}'", created_at_s))?,
+        updated_at: parse_dt(updated_at_s.clone())
+            .context(format!("Failed to parse updated_at timestamp: '{}'", updated_at_s))?,
     })
 }
 
