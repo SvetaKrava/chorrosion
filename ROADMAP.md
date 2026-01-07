@@ -20,14 +20,14 @@
 
 ### 1.1 Repository Implementation
 
-- [ ] Implement Artist repository with full CRUD
-  - [ ] Create/Read/Update/Delete operations
-  - [ ] Filtering by status, monitored state
-  - [ ] Search by name and foreign ID
-- [ ] Implement Album repository
-  - [ ] CRUD operations with artist relationships
-  - [ ] Filtering by status, release dates
-  - [ ] Album type handling (studio, live, compilation)
+- [x] Implement Artist repository with full CRUD
+  - [x] Create/Read/Update/Delete operations
+  - [x] Filtering by status, monitored state
+  - [x] Search by name and foreign ID
+- [x] Implement Album repository
+  - [x] CRUD operations with artist relationships
+  - [x] Filtering by status, release dates
+  - [x] Album type handling (studio, live, compilation)
 - [ ] Implement Track repository
   - [ ] CRUD with album/artist relationships
   - [ ] Track file associations
@@ -440,5 +440,5 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ---
 
 **Last Updated:** 2026-01-07  
-**Current Phase:** Phase 1 (Starting)  
-**Next Milestone:** Complete Phase 1.1 (Repository Implementation)
+**Current Phase:** Phase 1.1 (Repository Implementation)  
+**Next Milestone:** Complete Track repository (Issue #17)
