@@ -32,6 +32,7 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn create(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "creating artist");
         // Insert artist row
+        // Note: Bind order must match the VALUES placeholder order below
         let q = r#"
             INSERT INTO artists (
                 id, name, foreign_artist_id, metadata_profile_id, quality_profile_id,
@@ -50,16 +51,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)
-            .bind(entity.name.clone())
-            .bind(foreign_id)
-            .bind(metadata_id)
-            .bind(quality_id)
-            .bind(status)
-            .bind(path)
-            .bind(monitored)
-            .bind(created_at)
-            .bind(updated_at)
+            .bind(id_str)               // ? for id
+            .bind(entity.name.clone())  // ? for name
+            .bind(foreign_id)           // ? for foreign_artist_id
+            .bind(metadata_id)          // ? for metadata_profile_id
+            .bind(quality_id)           // ? for quality_profile_id
+            .bind(status)               // ? for status
+            .bind(path)                 // ? for path
+            .bind(monitored)            // ? for monitored
+            .bind(created_at)           // ? for created_at
+            .bind(updated_at)           // ? for updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -95,6 +96,7 @@ impl Repository<Artist> for SqliteArtistRepository {
 
     async fn update(&self, entity: Artist) -> Result<Artist> {
         debug!(target: "repository", artist_id = %entity.id, "updating artist");
+        // Note: Bind order must match the SET clause placeholder order, then WHERE clause
         let q = r#"
             UPDATE artists SET
                 name = ?,
@@ -108,15 +110,15 @@ impl Repository<Artist> for SqliteArtistRepository {
             WHERE id = ?
         "#;
         sqlx::query(q)
-            .bind(entity.name.clone())
-            .bind(entity.foreign_artist_id.clone())
-            .bind(entity.metadata_profile_id.map(|p| p.to_string()))
-            .bind(entity.quality_profile_id.map(|p| p.to_string()))
-            .bind(entity.status.to_string())
-            .bind(entity.path.clone())
-            .bind(entity.monitored)
-            .bind(entity.updated_at.to_rfc3339())
-            .bind(entity.id.to_string())
+            .bind(entity.name.clone())                                  // ? for name
+            .bind(entity.foreign_artist_id.clone())                     // ? for foreign_artist_id
+            .bind(entity.metadata_profile_id.map(|p| p.to_string()))    // ? for metadata_profile_id
+            .bind(entity.quality_profile_id.map(|p| p.to_string()))     // ? for quality_profile_id
+            .bind(entity.status.to_string())                            // ? for status
+            .bind(entity.path.clone())                                  // ? for path
+            .bind(entity.monitored)                                     // ? for monitored
+            .bind(entity.updated_at.to_rfc3339())                       // ? for updated_at
+            .bind(entity.id.to_string())                                // ? for id (WHERE clause)
             .execute(&self.pool)
             .await?;
         Ok(entity)
