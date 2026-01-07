@@ -50,16 +50,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)
-            .bind(entity.name.clone())
-            .bind(foreign_id)
-            .bind(metadata_id)
-            .bind(quality_id)
-            .bind(status)
-            .bind(path)
-            .bind(monitored)
-            .bind(created_at)
-            .bind(updated_at)
+            .bind(id_str)                 // 1: id
+            .bind(entity.name.clone())    // 2: name
+            .bind(foreign_id)             // 3: foreign_artist_id
+            .bind(metadata_id)            // 4: metadata_profile_id
+            .bind(quality_id)             // 5: quality_profile_id
+            .bind(status)                 // 6: status
+            .bind(path)                   // 7: path
+            .bind(monitored)              // 8: monitored
+            .bind(created_at)             // 9: created_at
+            .bind(updated_at)             // 10: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -125,10 +125,13 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id = id.into();
         debug!(target: "repository", %id, "deleting artist");
-        sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(id)
+        let result = sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("artist not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -188,14 +191,11 @@ impl ArtistRepository for SqliteArtistRepository {
 // Helpers
 // ----------------------------------------------------------------------------
 
-fn parse_uuid_opt<T, F>(s: Option<String>, from_uuid: F) -> Result<Option<T>>
-where
-    F: FnOnce(Uuid) -> T,
-{
+fn parse_uuid_opt(s: Option<String>) -> Result<Option<chorrosion_domain::ProfileId>> {
     match s {
         Some(val) => {
             let uuid = Uuid::parse_str(&val)?;
-            Ok(Some(from_uuid(uuid)))
+            Ok(Some(chorrosion_domain::ProfileId::from_uuid(uuid)))
         }
         None => Ok(None),
     }
@@ -233,15 +233,12 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
-    // Helper to parse ProfileId from optional string
-    let parse_profile_id = |s| parse_uuid_opt(s, chorrosion_domain::ProfileId::from_uuid);
-
     Ok(Artist {
         id,
         name,
         foreign_artist_id,
-        metadata_profile_id: parse_profile_id(metadata_profile_id)?,
-        quality_profile_id: parse_profile_id(quality_profile_id)?,
+        metadata_profile_id: parse_uuid_opt(metadata_profile_id)?,
+        quality_profile_id: parse_uuid_opt(quality_profile_id)?,
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
