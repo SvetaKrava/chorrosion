@@ -30,5 +30,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        run: cargo deny check --all-features
