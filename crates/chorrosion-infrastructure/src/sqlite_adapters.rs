@@ -750,7 +750,6 @@ impl TrackRepository for SqliteTrackRepository {
 // ============================================================================
 
 fn row_to_quality_profile(row: &sqlx::sqlite::SqliteRow) -> Result<QualityProfile> {
-    use sqlx::Row;
     let id: String = row.get("id");
     let name: String = row.get("name");
     let allowed_qualities_json: String = row.get("allowed_qualities");
@@ -774,7 +773,6 @@ fn row_to_quality_profile(row: &sqlx::sqlite::SqliteRow) -> Result<QualityProfil
 }
 
 fn row_to_metadata_profile(row: &sqlx::sqlite::SqliteRow) -> Result<MetadataProfile> {
-    use sqlx::Row;
     let id: String = row.get("id");
     let name: String = row.get("name");
     let primary_json: Option<String> = row.get("primary_album_types");
