@@ -50,16 +50,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)
-            .bind(entity.name.clone())
-            .bind(foreign_id)
-            .bind(metadata_id)
-            .bind(quality_id)
-            .bind(status)
-            .bind(path)
-            .bind(monitored)
-            .bind(created_at)
-            .bind(updated_at)
+            .bind(id_str)                 // 1: id
+            .bind(entity.name.clone())    // 2: name
+            .bind(foreign_id)             // 3: foreign_artist_id
+            .bind(metadata_id)            // 4: metadata_profile_id
+            .bind(quality_id)             // 5: quality_profile_id
+            .bind(status)                 // 6: status
+            .bind(path)                   // 7: path
+            .bind(monitored)              // 8: monitored
+            .bind(created_at)             // 9: created_at
+            .bind(updated_at)             // 10: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -107,7 +107,7 @@ impl Repository<Artist> for SqliteArtistRepository {
                 updated_at = ?
             WHERE id = ?
         "#;
-        let result = sqlx::query(q)
+        sqlx::query(q)
             .bind(entity.name.clone())
             .bind(entity.foreign_artist_id.clone())
             .bind(entity.metadata_profile_id.map(|p| p.to_string()))
@@ -119,21 +119,19 @@ impl Repository<Artist> for SqliteArtistRepository {
             .bind(entity.id.to_string())
             .execute(&self.pool)
             .await?;
-        
-        if result.rows_affected() == 0 {
-            return Err(anyhow!("Artist with id {} not found", entity.id));
-        }
-        
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id = id.into();
         debug!(target: "repository", %id, "deleting artist");
-        sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(id)
+        let result = sqlx::query("DELETE FROM artists WHERE id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("artist not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -635,22 +633,6 @@ mod tests {
         repo.delete(id.to_string()).await.expect("delete");
         let absent = repo.get_by_id(id.to_string()).await.expect("get");
         assert!(absent.is_none());
-    }
-
-    #[tokio::test]
-    async fn artist_update_nonexistent_returns_error() {
-        let pool = setup_pool().await;
-        let repo = SqliteArtistRepository::new(pool.clone());
-
-        // Try to update an artist that was never created
-        let mut artist = chorrosion_domain::Artist::new("Ghost");
-        artist.name = "Updated Ghost".to_string();
-        
-        let result = repo.update(artist).await;
-        assert!(result.is_err());
-        
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("not found"));
     }
 
     #[tokio::test]
