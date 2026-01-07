@@ -644,7 +644,7 @@ mod tests {
         for name in ["Charlie", "Alpha", "Bravo", "Echo", "Delta"] {
             let mut a = chorrosion_domain::Artist::new(name);
             // Slightly tweak updated_at to avoid any tie-break edge cases
-            a.updated_at = a.updated_at + chrono::Duration::milliseconds(1);
+            a.updated_at += chrono::Duration::milliseconds(1);
             repo.create(a).await.expect("create");
         }
 
