@@ -344,9 +344,11 @@ dependencies = [
  "async-trait",
  "chorrosion-config",
  "chorrosion-domain",
+ "chrono",
  "reqwest",
  "sqlx",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
