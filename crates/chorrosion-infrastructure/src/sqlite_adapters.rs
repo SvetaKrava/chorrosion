@@ -107,7 +107,7 @@ impl Repository<Artist> for SqliteArtistRepository {
                 updated_at = ?
             WHERE id = ?
         "#;
-        sqlx::query(q)
+        let result = sqlx::query(q)
             .bind(entity.name.clone())
             .bind(entity.foreign_artist_id.clone())
             .bind(entity.metadata_profile_id.map(|p| p.to_string()))
@@ -119,6 +119,11 @@ impl Repository<Artist> for SqliteArtistRepository {
             .bind(entity.id.to_string())
             .execute(&self.pool)
             .await?;
+        
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("Artist with id {} not found", entity.id));
+        }
+        
         Ok(entity)
     }
 
@@ -630,6 +635,22 @@ mod tests {
         repo.delete(id.to_string()).await.expect("delete");
         let absent = repo.get_by_id(id.to_string()).await.expect("get");
         assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn artist_update_nonexistent_returns_error() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        // Try to update an artist that was never created
+        let mut artist = chorrosion_domain::Artist::new("Ghost");
+        artist.name = "Updated Ghost".to_string();
+        
+        let result = repo.update(artist).await;
+        assert!(result.is_err());
+        
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("not found"));
     }
 
     #[tokio::test]
