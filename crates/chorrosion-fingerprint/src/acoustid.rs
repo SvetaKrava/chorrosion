@@ -737,13 +737,9 @@ mod tests {
             .unwrap();
         
         // The client's timeout is embedded in the reqwest::Client.
-        // We can't directly inspect it, but we can verify the build succeeds
-        // and use the debug output to check it was set (though reqwest::Client
-        // doesn't expose timeout in Debug either).
-        // 
-        // Instead, we'll test this more thoroughly via an integration test
-        // that verifies timeout behavior. For now, just verify build succeeds.
-        assert!(true, "Client built successfully with custom timeout");
+        // We can't directly inspect it after building, but the build() call
+        // succeeds and we test the actual timeout behavior in 
+        // test_builder_custom_timeout_behavior.
     }
 
     #[tokio::test]
