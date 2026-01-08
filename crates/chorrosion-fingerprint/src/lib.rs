@@ -3,9 +3,12 @@
 //! Audio fingerprinting and AcoustID integration for music identification.
 //!
 //! This crate provides functionality for:
-//! - Generating Chromaprint audio fingerprints
+//! - Working with pre-generated Chromaprint audio fingerprints
 //! - Submitting fingerprints to AcoustID for identification
 //! - Matching fingerprints to MusicBrainz recordings with confidence thresholds
+//!
+//! Native generation of Chromaprint fingerprints may be added in a future version;
+//! for now, this crate expects Chromaprint fingerprints to be obtained externally.
 
 pub mod acoustid;
 pub mod error;
