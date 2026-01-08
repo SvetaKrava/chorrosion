@@ -692,6 +692,77 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_acoustid_api_error_status() {
+        let mock_server = MockServer::start().await;
+
+        // Return HTTP 200 but with status: "error" in JSON body
+        let error_response = serde_json::json!({
+            "status": "error",
+            "error": "Invalid fingerprint format",
+            "results": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(error_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        // Should return AcoustidError with the error message from API
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert_eq!(msg, "Invalid fingerprint format", 
+                    "Error message should match API error field: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_api_error_status_no_error_message() {
+        let mock_server = MockServer::start().await;
+
+        // Return HTTP 200 but with status: "error" and no error field
+        let error_response = serde_json::json!({
+            "status": "error",
+            "results": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(error_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        // Should return AcoustidError with default "Unknown error" message
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert_eq!(msg, "Unknown error", 
+                    "Error message should be 'Unknown error' when API doesn't provide error field: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
     #[test]
     fn test_acoustid_client_debug_redacts_api_key() {
         let client = AcoustidClient::new("super-secret-api-key").unwrap();
