@@ -4,6 +4,7 @@ members = [
     "crates/chorrosion-domain",
     "crates/chorrosion-application",
     "crates/chorrosion-infrastructure",
+    "crates/chorrosion-musicbrainz",
     "crates/chorrosion-realtime",
     "crates/chorrosion-scheduler",
     "crates/chorrosion-api",

@@ -41,6 +41,7 @@
     "mbid",
     "MBIDs",
     "Newznab",
+    "pipefail",
     "Prowlarr",
     "reqwest",
     "Rescan",
