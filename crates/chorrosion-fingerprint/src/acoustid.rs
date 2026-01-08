@@ -149,7 +149,7 @@ impl AcoustidClient {
         }
 
         let all_matches = self.lookup_raw(fingerprint).await?;
-        
+
         let matches = all_matches
             .into_iter()
             .filter(|m| m.score >= min_score)
