@@ -194,7 +194,7 @@ impl AcoustidClient {
     ///
     /// # Errors
     /// Returns:
-    /// - `NoMatches` if the API returns no matches at all.
+    /// - `AcoustidError` if the API returns no matches at all.
     /// - `LowConfidence` if matches exist but the best score is below `min_score`.
     pub async fn lookup_best(
         &self,
@@ -210,9 +210,11 @@ impl AcoustidClient {
         // Get all matches (unfiltered) to distinguish between no matches and low confidence
         let all_matches = self.lookup_raw(fingerprint).await?;
 
-        // If no matches at all, return NoMatches error
+        // If no matches at all, return error
         if all_matches.is_empty() {
-            return Err(crate::FingerprintError::NoMatches);
+            return Err(crate::FingerprintError::AcoustidError(
+                "No matches found for fingerprint".to_string()
+            ));
         }
 
         // Find the best match
@@ -464,9 +466,14 @@ mod tests {
         let fp = Fingerprint::new("AQADvEWZ==", 120);
         let result = client.lookup_best(&fp, 0.5).await;
 
-        // Should return NoMatches error when API returns no results
+        // Should return AcoustidError when API returns no results
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), crate::FingerprintError::NoMatches));
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("No matches"), "Error should indicate no matches found: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
     }
 
     #[tokio::test]
@@ -707,5 +714,110 @@ mod tests {
             "Debug output should not contain the actual API key");
         assert!(debug_output.contains("[REDACTED]"),
             "Debug output should show [REDACTED] instead of the API key");
+    }
+
+    #[test]
+    fn test_builder_applies_custom_base_url() {
+        let custom_url = "https://custom.api.example.com/v2";
+        let client = AcoustidClient::builder("test-key")
+            .base_url(custom_url)
+            .build()
+            .unwrap();
+        
+        // Verify the custom base URL was applied
+        assert_eq!(client.base_url, custom_url);
+    }
+
+    #[test]
+    fn test_builder_applies_custom_timeout() {
+        let custom_timeout = Duration::from_secs(60);
+        let _client = AcoustidClient::builder("test-key")
+            .timeout(custom_timeout)
+            .build()
+            .unwrap();
+        
+        // The client's timeout is embedded in the reqwest::Client.
+        // We can't directly inspect it after building, but the build() call
+        // succeeds and we test the actual timeout behavior in 
+        // test_builder_custom_timeout_behavior.
+    }
+
+    #[tokio::test]
+    async fn test_builder_custom_base_url_used_in_requests() {
+        let mock_server = MockServer::start().await;
+        
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(sample_response()))
+            .mount(&mock_server)
+            .await;
+
+        // Build client with custom base URL pointing to mock server
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        // If the custom base URL wasn't used, this would fail to connect
+        assert!(result.is_ok(), "Request should succeed using custom base URL");
+    }
+
+    #[tokio::test]
+    async fn test_builder_custom_timeout_behavior() {
+        let mock_server = MockServer::start().await;
+
+        // Create a mock that delays response longer than our custom timeout
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(sample_response())
+                    .set_delay(Duration::from_millis(200))
+            )
+            .mount(&mock_server)
+            .await;
+
+        // Build client with very short timeout
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .timeout(Duration::from_millis(50))
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        // Request should timeout
+        assert!(result.is_err(), "Request should timeout with short timeout");
+    }
+
+    #[test]
+    fn test_builder_chaining() {
+        let custom_url = "https://custom.api.example.com/v2";
+        let custom_timeout = Duration::from_secs(45);
+        
+        // Test that builder methods can be chained
+        let client = AcoustidClient::builder("test-key")
+            .base_url(custom_url)
+            .timeout(custom_timeout)
+            .build()
+            .unwrap();
+        
+        assert_eq!(client.base_url, custom_url);
+    }
+
+    #[test]
+    fn test_builder_default_values() {
+        // Build with only required parameter to verify defaults
+        let client = AcoustidClient::builder("test-key")
+            .build()
+            .unwrap();
+        
+        // Verify default base URL
+        assert_eq!(client.base_url, ACOUSTID_API_BASE);
+        // Default timeout is set but we can't easily inspect it in the client
     }
 }
