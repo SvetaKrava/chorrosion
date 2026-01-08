@@ -112,7 +112,23 @@ impl AcoustidClient {
         }
 
         let body = response.text().await?;
-        trace!(target: "fingerprint", "AcoustID response: {}", body);
+        let max_log_len: usize = 2048;
+        let body_for_log = if body.len() > max_log_len {
+            format!(
+                "{}...[truncated {} of {} bytes]",
+                &body[..max_log_len],
+                body.len() - max_log_len,
+                body.len()
+            )
+        } else {
+            body.clone()
+        };
+        trace!(
+            target: "fingerprint",
+            "AcoustID response (up to {} bytes shown): {}",
+            max_log_len,
+            body_for_log
+        );
 
         let api_response: AcoustidResponse = serde_json::from_str(&body)?;
 
