@@ -550,7 +550,17 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Helper function to test HTTP error responses
+    /// Helper function to test HTTP error responses from AcoustID API.
+    ///
+    /// Creates a mock server that returns the specified HTTP error status code and body,
+    /// then verifies that the AcoustID client properly handles the error by:
+    /// - Returning an AcoustidError
+    /// - Including the status code in the error message
+    /// - Including the response body in the error message
+    ///
+    /// # Arguments
+    /// * `status_code` - The HTTP status code to return (e.g., 404, 500)
+    /// * `body` - The response body text to return with the error
     async fn test_http_error_response(status_code: u16, body: &str) {
         let mock_server = MockServer::start().await;
 
