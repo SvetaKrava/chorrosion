@@ -108,4 +108,12 @@ Notes for agents
 - Keep API/OpenAPI in sync; add schemas to `components` and paths to `paths`.
 - Respect scheduler limits; long jobs should yield (`sleep`) to avoid blocking.
 
-Last Updated: 2026-01-07
+## Branching & PR Policy (Required)
+- Never commit directly to `main`. Always work on a branch.
+- Branch naming: `feat/<topic>-<issue#>` or `docs/<topic>` (e.g., `feat/domain-events-23`).
+- Open a Pull Request to merge into `main`; squash-merge is preferred.
+- PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), and reference the related issue (e.g., `Closes #23`).
+- Keep changes focused and incremental; update `ROADMAP.md` and docs as needed.
+- Follow cross-platform rules; do not introduce OS-specific behavior.
+
+Last Updated: 2026-01-08
