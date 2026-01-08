@@ -1931,7 +1931,7 @@ mod tests {
 
         for i in 0..5 {
             let profile = chorrosion_domain::QualityProfile::new(
-                &format!("Profile{}", i),
+                format!("Profile{}", i),
                 vec!["FLAC".to_string()],
             );
             profile_repo.create(profile).await.expect("create");
