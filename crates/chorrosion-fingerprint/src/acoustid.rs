@@ -211,7 +211,18 @@ impl AcoustidClientBuilder {
     }
 
     /// Build the AcoustID client.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The base URL is not a valid URL format
+    /// - The HTTP client cannot be created
     pub fn build(self) -> Result<AcoustidClient> {
+        // Validate base URL format early
+        Url::parse(&self.base_url)
+            .map_err(|e| crate::FingerprintError::AcoustidError(
+                format!("Invalid base URL: {}", e)
+            ))?;
+
         let client = Client::builder()
             .timeout(self.timeout)
             .user_agent(USER_AGENT)
@@ -327,5 +338,32 @@ mod tests {
 
         let result = client.lookup(&fp, 1.5).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_acoustid_invalid_base_url() {
+        // Invalid URL should be caught during build()
+        let result = AcoustidClient::builder("test-key")
+            .base_url("not-a-valid-url")
+            .build();
+        
+        assert!(result.is_err());
+        
+        // Also test with a malformed URL
+        let result = AcoustidClient::builder("test-key")
+            .base_url("ht!tp://invalid")
+            .build();
+        
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_acoustid_valid_base_url() {
+        // Valid URLs should work
+        let result = AcoustidClient::builder("test-key")
+            .base_url("https://api.example.com/v2")
+            .build();
+        
+        assert!(result.is_ok());
     }
 }
