@@ -549,4 +549,123 @@ mod tests {
         let result = client.lookup_best(&fp, -0.1).await;
         assert!(result.is_err());
     }
+
+    #[tokio::test]
+    async fn test_acoustid_http_404_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("404"), "Error message should contain status code 404: {}", msg);
+                assert!(msg.contains("Not Found"), "Error message should contain response body: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_500_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("500"), "Error message should contain status code 500: {}", msg);
+                assert!(msg.contains("Internal Server Error"), "Error message should contain response body: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_403_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("Forbidden"))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("403"), "Error message should contain status code 403: {}", msg);
+                assert!(msg.contains("Forbidden"), "Error message should contain response body: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_error_with_json_body() {
+        let mock_server = MockServer::start().await;
+
+        let error_response = serde_json::json!({
+            "status": "error",
+            "error": "Invalid API key"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(error_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("401"), "Error message should contain status code 401: {}", msg);
+                // The body should be included as text
+                assert!(msg.contains("error") || msg.contains("Invalid"), 
+                    "Error message should contain response body content: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
 }
