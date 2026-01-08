@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::{sleep, Duration, Instant};
 
 /// Rate limiter for MusicBrainz API calls.
@@ -34,8 +34,9 @@ impl RateLimiter {
     }
 
     /// Wait until a request can be made according to the rate limit.
-    pub async fn acquire(&self) {
-        let _permit = self.semaphore.acquire().await.expect("semaphore closed");
+    /// Returns a permit that must be held for the duration of the request.
+    pub async fn acquire(&self) -> SemaphorePermit<'_> {
+        let permit = self.semaphore.acquire().await.expect("semaphore closed");
 
         let mut last = self.last_request.lock().await;
 
@@ -53,6 +54,7 @@ impl RateLimiter {
         }
 
         *last = Some(Instant::now());
+        permit
     }
 }
 
@@ -68,19 +70,23 @@ mod tests {
         let start = Instant::now();
 
         // First request should be immediate
-        limiter.acquire().await;
-        let first_elapsed = start.elapsed();
-        assert!(first_elapsed < Duration::from_millis(50));
+        {
+            let _permit = limiter.acquire().await;
+            let first_elapsed = start.elapsed();
+            assert!(first_elapsed < Duration::from_millis(50));
+        }
 
         // Second request should wait ~100ms
-        limiter.acquire().await;
-        let second_elapsed = start.elapsed();
-        assert!(
-            second_elapsed >= Duration::from_millis(100),
-            "expected >= 100ms, got {:?}",
-            second_elapsed
-        );
-        assert!(second_elapsed < Duration::from_millis(150));
+        {
+            let _permit = limiter.acquire().await;
+            let second_elapsed = start.elapsed();
+            assert!(
+                second_elapsed >= Duration::from_millis(100),
+                "expected >= 100ms, got {:?}",
+                second_elapsed
+            );
+            assert!(second_elapsed < Duration::from_millis(150));
+        }
     }
 
     #[tokio::test]
@@ -89,7 +95,8 @@ mod tests {
         let start = Instant::now();
 
         for _ in 0..3 {
-            limiter.acquire().await;
+            let _permit = limiter.acquire().await;
+            // Permit is dropped at the end of each iteration
         }
 
         let elapsed = start.elapsed();
