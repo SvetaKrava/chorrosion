@@ -96,8 +96,8 @@ impl AcoustidClient {
         fingerprint.validate()?;
 
         if !(0.0..=1.0).contains(&min_score) {
-            return Err(crate::FingerprintError::InvalidFingerprint(
-                "min_score must be between 0.0 and 1.0".to_string(),
+            return Err(crate::FingerprintError::AcoustidError(
+                "Invalid parameter: min_score must be between 0.0 and 1.0".to_string(),
             ));
         }
 
