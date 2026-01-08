@@ -585,6 +585,8 @@ pub type ArtistCreated = DomainEvent<ArtistCreatedPayload>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtistUpdatedPayload {
     pub artist_id: ArtistId,
+    pub name: String,
+    pub monitored: bool,
 }
 
 pub type ArtistUpdated = DomainEvent<ArtistUpdatedPayload>;
@@ -602,6 +604,9 @@ pub type AlbumCreated = DomainEvent<AlbumCreatedPayload>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlbumUpdatedPayload {
     pub album_id: AlbumId,
+    pub artist_id: ArtistId,
+    pub title: String,
+    pub monitored: bool,
 }
 
 pub type AlbumUpdated = DomainEvent<AlbumUpdatedPayload>;
@@ -619,6 +624,9 @@ pub type TrackCreated = DomainEvent<TrackCreatedPayload>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackUpdatedPayload {
     pub track_id: TrackId,
+    pub album_id: AlbumId,
+    pub artist_id: ArtistId,
+    pub title: String,
 }
 
 pub type TrackUpdated = DomainEvent<TrackUpdatedPayload>;
@@ -713,6 +721,15 @@ mod tests {
 
     #[test]
     fn artist_updated_event() {
+        let payload = ArtistUpdatedPayload {
+            artist_id: ArtistId::new(),
+            name: "Updated Artist".into(),
+            monitored: false,
+        };
+        let event: ArtistUpdated = DomainEvent::new("artist.updated", payload);
+        assert_eq!(event.name, "artist.updated");
+        assert_eq!(event.payload.name, "Updated Artist");
+        assert!(!event.payload.monitored);
         let artist_id = ArtistId::new();
         let payload = ArtistUpdatedPayload { artist_id };
         let event: ArtistUpdated = DomainEvent::new("artist.updated", payload);
@@ -722,6 +739,17 @@ mod tests {
 
     #[test]
     fn album_updated_event() {
+        let artist_id = ArtistId::new();
+        let payload = AlbumUpdatedPayload {
+            album_id: AlbumId::new(),
+            artist_id,
+            title: "Updated Album".into(),
+            monitored: false,
+        };
+        let event: AlbumUpdated = DomainEvent::new("album.updated", payload);
+        assert_eq!(event.name, "album.updated");
+        assert_eq!(event.payload.title, "Updated Album");
+        assert!(!event.payload.monitored);
         let album_id = AlbumId::new();
         let payload = AlbumUpdatedPayload { album_id };
         let event: AlbumUpdated = DomainEvent::new("album.updated", payload);
@@ -731,6 +759,17 @@ mod tests {
 
     #[test]
     fn track_updated_event() {
+        let album_id = AlbumId::new();
+        let artist_id = ArtistId::new();
+        let payload = TrackUpdatedPayload {
+            track_id: TrackId::new(),
+            album_id,
+            artist_id,
+            title: "Updated Track".into(),
+        };
+        let event: TrackUpdated = DomainEvent::new("track.updated", payload);
+        assert_eq!(event.name, "track.updated");
+        assert_eq!(event.payload.title, "Updated Track");
         let track_id = TrackId::new();
         let payload = TrackUpdatedPayload { track_id };
         let event: TrackUpdated = DomainEvent::new("track.updated", payload);
