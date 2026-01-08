@@ -163,7 +163,7 @@ impl MusicBrainzClient {
 
     /// Internal method to perform rate-limited GET requests.
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
-        self.rate_limiter.acquire().await;
+        let _permit = self.rate_limiter.acquire().await;
 
         trace!(target: "musicbrainz", "GET {}", url);
 
@@ -207,7 +207,21 @@ impl MusicBrainzClient {
 
 impl Default for MusicBrainzClient {
     fn default() -> Self {
-        Self::new().expect("failed to create default MusicBrainzClient")
+        // Default should be infallible; if building the configured client fails,
+        // fall back to a basic reqwest client while keeping sensible defaults.
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent(USER_AGENT)
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
+        let rate_limiter = RateLimiter::new(Duration::from_secs(1));
+
+        MusicBrainzClient {
+            client,
+            base_url: MUSICBRAINZ_API_BASE.to_string(),
+            rate_limiter,
+        }
     }
 }
 
