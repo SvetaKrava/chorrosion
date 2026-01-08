@@ -573,6 +573,56 @@ pub struct TrackFileImportedPayload {
 
 pub type TrackFileImported = DomainEvent<TrackFileImportedPayload>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistCreatedPayload {
+    pub artist_id: ArtistId,
+    pub name: String,
+    pub monitored: bool,
+}
+
+pub type ArtistCreated = DomainEvent<ArtistCreatedPayload>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistUpdatedPayload {
+    pub artist_id: ArtistId,
+}
+
+pub type ArtistUpdated = DomainEvent<ArtistUpdatedPayload>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlbumCreatedPayload {
+    pub album_id: AlbumId,
+    pub artist_id: ArtistId,
+    pub title: String,
+    pub monitored: bool,
+}
+
+pub type AlbumCreated = DomainEvent<AlbumCreatedPayload>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlbumUpdatedPayload {
+    pub album_id: AlbumId,
+}
+
+pub type AlbumUpdated = DomainEvent<AlbumUpdatedPayload>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackCreatedPayload {
+    pub track_id: TrackId,
+    pub album_id: AlbumId,
+    pub artist_id: ArtistId,
+    pub title: String,
+}
+
+pub type TrackCreated = DomainEvent<TrackCreatedPayload>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackUpdatedPayload {
+    pub track_id: TrackId,
+}
+
+pub type TrackUpdated = DomainEvent<TrackUpdatedPayload>;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -618,5 +668,46 @@ mod tests {
         assert_eq!(tf.size_bytes, 1234);
         assert!(tf.duration_ms.is_none());
         assert!(tf.hash.is_none());
+    }
+
+    #[test]
+    fn artist_created_event() {
+        let payload = ArtistCreatedPayload {
+            artist_id: ArtistId::new(),
+            name: "Test Artist".into(),
+            monitored: true,
+        };
+        let event: ArtistCreated = DomainEvent::new("artist.created", payload);
+        assert_eq!(event.name, "artist.created");
+        assert_eq!(event.payload.name, "Test Artist");
+    }
+
+    #[test]
+    fn album_created_event() {
+        let artist_id = ArtistId::new();
+        let payload = AlbumCreatedPayload {
+            album_id: AlbumId::new(),
+            artist_id,
+            title: "Test Album".into(),
+            monitored: true,
+        };
+        let event: AlbumCreated = DomainEvent::new("album.created", payload);
+        assert_eq!(event.name, "album.created");
+        assert_eq!(event.payload.title, "Test Album");
+    }
+
+    #[test]
+    fn track_created_event() {
+        let album_id = AlbumId::new();
+        let artist_id = ArtistId::new();
+        let payload = TrackCreatedPayload {
+            track_id: TrackId::new(),
+            album_id,
+            artist_id,
+            title: "Test Track".into(),
+        };
+        let event: TrackCreated = DomainEvent::new("track.created", payload);
+        assert_eq!(event.name, "track.created");
+        assert_eq!(event.payload.title, "Test Track");
     }
 }
