@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use std::path::{Path, PathBuf};
 
 // ============================================================================
 // Value Objects & IDs
@@ -107,6 +108,31 @@ impl std::fmt::Display for ProfileId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TrackFileId(pub Uuid);
+
+impl TrackFileId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for TrackFileId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for TrackFileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 // ============================================================================
 // Enums
 // ============================================================================
@@ -141,6 +167,69 @@ impl std::fmt::Display for AlbumStatus {
             Self::Wanted => write!(f, "wanted"),
             Self::Released => write!(f, "released"),
             Self::Announced => write!(f, "announced"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReleaseDatePrecision {
+    Year,
+    Month,
+    Day,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseDate {
+    pub year: i32,
+    pub month: Option<u32>,
+    pub day: Option<u32>,
+}
+
+impl ReleaseDate {
+    pub fn new(year: i32, month: Option<u32>, day: Option<u32>) -> Self {
+        Self { year, month, day }
+    }
+
+    pub fn precision(&self) -> ReleaseDatePrecision {
+        match (self.month, self.day) {
+            (None, _) => ReleaseDatePrecision::Year,
+            (Some(_), None) => ReleaseDatePrecision::Month,
+            (Some(_), Some(_)) => ReleaseDatePrecision::Day,
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        // Accepts YYYY, YYYY-MM, YYYY-MM-DD
+        let parts: Vec<&str> = s.split('-').collect();
+        match parts.len() {
+            1 => {
+                let year = parts[0].parse().ok()?;
+                Some(Self { year, month: None, day: None })
+            }
+            2 => {
+                let year = parts[0].parse().ok()?;
+                let month: u32 = parts[1].parse().ok()?;
+                if !(1..=12).contains(&month) { return None; }
+                Some(Self { year, month: Some(month), day: None })
+            }
+            3 => {
+                let year = parts[0].parse().ok()?;
+                let month: u32 = parts[1].parse().ok()?;
+                let day: u32 = parts[2].parse().ok()?;
+                if !(1..=12).contains(&month) { return None; }
+                if !(1..=31).contains(&day) { return None; }
+                Some(Self { year, month: Some(month), day: Some(day) })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn to_naive_date_opt(&self) -> Option<NaiveDate> {
+        match (self.month, self.day) {
+            (Some(m), Some(d)) => NaiveDate::from_ymd_opt(self.year, m, d),
+            (Some(m), None) => NaiveDate::from_ymd_opt(self.year, m, 1),
+            (None, _) => NaiveDate::from_ymd_opt(self.year, 1, 1),
         }
     }
 }
@@ -296,5 +385,238 @@ impl MetadataProfile {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+// ============================================================================
+// Track File (represents a physical audio file associated to a Track)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackFile {
+    pub id: TrackFileId,
+    pub track_id: TrackId,
+    pub path: String,
+    pub size_bytes: u64,
+    pub duration_ms: Option<u32>,
+    pub bitrate_kbps: Option<u32>,
+    pub channels: Option<u8>,
+    pub codec: Option<String>,
+    pub hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TrackFile {
+    pub fn new(track_id: TrackId, path: impl Into<String>, size_bytes: u64) -> Self {
+        let now = Utc::now();
+        Self {
+            id: TrackFileId::new(),
+            track_id,
+            path: path.into(),
+            size_bytes,
+            duration_ms: None,
+            bitrate_kbps: None,
+            channels: None,
+            codec: None,
+            hash: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+// ============================================================================
+// Domain Validation
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct ValidationError {
+    pub field: &'static str,
+    pub message: String,
+}
+
+pub trait Validate {
+    fn validate(&self) -> Result<(), Vec<ValidationError>>;
+}
+
+impl Validate for Artist {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.name.trim().is_empty() {
+            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+        }
+        if let Some(path) = &self.path {
+            if path.trim().is_empty() {
+                errors.push(ValidationError { field: "path", message: "path cannot be empty when provided".into() });
+            }
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+}
+
+impl Validate for Album {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.title.trim().is_empty() {
+            errors.push(ValidationError { field: "title", message: "title cannot be empty".into() });
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+}
+
+impl Validate for Track {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.title.trim().is_empty() {
+            errors.push(ValidationError { field: "title", message: "title cannot be empty".into() });
+        }
+        if let Some(n) = self.track_number {
+            if n == 0 { errors.push(ValidationError { field: "track_number", message: "track number must be >= 1".into() }); }
+        }
+        if let Some(d) = self.duration_ms {
+            if d == 0 { errors.push(ValidationError { field: "duration_ms", message: "duration must be > 0".into() }); }
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+}
+
+impl Validate for QualityProfile {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.name.trim().is_empty() {
+            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+        }
+        if self.allowed_qualities.is_empty() {
+            errors.push(ValidationError { field: "allowed_qualities", message: "at least one quality must be allowed".into() });
+        }
+        if let Some(cutoff) = &self.cutoff_quality {
+            if !self.allowed_qualities.iter().any(|q| q.eq_ignore_ascii_case(cutoff)) {
+                errors.push(ValidationError { field: "cutoff_quality", message: "cutoff must be one of allowed_qualities".into() });
+            }
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+}
+
+impl Validate for MetadataProfile {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.name.trim().is_empty() {
+            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+}
+
+// ============================================================================
+// File Path Generation Utilities
+// ============================================================================
+
+fn sanitize_component(input: &str) -> String {
+    // Remove characters invalid on Windows and common problematic ones
+    let banned = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    input
+        .chars()
+        .map(|c| if banned.contains(&c) { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+pub fn generate_track_path(
+    base: &Path,
+    artist: &str,
+    album: &str,
+    track_number: Option<u32>,
+    track_title: &str,
+    extension: &str,
+) -> PathBuf {
+    let artist_component = sanitize_component(artist);
+    let album_component = sanitize_component(album);
+    let title_component = sanitize_component(track_title);
+    let file_stem = match track_number {
+        Some(n) if n > 0 => format!("{:02} - {}", n, title_component),
+        _ => title_component,
+    };
+    let file_name = if extension.is_empty() {
+        file_stem
+    } else {
+        format!("{}.{}", file_stem, extension.trim_start_matches('.'))
+    };
+    base.join(artist_component).join(album_component).join(file_name)
+}
+
+// ============================================================================
+// Domain Events (lightweight scaffolding)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainEvent<TPayload> {
+    pub name: &'static str,
+    pub occurred_at: DateTime<Utc>,
+    pub payload: TPayload,
+}
+
+impl<TPayload> DomainEvent<TPayload> {
+    pub fn new(name: &'static str, payload: TPayload) -> Self {
+        Self { name, occurred_at: Utc::now(), payload }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackFileImportedPayload {
+    pub track_id: TrackId,
+    pub track_file_id: TrackFileId,
+    pub path: String,
+}
+
+pub type TrackFileImported = DomainEvent<TrackFileImportedPayload>;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_date_precision_and_parse() {
+        let y = ReleaseDate::parse_str("2024").unwrap();
+        assert_eq!(y.precision(), ReleaseDatePrecision::Year);
+        assert_eq!(y.to_naive_date_opt(), NaiveDate::from_ymd_opt(2024, 1, 1));
+
+        let ym = ReleaseDate::parse_str("2024-12").unwrap();
+        assert_eq!(ym.precision(), ReleaseDatePrecision::Month);
+        assert_eq!(ym.to_naive_date_opt(), NaiveDate::from_ymd_opt(2024, 12, 1));
+
+        let ymd = ReleaseDate::parse_str("2024-12-31").unwrap();
+        assert_eq!(ymd.precision(), ReleaseDatePrecision::Day);
+        assert_eq!(ymd.to_naive_date_opt(), NaiveDate::from_ymd_opt(2024, 12, 31));
+    }
+
+    #[test]
+    fn quality_profile_validation_cutoff_must_be_allowed() {
+        let mut qp = QualityProfile::new("Default", vec!["FLAC".into(), "MP3 320".into()]);
+        qp.cutoff_quality = Some("AAC".into());
+        let errs = qp.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "cutoff_quality"));
+    }
+
+    #[test]
+    fn generate_track_path_sanitizes_and_formats() {
+        let base = PathBuf::from("/music");
+        let path = generate_track_path(&base, "Arti:st?", "Alb*um|", Some(1), "Intro/Opening", "flac");
+        let expected_end = Path::new("Arti st").join("Alb um").join("01 - Intro Opening.flac");
+        assert!(path.ends_with(expected_end));
+    }
+
+    #[test]
+    fn trackfile_constructor_defaults() {
+        let tf = TrackFile::new(TrackId::new(), "C:/media/file.flac", 1234);
+        assert_eq!(tf.size_bytes, 1234);
+        assert!(tf.duration_ms.is_none());
+        assert!(tf.hash.is_none());
     }
 }

@@ -37,13 +37,13 @@
 
 All core data layer repositories complete with comprehensive CRUD operations, specialized queries, and full test coverage.
 
-### 1.2 Domain Models Enhancement
+### 1.2 Domain Models Enhancement (In Progress)
 
-- [ ] Add validation logic to entities
+- [x] Add validation logic to entities
 - [ ] Implement domain events for state changes
-- [ ] Add file path generation logic
-- [ ] Implement track file model with quality info
-- [ ] Add release date handling and parsing
+- [x] Add file path generation logic
+- [x] Implement track file model with quality info
+- [x] Add release date handling and parsing
 
 ---
 
