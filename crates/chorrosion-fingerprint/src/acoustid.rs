@@ -99,7 +99,9 @@ impl AcoustidClient {
             .append_pair("duration", &fingerprint.duration.to_string())
             .append_pair("meta", "recordings releases artistids");
 
-        trace!(target: "fingerprint", "AcoustID lookup: {}", url);
+        let mut redacted_url = url.clone();
+        redacted_url.set_query(None);
+        trace!(target: "fingerprint", "AcoustID lookup: {}", redacted_url);
 
         let response = self
             .client
