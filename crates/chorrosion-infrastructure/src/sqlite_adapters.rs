@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
-    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
-    Track,
+    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, ProfileId,
+    QualityProfile, Track,
 };
 use sqlx::SqlitePool;
 use sqlx::Row;
@@ -746,6 +746,63 @@ impl TrackRepository for SqliteTrackRepository {
 }
 
 // ============================================================================
+// Helper functions for profiles
+// ============================================================================
+
+fn row_to_quality_profile(row: &sqlx::sqlite::SqliteRow) -> Result<QualityProfile> {
+    let id: String = row.get("id");
+    let name: String = row.get("name");
+    let allowed_qualities_json: String = row.get("allowed_qualities");
+    let upgrade_allowed: bool = row.get("upgrade_allowed");
+    let cutoff_quality: Option<String> = row.get("cutoff_quality");
+
+    let allowed_qualities: Vec<String> =
+        serde_json::from_str(&allowed_qualities_json).unwrap_or_default();
+
+    let profile_id = ProfileId::from_uuid(uuid::Uuid::parse_str(&id)?);
+
+    Ok(QualityProfile {
+        id: profile_id,
+        name,
+        allowed_qualities,
+        upgrade_allowed,
+        cutoff_quality,
+        created_at: parse_dt(row.get("created_at"))?,
+        updated_at: parse_dt(row.get("updated_at"))?,
+    })
+}
+
+fn row_to_metadata_profile(row: &sqlx::sqlite::SqliteRow) -> Result<MetadataProfile> {
+    let id: String = row.get("id");
+    let name: String = row.get("name");
+    let primary_json: Option<String> = row.get("primary_album_types");
+    let secondary_json: Option<String> = row.get("secondary_album_types");
+    let statuses_json: Option<String> = row.get("release_statuses");
+
+    let primary_album_types = primary_json
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
+    let secondary_album_types = secondary_json
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
+    let release_statuses = statuses_json
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
+
+    let profile_id = ProfileId::from_uuid(uuid::Uuid::parse_str(&id)?);
+
+    Ok(MetadataProfile {
+        id: profile_id,
+        name,
+        primary_album_types,
+        secondary_album_types,
+        release_statuses,
+        created_at: parse_dt(row.get("created_at"))?,
+        updated_at: parse_dt(row.get("updated_at"))?,
+    })
+}
+
+// ============================================================================
 
 /// SQLx-backed Quality Profile repository
 #[allow(dead_code)]
@@ -763,28 +820,95 @@ impl SqliteQualityProfileRepository {
 impl Repository<QualityProfile> for SqliteQualityProfileRepository {
     async fn create(&self, entity: QualityProfile) -> Result<QualityProfile> {
         debug!(target: "repository", profile_id = %entity.id, "creating quality profile");
+        let id_str = entity.id.to_string();
+        let qualities_json = serde_json::to_string(&entity.allowed_qualities)?;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO quality_profiles (
+                id, name, allowed_qualities, upgrade_allowed, cutoff_quality, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(id_str)
+        .bind(entity.name.clone())
+        .bind(qualities_json)
+        .bind(entity.upgrade_allowed)
+        .bind(entity.cutoff_quality.clone())
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
         Ok(entity)
     }
 
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<QualityProfile>> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "fetching quality profile by id");
-        Ok(None)
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching quality profile by id");
+        let row = sqlx::query("SELECT * FROM quality_profiles WHERE id = ? LIMIT 1")
+            .bind(&id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_quality_profile(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<QualityProfile>> {
         debug!(target: "repository", limit, offset, "listing quality profiles");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM quality_profiles ORDER BY name LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_quality_profile(&r)?);
+        }
+        Ok(out)
     }
 
     async fn update(&self, entity: QualityProfile) -> Result<QualityProfile> {
         debug!(target: "repository", profile_id = %entity.id, "updating quality profile");
+        let qualities_json = serde_json::to_string(&entity.allowed_qualities)?;
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            UPDATE quality_profiles SET
+                name = ?,
+                allowed_qualities = ?,
+                upgrade_allowed = ?,
+                cutoff_quality = ?,
+                updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(entity.name.clone())
+        .bind(qualities_json)
+        .bind(entity.upgrade_allowed)
+        .bind(entity.cutoff_quality.clone())
+        .bind(updated_at)
+        .bind(entity.id.to_string())
+        .execute(&self.pool)
+        .await?;
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "deleting quality profile");
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting quality profile");
+        let result = sqlx::query("DELETE FROM quality_profiles WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("quality profile not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -793,7 +917,15 @@ impl Repository<QualityProfile> for SqliteQualityProfileRepository {
 impl QualityProfileRepository for SqliteQualityProfileRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<QualityProfile>> {
         debug!(target: "repository", name, "fetching quality profile by name");
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM quality_profiles WHERE name = ? LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_quality_profile(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -815,28 +947,99 @@ impl SqliteMetadataProfileRepository {
 impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
     async fn create(&self, entity: MetadataProfile) -> Result<MetadataProfile> {
         debug!(target: "repository", profile_id = %entity.id, "creating metadata profile");
+        let id_str = entity.id.to_string();
+        let primary_json = serde_json::to_string(&entity.primary_album_types)?;
+        let secondary_json = serde_json::to_string(&entity.secondary_album_types)?;
+        let statuses_json = serde_json::to_string(&entity.release_statuses)?;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO metadata_profiles (
+                id, name, primary_album_types, secondary_album_types, release_statuses, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(id_str)
+        .bind(entity.name.clone())
+        .bind(primary_json)
+        .bind(secondary_json)
+        .bind(statuses_json)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
         Ok(entity)
     }
 
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<MetadataProfile>> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "fetching metadata profile by id");
-        Ok(None)
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching metadata profile by id");
+        let row = sqlx::query("SELECT * FROM metadata_profiles WHERE id = ? LIMIT 1")
+            .bind(&id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_metadata_profile(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<MetadataProfile>> {
         debug!(target: "repository", limit, offset, "listing metadata profiles");
-        Ok(vec![])
+        let rows = sqlx::query("SELECT * FROM metadata_profiles ORDER BY name LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_metadata_profile(&r)?);
+        }
+        Ok(out)
     }
 
     async fn update(&self, entity: MetadataProfile) -> Result<MetadataProfile> {
         debug!(target: "repository", profile_id = %entity.id, "updating metadata profile");
+        let primary_json = serde_json::to_string(&entity.primary_album_types)?;
+        let secondary_json = serde_json::to_string(&entity.secondary_album_types)?;
+        let statuses_json = serde_json::to_string(&entity.release_statuses)?;
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            UPDATE metadata_profiles SET
+                name = ?,
+                primary_album_types = ?,
+                secondary_album_types = ?,
+                release_statuses = ?,
+                updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(entity.name.clone())
+        .bind(primary_json)
+        .bind(secondary_json)
+        .bind(statuses_json)
+        .bind(updated_at)
+        .bind(entity.id.to_string())
+        .execute(&self.pool)
+        .await?;
         Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let _id = id.into();
-        debug!(target: "repository", %_id, "deleting metadata profile");
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting metadata profile");
+        let result = sqlx::query("DELETE FROM metadata_profiles WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("metadata profile not found: {}", id));
+        }
         Ok(())
     }
 }
@@ -845,7 +1048,15 @@ impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
 impl MetadataProfileRepository for SqliteMetadataProfileRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<MetadataProfile>> {
         debug!(target: "repository", name, "fetching metadata profile by name");
-        Ok(None)
+        let row = sqlx::query("SELECT * FROM metadata_profiles WHERE name = ? LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_metadata_profile(&r)?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1627,6 +1838,220 @@ mod tests {
         artist_repo.delete(artist_id.to_string()).await.expect("delete artist");
         let track_check = track_repo.get_by_id(track_id.to_string()).await.expect("query");
         assert!(track_check.is_none(), "track should be gone when artist deleted");
+    }
+
+    // ========================================================================
+    // Quality Profile repository tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn quality_profile_create_and_get_by_id() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
+
+        let mut profile = chorrosion_domain::QualityProfile::new("Lossless", vec!["FLAC".to_string(), "WAV".to_string()]);
+        profile.upgrade_allowed = true;
+        profile.cutoff_quality = Some("FLAC".to_string());
+
+        let created = profile_repo.create(profile.clone()).await.expect("create");
+        assert_eq!(created.name, "Lossless");
+        assert_eq!(created.allowed_qualities.len(), 2);
+        assert!(created.upgrade_allowed);
+
+        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "Lossless");
+        assert_eq!(fetched.allowed_qualities, vec!["FLAC".to_string(), "WAV".to_string()]);
+        assert_eq!(fetched.cutoff_quality.as_deref(), Some("FLAC"));
+        assert!(fetched.upgrade_allowed);
+    }
+
+    #[tokio::test]
+    async fn quality_profile_get_by_name() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
+
+        let profile = chorrosion_domain::QualityProfile::new("Lossy", vec!["MP3".to_string(), "AAC".to_string()]);
+        profile_repo.create(profile.clone()).await.expect("create");
+
+        let found = profile_repo.get_by_name("Lossy").await.unwrap().unwrap();
+        assert_eq!(found.id, profile.id);
+        assert_eq!(found.allowed_qualities, vec!["MP3".to_string(), "AAC".to_string()]);
+
+        let absent = profile_repo.get_by_name("NonExistent").await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn quality_profile_update_and_delete() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
+
+        let mut profile = chorrosion_domain::QualityProfile::new("Original", vec!["FLAC".to_string()]);
+        let profile_id = profile.id;
+        profile_repo.create(profile.clone()).await.expect("create");
+
+        // Update
+        profile.name = "Updated".to_string();
+        profile.allowed_qualities.push("WAV".to_string());
+        profile.upgrade_allowed = true;
+        let updated = profile_repo.update(profile).await.expect("update");
+        assert_eq!(updated.name, "Updated");
+        assert_eq!(updated.allowed_qualities.len(), 2);
+
+        let fetched = profile_repo.get_by_id(profile_id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "Updated");
+
+        // Delete
+        profile_repo.delete(profile_id.to_string()).await.expect("delete");
+        let absent = profile_repo.get_by_id(profile_id.to_string()).await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn quality_profile_list_ordering() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
+
+        for name in ["Zebra", "Alpha", "Bravo"] {
+            let profile = chorrosion_domain::QualityProfile::new(name, vec!["FLAC".to_string()]);
+            profile_repo.create(profile).await.expect("create");
+        }
+
+        let profiles = profile_repo.list(10, 0).await.expect("list");
+        assert_eq!(profiles.len(), 3);
+        assert_eq!(profiles[0].name, "Alpha");
+        assert_eq!(profiles[1].name, "Bravo");
+        assert_eq!(profiles[2].name, "Zebra");
+    }
+
+    #[tokio::test]
+    async fn quality_profile_list_pagination() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
+
+        for i in 0..5 {
+            let profile = chorrosion_domain::QualityProfile::new(
+                format!("Profile{}", i),
+                vec!["FLAC".to_string()],
+            );
+            profile_repo.create(profile).await.expect("create");
+        }
+
+        let page1 = profile_repo.list(2, 0).await.expect("list page 1");
+        assert_eq!(page1.len(), 2);
+
+        let page2 = profile_repo.list(2, 2).await.expect("list page 2");
+        assert_eq!(page2.len(), 2);
+
+        let page3 = profile_repo.list(2, 4).await.expect("list page 3");
+        assert_eq!(page3.len(), 1);
+    }
+
+    // ========================================================================
+    // Metadata Profile repository tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn metadata_profile_create_and_get_by_id() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteMetadataProfileRepository::new(pool.clone());
+
+        let mut profile = chorrosion_domain::MetadataProfile::new("Standard");
+        profile.primary_album_types = vec!["Album".to_string(), "EP".to_string()];
+        profile.secondary_album_types = vec!["Compilation".to_string()];
+        profile.release_statuses = vec!["Official".to_string(), "Promotion".to_string()];
+
+        let created = profile_repo.create(profile.clone()).await.expect("create");
+        assert_eq!(created.name, "Standard");
+        assert_eq!(created.primary_album_types.len(), 2);
+        assert_eq!(created.secondary_album_types.len(), 1);
+        assert_eq!(created.release_statuses.len(), 2);
+
+        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "Standard");
+        assert_eq!(fetched.primary_album_types, vec!["Album".to_string(), "EP".to_string()]);
+        assert_eq!(fetched.secondary_album_types, vec!["Compilation".to_string()]);
+        assert_eq!(fetched.release_statuses, vec!["Official".to_string(), "Promotion".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn metadata_profile_get_by_name() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteMetadataProfileRepository::new(pool.clone());
+
+        let mut profile = chorrosion_domain::MetadataProfile::new("Jazz");
+        profile.primary_album_types = vec!["Album".to_string()];
+        profile_repo.create(profile.clone()).await.expect("create");
+
+        let found = profile_repo.get_by_name("Jazz").await.unwrap().unwrap();
+        assert_eq!(found.id, profile.id);
+        assert_eq!(found.primary_album_types, vec!["Album".to_string()]);
+
+        let absent = profile_repo.get_by_name("NonExistent").await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn metadata_profile_update_and_delete() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteMetadataProfileRepository::new(pool.clone());
+
+        let mut profile = chorrosion_domain::MetadataProfile::new("Original");
+        let profile_id = profile.id;
+        profile.primary_album_types = vec!["Album".to_string()];
+        profile_repo.create(profile.clone()).await.expect("create");
+
+        // Update
+        profile.name = "Updated".to_string();
+        profile.primary_album_types.push("EP".to_string());
+        profile.release_statuses = vec!["Official".to_string()];
+        let updated = profile_repo.update(profile).await.expect("update");
+        assert_eq!(updated.name, "Updated");
+        assert_eq!(updated.primary_album_types.len(), 2);
+        assert_eq!(updated.release_statuses.len(), 1);
+
+        let fetched = profile_repo.get_by_id(profile_id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "Updated");
+
+        // Delete
+        profile_repo.delete(profile_id.to_string()).await.expect("delete");
+        let absent = profile_repo.get_by_id(profile_id.to_string()).await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn metadata_profile_list_ordering() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteMetadataProfileRepository::new(pool.clone());
+
+        for name in ["Zebra", "Alpha", "Bravo"] {
+            let profile = chorrosion_domain::MetadataProfile::new(name);
+            profile_repo.create(profile).await.expect("create");
+        }
+
+        let profiles = profile_repo.list(10, 0).await.expect("list");
+        assert_eq!(profiles.len(), 3);
+        assert_eq!(profiles[0].name, "Alpha");
+        assert_eq!(profiles[1].name, "Bravo");
+        assert_eq!(profiles[2].name, "Zebra");
+    }
+
+    #[tokio::test]
+    async fn metadata_profile_empty_arrays() {
+        let pool = setup_pool().await;
+        let profile_repo = SqliteMetadataProfileRepository::new(pool.clone());
+
+        let profile = chorrosion_domain::MetadataProfile::new("Empty");
+        let created = profile_repo.create(profile.clone()).await.expect("create");
+
+        assert!(created.primary_album_types.is_empty());
+        assert!(created.secondary_album_types.is_empty());
+        assert!(created.release_statuses.is_empty());
+
+        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        assert!(fetched.primary_album_types.is_empty());
+        assert!(fetched.secondary_album_types.is_empty());
+        assert!(fetched.release_statuses.is_empty());
     }
 }
 
