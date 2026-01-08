@@ -190,8 +190,11 @@ impl AcoustidClient {
         // Find the best match
         let best_match = all_matches
             .into_iter()
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap())
-            .expect("all_matches is not empty");
+            .max_by(|a, b| {
+                // Use total_cmp for f32 to handle NaN cases properly
+                a.score.total_cmp(&b.score)
+            })
+            .expect("Internal error: all_matches should not be empty after checking is_empty()");
 
         // Check if the best match meets the minimum score threshold
         if best_match.score >= min_score {
