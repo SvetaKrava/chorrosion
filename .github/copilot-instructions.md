@@ -113,6 +113,7 @@ Notes for agents
 - Branch naming: `feat/<topic>-<issue#>` or `docs/<topic>` (e.g., `feat/domain-events-23`).
 - Open a Pull Request to merge into `main`; squash-merge is preferred.
 - PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), and reference the related issue (e.g., `Closes #23`).
+- PR↔Issue linkage: PRs must link the related issue using closing keywords (`Closes`/`Fixes`/`Resolves #<issue>`), and the issue should reference the PR once opened.
 - Keep changes focused and incremental; update `ROADMAP.md` and docs as needed.
 - Follow cross-platform rules; do not introduce OS-specific behavior.
 
