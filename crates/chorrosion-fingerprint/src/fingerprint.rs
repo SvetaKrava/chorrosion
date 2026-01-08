@@ -49,14 +49,21 @@ impl Fingerprint {
             ));
         }
 
-        // Chromaprint hashes contain alphanumeric, +, /, and = for padding
-        if !self
-            .hash
+        // Chromaprint hashes are base64-encoded: alphanumeric, +, /, with = only as padding at the end
+        let trimmed = self.hash.trim_end_matches('=');
+        if !trimmed
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
         {
             return Err(crate::FingerprintError::InvalidFingerprint(
                 "fingerprint contains invalid characters".to_string(),
+            ));
+        }
+        
+        // Ensure = only appears at the end (after trimming, remaining hash should not contain =)
+        if trimmed.contains('=') {
+            return Err(crate::FingerprintError::InvalidFingerprint(
+                "padding character '=' must only appear at the end".to_string(),
             ));
         }
 
@@ -98,5 +105,26 @@ mod tests {
     fn test_fingerprint_validation_invalid_chars() {
         let fp = Fingerprint::new("AQADv!WZ==", 120);
         assert!(fp.validate().is_err());
+    }
+
+    #[test]
+    fn test_fingerprint_validation_padding_in_middle() {
+        // = should only appear at the end, not in the middle
+        let fp = Fingerprint::new("AQAD=vEWZ", 120);
+        assert!(fp.validate().is_err());
+    }
+
+    #[test]
+    fn test_fingerprint_validation_valid_no_padding() {
+        // Valid base64 without padding
+        let fp = Fingerprint::new("AQADvEWZ", 120);
+        assert!(fp.validate().is_ok());
+    }
+
+    #[test]
+    fn test_fingerprint_validation_valid_single_padding() {
+        // Valid base64 with single = padding
+        let fp = Fingerprint::new("AQADvEWZ=", 120);
+        assert!(fp.validate().is_ok());
     }
 }
