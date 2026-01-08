@@ -1,0 +1,112 @@
+name: CI Smoke
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ "**" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke (build, lint, test, run)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --all-features --all-targets
+
+      - name: Run and check (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RUST_LOG=info
+          export CHORROSION_DATABASE__URL="sqlite://data/chorrosion.db"
+          # Run compiled binary directly to avoid cargo keeping control of the process
+          target/debug/chorrosion-cli &
+          SERVER_PID=$!
+
+          # Wait for health to be ready
+          health_ok=false
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:5150/health | grep -q '"status":"ok"'; then
+              echo "health ok"
+              health_ok=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$health_ok" != true ]; then
+            echo "Health check failed after 30 seconds"
+            kill "$SERVER_PID"
+            wait "$SERVER_PID" || true
+            exit 1
+          fi
+
+          # Verify OpenAPI JSON served
+          if ! curl -fsS http://127.0.0.1:5150/api-doc/openapi.json | head -c 1 | grep -q '{'; then
+            echo "OpenAPI JSON check failed"
+            kill "$SERVER_PID"
+            wait "$SERVER_PID" || true
+            exit 1
+          fi
+
+          # Stop server
+          kill $SERVER_PID
+          wait $SERVER_PID || true
+
+      - name: Run and check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:RUST_LOG = 'info'
+          $env:CHORROSION_DATABASE__URL = 'sqlite://data/chorrosion.db'
+
+          $exe = Join-Path $PWD 'target\debug\chorrosion-cli.exe'
+          if (-not (Test-Path $exe)) { throw "Binary not found: $exe" }
+
+          $p = Start-Process -FilePath $exe -PassThru
+          try {
+            $ok = $false
+            for ($i=0; $i -lt 30; $i++) {
+              try {
+                $r = Invoke-RestMethod -Uri http://127.0.0.1:5150/health -TimeoutSec 2
+                if ($r.status -eq 'ok') { $ok = $true; break }
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ok) { throw "Health check failed" }
+
+            $resp = Invoke-WebRequest -Uri http://127.0.0.1:5150/api-doc/openapi.json -TimeoutSec 5
+            if (-not ($resp.Content.Trim().StartsWith('{'))) { throw "OpenAPI JSON not found" }
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
