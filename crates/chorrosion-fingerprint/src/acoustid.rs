@@ -76,30 +76,9 @@ impl AcoustidClient {
         AcoustidClientBuilder::new(api_key)
     }
 
-    /// Lookup a fingerprint on AcoustID and return matching recordings.
-    ///
-    /// # Arguments
-    /// * `fingerprint` - The Chromaprint fingerprint.
-    /// * `min_score` - Minimum confidence score (0-1) for returned matches.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use chorrosion_fingerprint::{AcoustidClient, Fingerprint};
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = AcoustidClient::new("your-api-key")?;
-    /// let fp = Fingerprint::new("AQADvEWZ==", 120);
-    /// let matches = client.lookup(&fp, 0.7).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn lookup(&self, fingerprint: &Fingerprint, min_score: f32) -> Result<Vec<RecordingMatch>> {
+    /// Lookup a fingerprint on AcoustID and return all matching recordings (internal, unfiltered).
+    async fn lookup_raw(&self, fingerprint: &Fingerprint) -> Result<Vec<RecordingMatch>> {
         fingerprint.validate()?;
-
-        if !(0.0..=1.0).contains(&min_score) {
-            return Err(crate::FingerprintError::AcoustidError(
-                "Invalid parameter: min_score must be between 0.0 and 1.0".to_string(),
-            ));
-        }
 
         let mut url = Url::parse(&format!("{}/lookup", self.base_url))
             .map_err(|e| crate::FingerprintError::InvalidResponse(e.to_string()))?;
@@ -143,8 +122,35 @@ impl AcoustidClient {
             ));
         }
 
-        let matches = api_response
-            .results
+        Ok(api_response.results)
+    }
+
+    /// Lookup a fingerprint on AcoustID and return matching recordings.
+    ///
+    /// # Arguments
+    /// * `fingerprint` - The Chromaprint fingerprint.
+    /// * `min_score` - Minimum confidence score (0-1) for returned matches.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use chorrosion_fingerprint::{AcoustidClient, Fingerprint};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = AcoustidClient::new("your-api-key")?;
+    /// let fp = Fingerprint::new("AQADvEWZ==", 120);
+    /// let matches = client.lookup(&fp, 0.7).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn lookup(&self, fingerprint: &Fingerprint, min_score: f32) -> Result<Vec<RecordingMatch>> {
+        if !(0.0..=1.0).contains(&min_score) {
+            return Err(crate::FingerprintError::AcoustidError(
+                "Invalid parameter: min_score must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+
+        let all_matches = self.lookup_raw(fingerprint).await?;
+        
+        let matches = all_matches
             .into_iter()
             .filter(|m| m.score >= min_score)
             .collect();
@@ -157,17 +163,44 @@ impl AcoustidClient {
     /// # Arguments
     /// * `fingerprint` - The Chromaprint fingerprint.
     /// * `min_score` - Minimum confidence score (0-1) for the match.
+    ///
+    /// # Errors
+    /// Returns:
+    /// - `NoMatches` if the API returns no matches at all.
+    /// - `LowConfidence` if matches exist but the best score is below `min_score`.
     pub async fn lookup_best(
         &self,
         fingerprint: &Fingerprint,
         min_score: f32,
     ) -> Result<RecordingMatch> {
-        let matches = self.lookup(fingerprint, min_score).await?;
+        if !(0.0..=1.0).contains(&min_score) {
+            return Err(crate::FingerprintError::AcoustidError(
+                "Invalid parameter: min_score must be between 0.0 and 1.0".to_string(),
+            ));
+        }
 
-        matches
+        // Get all matches (unfiltered) to distinguish between no matches and low confidence
+        let all_matches = self.lookup_raw(fingerprint).await?;
+
+        // If no matches at all, return NoMatches error
+        if all_matches.is_empty() {
+            return Err(crate::FingerprintError::NoMatches);
+        }
+
+        // Find the best match
+        let best_match = all_matches
             .into_iter()
             .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap())
-            .ok_or(crate::FingerprintError::LowConfidence { score: 0.0 })
+            .expect("all_matches is not empty");
+
+        // Check if the best match meets the minimum score threshold
+        if best_match.score >= min_score {
+            Ok(best_match)
+        } else {
+            Err(crate::FingerprintError::LowConfidence {
+                score: best_match.score,
+            })
+        }
     }
 }
 
@@ -365,5 +398,152 @@ mod tests {
             .build();
         
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_lookup_best_no_matches() {
+        let mock_server = MockServer::start().await;
+
+        // Return empty results
+        let empty_response = serde_json::json!({
+            "status": "ok",
+            "results": []
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(empty_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup_best(&fp, 0.5).await;
+
+        // Should return NoMatches error when API returns no results
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), crate::FingerprintError::NoMatches));
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_lookup_best_low_confidence() {
+        let mock_server = MockServer::start().await;
+
+        // Return a result with score 0.6
+        let low_score_response = serde_json::json!({
+            "status": "ok",
+            "results": [{
+                "id": "0dd2d1a0-88f2-41a4-b6da-0f3ba8caf50a",
+                "title": "Test Song",
+                "score": 0.6,
+                "artists": [],
+                "releases": []
+            }]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(low_score_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        // Request min_score of 0.8, but result has 0.6
+        let result = client.lookup_best(&fp, 0.8).await;
+
+        // Should return LowConfidence with the actual score (0.6)
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::LowConfidence { score } => {
+                assert!((score - 0.6).abs() < 0.001, "Expected score 0.6, got {}", score);
+            }
+            other => panic!("Expected LowConfidence error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_lookup_best_multiple_matches() {
+        let mock_server = MockServer::start().await;
+
+        // Return multiple results with different scores
+        let multiple_response = serde_json::json!({
+            "status": "ok",
+            "results": [
+                {
+                    "id": "0dd2d1a0-88f2-41a4-b6da-0f3ba8caf50a",
+                    "title": "Song A",
+                    "score": 0.7,
+                    "artists": [],
+                    "releases": []
+                },
+                {
+                    "id": "1ee3e2b1-99f3-52b5-c7db-1f4cb9dcf61b",
+                    "title": "Song B",
+                    "score": 0.85,
+                    "artists": [],
+                    "releases": []
+                },
+                {
+                    "id": "2ff4f3c2-aaf4-63c6-d8ec-2f5dc0edea2c",
+                    "title": "Song C",
+                    "score": 0.6,
+                    "artists": [],
+                    "releases": []
+                }
+            ]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(multiple_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        
+        // Test 1: min_score below best match - should succeed with best match
+        let result = client.lookup_best(&fp, 0.5).await;
+        assert!(result.is_ok());
+        let best = result.unwrap();
+        assert_eq!(best.title, Some("Song B".to_string()));
+        assert!((best.score - 0.85).abs() < 0.001);
+        
+        // Test 2: min_score above best match - should return LowConfidence with best score
+        let result = client.lookup_best(&fp, 0.9).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::LowConfidence { score } => {
+                assert!((score - 0.85).abs() < 0.001, "Expected score 0.85, got {}", score);
+            }
+            other => panic!("Expected LowConfidence error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_lookup_best_invalid_min_score() {
+        let client = AcoustidClient::new("test-key").unwrap();
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+
+        // Test with min_score > 1.0
+        let result = client.lookup_best(&fp, 1.5).await;
+        assert!(result.is_err());
+        
+        // Test with min_score < 0.0
+        let result = client.lookup_best(&fp, -0.1).await;
+        assert!(result.is_err());
     }
 }
