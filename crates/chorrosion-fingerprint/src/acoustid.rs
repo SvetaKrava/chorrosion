@@ -640,9 +640,9 @@ mod tests {
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert!(msg.contains("401"), "Error message should contain status code 401: {}", msg);
-                // The body should be included as text
-                assert!(msg.contains("error") || msg.contains("Invalid"), 
-                    "Error message should contain response body content: {}", msg);
+                // The body is consumed as text, so we should see the JSON string representation
+                assert!(msg.contains("Invalid API key"), 
+                    "Error message should contain API key error from JSON body: {}", msg);
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
