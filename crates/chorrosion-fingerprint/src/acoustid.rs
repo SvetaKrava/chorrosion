@@ -55,11 +55,21 @@ pub struct ReleaseInfo {
 }
 
 /// AcoustID API client for fingerprint lookup.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AcoustidClient {
     client: Client,
     base_url: String,
     api_key: String,
+}
+
+impl std::fmt::Debug for AcoustidClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcoustidClient")
+            .field("client", &self.client)
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl AcoustidClient {
@@ -233,11 +243,20 @@ struct AcoustidResponse {
 }
 
 /// Builder for AcoustID client.
-#[derive(Debug)]
 pub struct AcoustidClientBuilder {
     api_key: String,
     base_url: String,
     timeout: Duration,
+}
+
+impl std::fmt::Debug for AcoustidClientBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcoustidClientBuilder")
+            .field("api_key", &"[REDACTED]")
+            .field("base_url", &self.base_url)
+            .field("timeout", &self.timeout)
+            .finish()
+    }
 }
 
 impl AcoustidClientBuilder {
@@ -662,5 +681,29 @@ mod tests {
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_acoustid_client_debug_redacts_api_key() {
+        let client = AcoustidClient::new("super-secret-api-key").unwrap();
+        let debug_output = format!("{:?}", client);
+        
+        // API key should be redacted
+        assert!(!debug_output.contains("super-secret-api-key"),
+            "Debug output should not contain the actual API key");
+        assert!(debug_output.contains("[REDACTED]"),
+            "Debug output should show [REDACTED] instead of the API key");
+    }
+
+    #[test]
+    fn test_acoustid_client_builder_debug_redacts_api_key() {
+        let builder = AcoustidClient::builder("super-secret-api-key");
+        let debug_output = format!("{:?}", builder);
+        
+        // API key should be redacted
+        assert!(!debug_output.contains("super-secret-api-key"),
+            "Debug output should not contain the actual API key");
+        assert!(debug_output.contains("[REDACTED]"),
+            "Debug output should show [REDACTED] instead of the API key");
     }
 }
