@@ -19,9 +19,6 @@ pub enum FingerprintError {
     #[error("AcoustID API error: {0}")]
     AcoustidError(String),
 
-    #[error("No matches found for fingerprint")]
-    NoMatches,
-
     #[error("Low confidence match (score: {score})")]
     LowConfidence { score: f32 },
 
