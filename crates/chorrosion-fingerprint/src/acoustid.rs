@@ -549,4 +549,102 @@ mod tests {
         let result = client.lookup_best(&fp, -0.1).await;
         assert!(result.is_err());
     }
+
+    /// Helper function to test HTTP error responses from AcoustID API.
+    ///
+    /// Creates a mock server that returns the specified HTTP error status code and body,
+    /// then verifies that the AcoustID client properly handles the error by:
+    /// - Returning an AcoustidError
+    /// - Including the status code in the error message
+    /// - Including the response body in the error message
+    ///
+    /// # Arguments
+    /// * `status_code` - The HTTP status code to return (e.g., 404, 500)
+    /// * `body` - The response body text to return with the error
+    async fn test_http_error_response(status_code: u16, body: &str) {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(status_code).set_body_string(body))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(
+                    msg.contains(&status_code.to_string()),
+                    "Error message should contain status code {}: {}",
+                    status_code,
+                    msg
+                );
+                assert!(
+                    msg.contains(body),
+                    "Error message should contain response body '{}': {}",
+                    body,
+                    msg
+                );
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_404_error() {
+        test_http_error_response(404, "Not Found").await;
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_500_error() {
+        test_http_error_response(500, "Internal Server Error").await;
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_403_error() {
+        test_http_error_response(403, "Forbidden").await;
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_error_with_json_body() {
+        let mock_server = MockServer::start().await;
+
+        let error_response = serde_json::json!({
+            "status": "error",
+            "error": "Invalid API key"
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/lookup"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(error_response))
+            .mount(&mock_server)
+            .await;
+
+        let client = AcoustidClient::builder("test-key")
+            .base_url(mock_server.uri())
+            .build()
+            .unwrap();
+
+        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let result = client.lookup(&fp, 0.5).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::FingerprintError::AcoustidError(msg) => {
+                assert!(msg.contains("401"), "Error message should contain status code 401: {}", msg);
+                // The body is consumed as text, so we should see the JSON string representation
+                assert!(msg.contains("Invalid API key"), 
+                    "Error message should contain API key error from JSON body: {}", msg);
+            }
+            other => panic!("Expected AcoustidError, got {:?}", other),
+        }
+    }
 }
