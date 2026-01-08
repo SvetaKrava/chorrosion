@@ -16,4 +16,4 @@ url = "2.5"
 uuid = { version = "1.11", features = ["serde", "v4"] }
 
 [dev-dependencies]
-tokio = { version = "1.42", features = ["macros", "rt"] }
+ffmpeg-sys-next = { version = "7.1", optional = true }
