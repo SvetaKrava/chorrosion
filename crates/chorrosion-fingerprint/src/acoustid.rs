@@ -550,13 +550,13 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_acoustid_http_404_error() {
+    /// Helper function to test HTTP error responses
+    async fn test_http_error_response(status_code: u16, body: &str) {
         let mock_server = MockServer::start().await;
 
         Mock::given(method("GET"))
             .and(path("/lookup"))
-            .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+            .respond_with(ResponseTemplate::new(status_code).set_body_string(body))
             .mount(&mock_server)
             .await;
 
@@ -571,67 +571,36 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
-                assert!(msg.contains("404"), "Error message should contain status code 404: {}", msg);
-                assert!(msg.contains("Not Found"), "Error message should contain response body: {}", msg);
+                assert!(
+                    msg.contains(&status_code.to_string()),
+                    "Error message should contain status code {}: {}",
+                    status_code,
+                    msg
+                );
+                assert!(
+                    msg.contains(body),
+                    "Error message should contain response body '{}': {}",
+                    body,
+                    msg
+                );
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_acoustid_http_404_error() {
+        test_http_error_response(404, "Not Found").await;
     }
 
     #[tokio::test]
     async fn test_acoustid_http_500_error() {
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("GET"))
-            .and(path("/lookup"))
-            .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
-            .mount(&mock_server)
-            .await;
-
-        let client = AcoustidClient::builder("test-key")
-            .base_url(mock_server.uri())
-            .build()
-            .unwrap();
-
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
-        let result = client.lookup(&fp, 0.5).await;
-
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::FingerprintError::AcoustidError(msg) => {
-                assert!(msg.contains("500"), "Error message should contain status code 500: {}", msg);
-                assert!(msg.contains("Internal Server Error"), "Error message should contain response body: {}", msg);
-            }
-            other => panic!("Expected AcoustidError, got {:?}", other),
-        }
+        test_http_error_response(500, "Internal Server Error").await;
     }
 
     #[tokio::test]
     async fn test_acoustid_http_403_error() {
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("GET"))
-            .and(path("/lookup"))
-            .respond_with(ResponseTemplate::new(403).set_body_string("Forbidden"))
-            .mount(&mock_server)
-            .await;
-
-        let client = AcoustidClient::builder("test-key")
-            .base_url(mock_server.uri())
-            .build()
-            .unwrap();
-
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
-        let result = client.lookup(&fp, 0.5).await;
-
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::FingerprintError::AcoustidError(msg) => {
-                assert!(msg.contains("403"), "Error message should contain status code 403: {}", msg);
-                assert!(msg.contains("Forbidden"), "Error message should contain response body: {}", msg);
-            }
-            other => panic!("Expected AcoustidError, got {:?}", other),
-        }
+        test_http_error_response(403, "Forbidden").await;
     }
 
     #[tokio::test]
