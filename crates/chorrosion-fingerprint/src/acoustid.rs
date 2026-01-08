@@ -721,8 +721,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
-                assert_eq!(msg, "Invalid fingerprint format", 
-                    "Error message should match API error field: {}", msg);
+                assert_eq!(msg, "Invalid fingerprint format");
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
@@ -756,8 +755,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
-                assert_eq!(msg, "Unknown error", 
-                    "Error message should be 'Unknown error' when API doesn't provide error field: {}", msg);
+                assert_eq!(msg, "Unknown error");
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
