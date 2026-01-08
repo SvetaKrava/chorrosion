@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(event.payload.name, "Updated Artist");
         assert!(!event.payload.monitored);
         let artist_id = ArtistId::new();
-        let payload = ArtistUpdatedPayload { artist_id };
+        let payload = ArtistUpdatedPayload { artist_id, name: "Updated Again".into(), monitored: true };
         let event: ArtistUpdated = DomainEvent::new("artist.updated", payload);
         assert_eq!(event.name, "artist.updated");
         assert_eq!(event.payload.artist_id, artist_id);
@@ -751,7 +751,8 @@ mod tests {
         assert_eq!(event.payload.title, "Updated Album");
         assert!(!event.payload.monitored);
         let album_id = AlbumId::new();
-        let payload = AlbumUpdatedPayload { album_id };
+        let artist_id2 = ArtistId::new();
+        let payload = AlbumUpdatedPayload { album_id, artist_id: artist_id2, title: "Updated Again".into(), monitored: true };
         let event: AlbumUpdated = DomainEvent::new("album.updated", payload);
         assert_eq!(event.name, "album.updated");
         assert_eq!(event.payload.album_id, album_id);
@@ -771,7 +772,9 @@ mod tests {
         assert_eq!(event.name, "track.updated");
         assert_eq!(event.payload.title, "Updated Track");
         let track_id = TrackId::new();
-        let payload = TrackUpdatedPayload { track_id };
+        let album_id2 = AlbumId::new();
+        let artist_id2 = ArtistId::new();
+        let payload = TrackUpdatedPayload { track_id, album_id: album_id2, artist_id: artist_id2, title: "Updated Again".into() };
         let event: TrackUpdated = DomainEvent::new("track.updated", payload);
         assert_eq!(event.name, "track.updated");
         assert_eq!(event.payload.track_id, track_id);
