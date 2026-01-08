@@ -24,7 +24,7 @@ impl InMemoryEventBus {
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().len()
+        self.inner.lock().expect("Failed to acquire lock").len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -33,7 +33,7 @@ impl InMemoryEventBus {
 
     /// Retrieve and clear all captured events
     pub fn drain(&self) -> Vec<serde_json::Value> {
-        let mut guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock().expect("Failed to acquire lock");
         std::mem::take(&mut *guard)
     }
 }
@@ -48,7 +48,7 @@ impl EventPublisher for InMemoryEventBus {
             "occurred_at": event.occurred_at,
             "payload": event.payload,
         });
-        self.inner.lock().unwrap().push(value);
+        self.inner.lock().expect("Failed to acquire lock").push(value);
     }
 }
 
@@ -65,7 +65,7 @@ mod tests {
         let payload = TrackFileImportedPayload {
             track_id: TrackId::new(),
             track_file_id: TrackFileId::new(),
-            path: "X:/music/Artist/Album/01 - Song.flac".to_string(),
+            path: "music/Artist/Album/01 - Song.flac".to_string(),
         };
         let evt: TrackFileImported = DomainEvent::new("track.file.imported", payload);
 
@@ -76,7 +76,7 @@ mod tests {
         assert_eq!(drained.len(), 1);
         let v = &drained[0];
         assert_eq!(v["name"], "track.file.imported");
-        assert!(v["payload"]["path"].as_str().unwrap().ends_with("Song.flac"));
+        assert!(v["payload"]["path"].as_str().expect("Failed to get path").ends_with("Song.flac"));
         assert!(bus.is_empty());
     }
 }
