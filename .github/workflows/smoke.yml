@@ -6,6 +6,10 @@ on:
   push:
     branches: [ "**" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   smoke:
     name: Smoke (build, lint, test, run)
@@ -22,11 +26,16 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
       - name: Build
-        run: cargo build --workspace --all-targets
+        run: cargo build --workspace --all-targets --locked
 
       - name: Clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
         run: cargo test --workspace --all-features --all-targets
@@ -43,15 +52,30 @@ jobs:
           SERVER_PID=$!
 
           # Wait for health to be ready
+          health_ok=false
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:5150/health | grep -q '"status":"ok"'; then
-              echo "health ok"; break
+              echo "health ok"
+              health_ok=true
+              break
             fi
             sleep 1
           done
 
+          if [ "$health_ok" != true ]; then
+            echo "Health check failed after 30 seconds"
+            kill "$SERVER_PID"
+            wait "$SERVER_PID" || true
+            exit 1
+          fi
+
           # Verify OpenAPI JSON served
-          curl -fsS http://127.0.0.1:5150/api-doc/openapi.json | head -c 1 | grep -q '{'
+          if ! curl -fsS http://127.0.0.1:5150/api-doc/openapi.json | head -c 1 | grep -q '{'; then
+            echo "OpenAPI JSON check failed"
+            kill "$SERVER_PID"
+            wait "$SERVER_PID" || true
+            exit 1
+          fi
 
           # Stop server
           kill $SERVER_PID
