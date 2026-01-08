@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
+pub mod events;
 use tracing::info;
 
 #[derive(Clone)]

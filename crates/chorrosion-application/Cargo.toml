@@ -9,3 +9,5 @@ anyhow = { workspace = true }
 chorrosion-config = { path = "../chorrosion-config" }
 chorrosion-domain = { path = "../chorrosion-domain" }
 tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
