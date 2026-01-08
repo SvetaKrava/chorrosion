@@ -9,6 +9,7 @@ pub enum FingerprintError {
     #[error("HTTP request failed: {0}")]
     RequestFailed(#[from] reqwest::Error),
 
+    /// TODO: Use this when audio metadata extraction is implemented for fingerprinting.
     #[error("Failed to extract audio metadata: {0}")]
     AudioMetadataError(String),
 
