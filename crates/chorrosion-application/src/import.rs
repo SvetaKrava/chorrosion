@@ -4,7 +4,9 @@
 //! - Reading file metadata (duration, size, codec, etc.)
 //! - Generating Chromaprint fingerprints for matching
 //! - Creating TrackFile entities with fingerprint data
-//! - Persisting to the database
+//!
+//! Note: This service creates TrackFile entities but does not persist them.
+//! The caller is responsible for saving entities via the TrackFileRepository.
 
 use chorrosion_domain::{TrackFile, TrackId};
 use chorrosion_fingerprint::AcoustidClient;
