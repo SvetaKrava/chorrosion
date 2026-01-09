@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Default Chromaprint algorithm version (v4 is the current standard).
+const DEFAULT_ALGORITHM: u32 = 4;
+
 /// Audio fingerprint (Chromaprint).
 ///
 /// A Chromaprint is a compressed audio fingerprint that can uniquely identify
@@ -19,7 +22,7 @@ pub struct Fingerprint {
 }
 
 fn default_algorithm() -> u32 {
-    4
+    DEFAULT_ALGORITHM
 }
 
 impl Fingerprint {
@@ -28,7 +31,7 @@ impl Fingerprint {
         Self {
             hash: hash.into(),
             duration,
-            algorithm: 4,
+            algorithm: DEFAULT_ALGORITHM,
         }
     }
 
