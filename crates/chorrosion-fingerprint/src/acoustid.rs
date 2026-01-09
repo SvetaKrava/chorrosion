@@ -164,7 +164,7 @@ impl AcoustidClient {
     /// # use chorrosion_fingerprint::{AcoustidClient, Fingerprint};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = AcoustidClient::new("your-api-key")?;
-    /// let fp = Fingerprint::new("AQADvEWZ==", 120);
+    /// let fp = Fingerprint::new("AQADvEWZ==", 120)?;
     /// let matches = client.lookup(&fp, 0.7).await?;
     /// # Ok(())
     /// # }
@@ -354,7 +354,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let matches = client.lookup(&fp, 0.5).await.unwrap();
 
         assert_eq!(matches.len(), 1);
@@ -377,7 +377,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let best = client.lookup_best(&fp, 0.8).await.unwrap();
 
         assert_eq!(best.title, Some("Fake Plastic Trees".to_string()));
@@ -398,7 +398,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         // Set min_score higher than the response score (0.95)
         let matches = client.lookup(&fp, 0.99).await.unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
     #[tokio::test]
     async fn test_acoustid_invalid_min_score() {
         let client = AcoustidClient::new("test-key").unwrap();
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
 
         let result = client.lookup(&fp, 1.5).await;
         assert!(result.is_err());
@@ -463,7 +463,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup_best(&fp, 0.5).await;
 
         // Should return AcoustidError when API returns no results
@@ -503,7 +503,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         // Request min_score of 0.8, but result has 0.6
         let result = client.lookup_best(&fp, 0.8).await;
 
@@ -560,7 +560,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         
         // Test 1: min_score below best match - should succeed with best match
         let result = client.lookup_best(&fp, 0.5).await;
@@ -583,7 +583,7 @@ mod tests {
     #[tokio::test]
     async fn test_acoustid_lookup_best_invalid_min_score() {
         let client = AcoustidClient::new("test-key").unwrap();
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
 
         // Test with min_score > 1.0
         let result = client.lookup_best(&fp, 1.5).await;
@@ -619,7 +619,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         assert!(result.is_err());
@@ -677,7 +677,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         assert!(result.is_err());
@@ -714,7 +714,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         // Should return AcoustidError with the error message from API
@@ -748,7 +748,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         // Should return AcoustidError with default "Unknown error" message
@@ -827,7 +827,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         // If the custom base URL wasn't used, this would fail to connect
@@ -856,7 +856,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
         let result = client.lookup(&fp, 0.5).await;
 
         // Request should timeout
