@@ -2,7 +2,7 @@
 use anyhow::Result;
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
-    Track,
+    Track, TrackFile, TrackId,
 };
 
 // ============================================================================
@@ -83,4 +83,21 @@ pub trait QualityProfileRepository: Repository<QualityProfile> {
 #[async_trait::async_trait]
 pub trait MetadataProfileRepository: Repository<MetadataProfile> {
     async fn get_by_name(&self, name: &str) -> Result<Option<MetadataProfile>>;
+}
+
+/// Track file repository for managing audio files
+#[async_trait::async_trait]
+pub trait TrackFileRepository: Repository<TrackFile> {
+    /// Get all track files for a specific track
+    async fn get_by_track(&self, track_id: TrackId, limit: i64, offset: i64)
+        -> Result<Vec<TrackFile>>;
+    
+    /// Get a track file by its file path
+    async fn get_by_path(&self, path: &str) -> Result<Option<TrackFile>>;
+    
+    /// List track files with fingerprints
+    async fn list_with_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>>;
+    
+    /// List track files without fingerprints (need processing)
+    async fn list_without_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>>;
 }
