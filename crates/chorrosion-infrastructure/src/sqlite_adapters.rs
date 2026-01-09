@@ -1222,8 +1222,6 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         let fingerprint_hash = entity.fingerprint_hash.as_deref();
         let fingerprint_duration = entity.fingerprint_duration.map(|d| d as i64);
         let fingerprint_computed_at = entity.fingerprint_computed_at.map(|dt| dt.to_rfc3339());
-        let updated_at = Utc::now().to_rfc3339();
-
         sqlx::query(q)
             .bind(path_str)
             .bind(size_bytes)
@@ -1235,17 +1233,13 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
             .bind(fingerprint_hash)
             .bind(fingerprint_duration)
             .bind(fingerprint_computed_at.as_deref())
-            .bind(&updated_at)
+            .bind(entity.updated_at.to_rfc3339())
             .bind(&id_str)
             .execute(&self.pool)
             .await?;
 
         debug!(target: "repository", track_file_id = %entity.id, "track file updated successfully");
-        
-        // Return updated entity with new timestamp
-        self.get_by_id(id_str)
-            .await?
-            .ok_or_else(|| anyhow!("Track file disappeared after update"))
+        Ok(entity)
     }
 
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
