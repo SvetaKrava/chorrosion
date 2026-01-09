@@ -30,10 +30,6 @@ pub enum ImportError {
     #[error("Failed to persist to database: {0}")]
     DatabaseError(String),
 
-    /// Invalid file path
-    #[error("Invalid file path: {0}")]
-    InvalidPath(String),
-
     /// File does not exist
     #[error("File does not exist: {0}")]
     FileNotFound(String),
