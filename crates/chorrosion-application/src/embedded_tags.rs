@@ -52,14 +52,14 @@ mod tests {
 
     #[tokio::test]
     async fn returns_file_not_found_error() {
-        let svc = EmbeddedTagMatchingService::default();
+        let svc = EmbeddedTagMatchingService;
         let result = svc.match_from_file("does_not_exist.mp3").await;
         assert!(matches!(result, Err(EmbeddedTagError::FileNotFound(_))));
     }
 
     #[tokio::test]
     async fn returns_not_implemented_for_existing_file() {
-        let svc = EmbeddedTagMatchingService::default();
+        let svc = EmbeddedTagMatchingService;
         let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
         let result = svc.match_from_file(test_file).await;
         assert!(matches!(result, Err(EmbeddedTagError::NotImplemented)));
