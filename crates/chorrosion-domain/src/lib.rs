@@ -212,11 +212,13 @@ impl ReleaseDate {
         let s = s.trim();
         
         // Try ISO 8601 datetime formats first (with timezone)
-        if s.contains('T') || s.contains('Z') || s.contains('+') && s.len() > 10 {
+        if (s.contains('T') || s.contains('Z') || s.contains('+')) && s.len() > 10 {
             if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
                 let date = dt.date_naive();
+                let year = date.year();
+                Self::validate_year(year)?;
                 return Some(Self {
-                    year: date.year(),
+                    year,
                     month: Some(date.month()),
                     day: Some(date.day()),
                 });
@@ -224,8 +226,10 @@ impl ReleaseDate {
             // Try parsing as UTC datetime
             if let Ok(dt) = s.parse::<DateTime<Utc>>() {
                 let date = dt.date_naive();
+                let year = date.year();
+                Self::validate_year(year)?;
                 return Some(Self {
-                    year: date.year(),
+                    year,
                     month: Some(date.month()),
                     day: Some(date.day()),
                 });
@@ -824,6 +828,11 @@ mod tests {
         assert_eq!(dt_neg.year, 2024);
         assert_eq!(dt_neg.month, Some(1));
         assert_eq!(dt_neg.day, Some(1));
+
+        // Year validation for RFC3339 formats (outside valid range should fail)
+        assert!(ReleaseDate::parse_str("1850-01-01T00:00:00Z").is_none());
+        assert!(ReleaseDate::parse_str("2150-12-31T23:59:59Z").is_none());
+
     }
 
     #[test]
