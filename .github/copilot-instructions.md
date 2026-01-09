@@ -114,7 +114,19 @@ Notes for agents
 - Open a Pull Request to merge into `main`; squash-merge is preferred.
 - PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), and reference the related issue (e.g., `Closes #23`).
 - PR↔Issue linkage: PRs must link the related issue using closing keywords (`Closes`/`Fixes`/`Resolves #<issue>`), and the issue should reference the PR once opened.
+- **PR creation checklist:**
+  - Link related issues using closing keywords in PR body (e.g., `Closes #28`)
+  - Add cross-references to related PRs when relevant (e.g., `Builds on #80`)
+  - Assign the appropriate milestone (Phase 1, Phase 2, etc.) to track progress
+  - Ensure PR title is descriptive and references the issue number
 - Keep changes focused and incremental; update `ROADMAP.md` and docs as needed.
 - Follow cross-platform rules; do not introduce OS-specific behavior.
 
-Last Updated: 2026-01-08
+## ROADMAP Management
+- **Keep ROADMAP.md current:** When merging PRs, ensure the ROADMAP is updated to reflect completed work.
+- Mark completed items with `[x]` and add `✓` suffix (e.g., `[x] Feature XYZ (Issue #N) ✓`).
+- Update multiple sections if the work spans phases (e.g., Phase 2 and Phase 5).
+- Add GitHub cross-references between related issues and PRs for traceability.
+- When starting new work, verify ROADMAP reflects current status before creating PRs.
+
+Last Updated: 2026-01-09
