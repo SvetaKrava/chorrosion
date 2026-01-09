@@ -349,6 +349,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "chorrosion-fingerprint"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "chorrosion-infrastructure"
 version = "0.1.0"
 dependencies = [

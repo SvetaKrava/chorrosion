@@ -5,6 +5,7 @@ members = [
     "crates/chorrosion-application",
     "crates/chorrosion-infrastructure",
     "crates/chorrosion-musicbrainz",
+    "crates/chorrosion-fingerprint",
     "crates/chorrosion-realtime",
     "crates/chorrosion-scheduler",
     "crates/chorrosion-api",
