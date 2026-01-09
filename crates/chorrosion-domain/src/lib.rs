@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use std::path::{Path, PathBuf};
@@ -199,37 +199,151 @@ impl ReleaseDate {
         }
     }
 
+    /// Parse a date string in various formats.
+    ///
+    /// Supported formats:
+    /// - Year only: `2024`, `"2024"`
+    /// - Year-Month: `2024-12`, `2024/12`, `202412`
+    /// - Full date: `2024-12-31`, `2024/12/31`, `20241231`
+    /// - ISO 8601 with timezone: `2024-12-31T00:00:00Z`, `2024-12-31T12:34:56+00:00`
+    ///
+    /// Returns `None` if the string cannot be parsed or contains invalid date values.
     pub fn parse_str(s: &str) -> Option<Self> {
-        // Accepts YYYY, YYYY-MM, YYYY-MM-DD
-        let parts: Vec<&str> = s.split('-').collect();
+        let s = s.trim();
+        
+        // Try ISO 8601 datetime formats first (with timezone)
+        if (s.contains('T') || s.contains('Z') || s.contains('+')) && s.len() > 10 {
+            if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+                let date = dt.date_naive();
+                let year = date.year();
+                Self::validate_year(year)?;
+                return Some(Self {
+                    year,
+                    month: Some(date.month()),
+                    day: Some(date.day()),
+                });
+            }
+            // Try parsing as UTC datetime
+            if let Ok(dt) = s.parse::<DateTime<Utc>>() {
+                let date = dt.date_naive();
+                let year = date.year();
+                Self::validate_year(year)?;
+                return Some(Self {
+                    year,
+                    month: Some(date.month()),
+                    day: Some(date.day()),
+                });
+            }
+        }
+
+        // Try compact format (YYYYMMDD, YYYYMM, or YYYY)
+        if !s.contains('-') && !s.contains('/') {
+            return Self::parse_compact(s);
+        }
+
+        // Try delimited formats (YYYY-MM-DD or YYYY/MM/DD)
+        let delimiter = if s.contains('-') { '-' } else if s.contains('/') { '/' } else { return None; };
+        let parts: Vec<&str> = s.split(delimiter).collect();
+        
         match parts.len() {
             1 => {
+                // Year only
                 let year = parts[0].parse().ok()?;
+                Self::validate_year(year)?;
                 Some(Self { year, month: None, day: None })
             }
             2 => {
+                // Year-Month
                 let year = parts[0].parse().ok()?;
                 let month: u32 = parts[1].parse().ok()?;
-                if !(1..=12).contains(&month) { return None; }
+                Self::validate_year(year)?;
+                Self::validate_month(month)?;
                 Some(Self { year, month: Some(month), day: None })
             }
             3 => {
+                // Full date
                 let year = parts[0].parse().ok()?;
                 let month: u32 = parts[1].parse().ok()?;
                 let day: u32 = parts[2].parse().ok()?;
-                if !(1..=12).contains(&month) { return None; }
-                if !(1..=31).contains(&day) { return None; }
+                Self::validate_year(year)?;
+                Self::validate_month(month)?;
+                Self::validate_day(year, month, day)?;
                 Some(Self { year, month: Some(month), day: Some(day) })
             }
             _ => None,
         }
     }
 
+    /// Parse compact date formats (YYYYMMDD or YYYYMM)
+    fn parse_compact(s: &str) -> Option<Self> {
+        match s.len() {
+            4 => {
+                // Year only (YYYY)
+                let year = s.parse().ok()?;
+                Self::validate_year(year)?;
+                Some(Self { year, month: None, day: None })
+            }
+            6 => {
+                // YYYYMM
+                let year = s[0..4].parse().ok()?;
+                let month = s[4..6].parse().ok()?;
+                Self::validate_year(year)?;
+                Self::validate_month(month)?;
+                Some(Self { year, month: Some(month), day: None })
+            }
+            8 => {
+                // YYYYMMDD
+                let year = s[0..4].parse().ok()?;
+                let month = s[4..6].parse().ok()?;
+                let day = s[6..8].parse().ok()?;
+                Self::validate_year(year)?;
+                Self::validate_month(month)?;
+                Self::validate_day(year, month, day)?;
+                Some(Self { year, month: Some(month), day: Some(day) })
+            }
+            _ => None,
+        }
+    }
+
+    /// Validate year (reasonable range: 1900-2100)
+    fn validate_year(year: i32) -> Option<()> {
+        if (1900..=2100).contains(&year) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    /// Validate month (1-12)
+    fn validate_month(month: u32) -> Option<()> {
+        if (1..=12).contains(&month) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    /// Validate day using chrono's date validation (handles leap years, month lengths)
+    fn validate_day(year: i32, month: u32, day: u32) -> Option<()> {
+        NaiveDate::from_ymd_opt(year, month, day)?;
+        Some(())
+    }
+
+    /// Convert to a NaiveDate, using the first of the month/year when precision is lower
     pub fn to_naive_date_opt(&self) -> Option<NaiveDate> {
         match (self.month, self.day) {
             (Some(m), Some(d)) => NaiveDate::from_ymd_opt(self.year, m, d),
             (Some(m), None) => NaiveDate::from_ymd_opt(self.year, m, 1),
             (None, _) => NaiveDate::from_ymd_opt(self.year, 1, 1),
+        }
+    }
+
+    /// Convert to ISO 8601 string representation
+    pub fn to_iso8601(&self) -> String {
+        match (self.month, self.day) {
+            (Some(m), Some(d)) => format!("{:04}-{:02}-{:02}", self.year, m, d),
+            (Some(m), None) => format!("{:04}-{:02}", self.year, m),
+            (None, _) => format!("{:04}", self.year),
         }
     }
 }
@@ -662,6 +776,155 @@ mod tests {
         let ymd = ReleaseDate::parse_str("2024-12-31").unwrap();
         assert_eq!(ymd.precision(), ReleaseDatePrecision::Day);
         assert_eq!(ymd.to_naive_date_opt(), NaiveDate::from_ymd_opt(2024, 12, 31));
+    }
+
+    #[test]
+    fn release_date_parse_various_formats() {
+        // Slash delimiters
+        let d = ReleaseDate::parse_str("2024/12/31").unwrap();
+        assert_eq!(d.year, 2024);
+        assert_eq!(d.month, Some(12));
+        assert_eq!(d.day, Some(31));
+
+        // Year-month with slash
+        let ym = ReleaseDate::parse_str("2024/06").unwrap();
+        assert_eq!(ym.year, 2024);
+        assert_eq!(ym.month, Some(6));
+        assert_eq!(ym.day, None);
+
+        // Compact formats
+        let compact_full = ReleaseDate::parse_str("20241231").unwrap();
+        assert_eq!(compact_full.year, 2024);
+        assert_eq!(compact_full.month, Some(12));
+        assert_eq!(compact_full.day, Some(31));
+
+        let compact_ym = ReleaseDate::parse_str("202406").unwrap();
+        assert_eq!(compact_ym.year, 2024);
+        assert_eq!(compact_ym.month, Some(6));
+        assert_eq!(compact_ym.day, None);
+
+        let compact_y = ReleaseDate::parse_str("2024").unwrap();
+        assert_eq!(compact_y.year, 2024);
+        assert_eq!(compact_y.month, None);
+        assert_eq!(compact_y.day, None);
+    }
+
+    #[test]
+    fn release_date_parse_iso8601_with_timezone() {
+        // RFC3339 format with timezone
+        let dt = ReleaseDate::parse_str("2024-12-31T23:59:59Z").unwrap();
+        assert_eq!(dt.year, 2024);
+        assert_eq!(dt.month, Some(12));
+        assert_eq!(dt.day, Some(31));
+
+        // With offset
+        let dt_offset = ReleaseDate::parse_str("2024-06-15T12:34:56+02:00").unwrap();
+        assert_eq!(dt_offset.year, 2024);
+        assert_eq!(dt_offset.month, Some(6));
+        assert_eq!(dt_offset.day, Some(15));
+
+        // Negative offset
+        let dt_neg = ReleaseDate::parse_str("2024-01-01T00:00:00-05:00").unwrap();
+        assert_eq!(dt_neg.year, 2024);
+        assert_eq!(dt_neg.month, Some(1));
+        assert_eq!(dt_neg.day, Some(1));
+
+        // Year validation for RFC3339 formats (outside valid range should fail)
+        assert!(ReleaseDate::parse_str("1850-01-01T00:00:00Z").is_none());
+        assert!(ReleaseDate::parse_str("2150-12-31T23:59:59Z").is_none());
+
+    }
+
+    #[test]
+    fn release_date_validation() {
+        // Invalid month
+        assert!(ReleaseDate::parse_str("2024-13").is_none());
+        assert!(ReleaseDate::parse_str("2024-00").is_none());
+
+        // Invalid day (February 30th)
+        assert!(ReleaseDate::parse_str("2024-02-30").is_none());
+        
+        // Invalid day (April 31st)
+        assert!(ReleaseDate::parse_str("2024-04-31").is_none());
+
+        // Invalid day (day 32)
+        assert!(ReleaseDate::parse_str("2024-01-32").is_none());
+
+        // Invalid year (too old)
+        assert!(ReleaseDate::parse_str("1899-01-01").is_none());
+        
+        // Invalid year (too far future)
+        assert!(ReleaseDate::parse_str("2101-01-01").is_none());
+    }
+
+    #[test]
+    fn release_date_leap_year_handling() {
+        // Valid leap year (2024 is a leap year)
+        let leap = ReleaseDate::parse_str("2024-02-29").unwrap();
+        assert_eq!(leap.day, Some(29));
+
+        // Invalid leap year date (2023 is not a leap year)
+        assert!(ReleaseDate::parse_str("2023-02-29").is_none());
+
+        // Valid non-leap year
+        let non_leap = ReleaseDate::parse_str("2023-02-28").unwrap();
+        assert_eq!(non_leap.day, Some(28));
+    }
+
+    #[test]
+    fn release_date_to_iso8601() {
+        let y = ReleaseDate::new(2024, None, None);
+        assert_eq!(y.to_iso8601(), "2024");
+
+        let ym = ReleaseDate::new(2024, Some(6), None);
+        assert_eq!(ym.to_iso8601(), "2024-06");
+
+        let ymd = ReleaseDate::new(2024, Some(12), Some(31));
+        assert_eq!(ymd.to_iso8601(), "2024-12-31");
+    }
+
+    #[test]
+    fn release_date_whitespace_trimming() {
+        let d = ReleaseDate::parse_str("  2024-12-31  ").unwrap();
+        assert_eq!(d.year, 2024);
+        assert_eq!(d.month, Some(12));
+        assert_eq!(d.day, Some(31));
+
+        let y = ReleaseDate::parse_str(" 2024 ").unwrap();
+        assert_eq!(y.year, 2024);
+    }
+
+    #[test]
+    fn release_date_invalid_formats() {
+        // Empty string
+        assert!(ReleaseDate::parse_str("").is_none());
+        
+        // Invalid separators
+        assert!(ReleaseDate::parse_str("2024.12.31").is_none());
+        
+        // Too many parts
+        assert!(ReleaseDate::parse_str("2024-12-31-01").is_none());
+        
+        // Non-numeric
+        assert!(ReleaseDate::parse_str("abcd-ef-gh").is_none());
+        
+        // Partial numeric
+        assert!(ReleaseDate::parse_str("2024-1a").is_none());
+    }
+
+    #[test]
+    fn release_date_edge_cases() {
+        // Century boundaries
+        let y2k = ReleaseDate::parse_str("2000-01-01").unwrap();
+        assert_eq!(y2k.year, 2000);
+
+        // Minimum valid year
+        let min = ReleaseDate::parse_str("1900-01-01").unwrap();
+        assert_eq!(min.year, 1900);
+
+        // Maximum valid year
+        let max = ReleaseDate::parse_str("2100-12-31").unwrap();
+        assert_eq!(max.year, 2100);
     }
 
     #[test]
