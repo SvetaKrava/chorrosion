@@ -43,7 +43,7 @@ All core data layer repositories complete with comprehensive CRUD operations, sp
 - [x] Implement domain events for state changes
 - [x] Add file path generation logic
 - [x] Implement track file model with quality info
-- [x] Add release date handling and parsing
+- [x] Add release date handling and parsing ✓ (Issue #23)
 
 All Phase 1.2 domain enhancements complete: validation traits, event bus with Artist/Album/Track/TrackFile events, ReleaseDate parsing, path generation utilities, and TrackFile model.
 
@@ -286,7 +286,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 7.2 Calendar
 
 - [ ] Upcoming releases calendar
-- - [ ] Release date tracking
+- [ ] Release date tracking
   - [ ] Calendar API endpoints
   - [ ] iCal feed support
 
