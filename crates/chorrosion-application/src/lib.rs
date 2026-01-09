@@ -7,7 +7,7 @@ pub mod embedded_tags;
 
 pub use matching::{TrackMatchingService, MatchResult, MatchingError, MatchingResult};
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
-pub use embedded_tags::{EmbeddedTagMatchingService, EmbeddedTagError};
+pub use embedded_tags::{EmbeddedTagMatchingService, EmbeddedTagError, EmbeddedTagResult};
 
 use tracing::info;
 

@@ -24,6 +24,9 @@ pub enum EmbeddedTagError {
     NotImplemented,
 }
 
+/// Result type used throughout the embedded tag matching module.
+pub type EmbeddedTagResult<T> = Result<T, EmbeddedTagError>;
+
 /// Fallback matching using embedded tags in audio files.
 #[derive(Default, Clone)]
 pub struct EmbeddedTagMatchingService;
@@ -32,7 +35,7 @@ impl EmbeddedTagMatchingService {
     /// Attempt to match using embedded tags from the given file path.
     ///
     /// Returns `Ok(None)` when no match can be determined.
-    pub async fn match_from_file(&self, path: impl AsRef<Path>) -> Result<Option<MatchResult>, EmbeddedTagError> {
+    pub async fn match_from_file(&self, path: impl AsRef<Path>) -> EmbeddedTagResult<Option<MatchResult>> {
         let path = path.as_ref();
         debug!(target = "matching", path = %path.display(), "embedded tag matching invoked");
 
