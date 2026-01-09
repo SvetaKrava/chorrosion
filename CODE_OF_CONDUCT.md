@@ -44,6 +44,7 @@ Consequences for unacceptable behavior may include temporary or permanent bans f
 
 ## Attribution
 
-This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1, available at https://www.contributor-covenant.org/version/2/1/code_of_conduct.md.
+This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1, available at <https://www.contributor-covenant.org/version/2/1/code_of_conduct.md>.
 
-_Last updated: 2026-01-09_
+> [!NOTE]
+> Last updated: 2026-01-09
