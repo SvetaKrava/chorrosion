@@ -65,7 +65,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Resolve via AcoustID to MusicBrainz IDs (MBIDs) ✓ (Issue #25)
     - [x] Confidence thresholds and tie-breakers ✓
     - [x] Database schema for fingerprint storage (Issue #66) ✓
-    - [ ] File import integration with fingerprint generation (Issue #67)
+    - [x] File import integration with fingerprint generation (Issue #67) ✓
     - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓
     - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
   - [ ] Fallback matching using embedded tags, then filename heuristics
@@ -169,14 +169,14 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 - [ ] File scanning and detection
 - [ ] Track file parsing (tags, duration, bitrate)
-- [ ] **Fingerprint generation during import** (Issue #67)
-  - [ ] Generate Chromaprint fingerprint
-  - [ ] Cache in database (Issue #66)
-  - [ ] Store in TrackFile domain model
+- [x] **Fingerprint generation during import** (Issue #67) ✓
+  - [x] Generate Chromaprint fingerprint ✓
+  - [x] Cache in database (Issue #66) ✓
+  - [x] Store in TrackFile domain model ✓
 - [ ] File matching algorithm
-  - [ ] **Primary: Fingerprint-based lookup** (Issue #68)
-    - [ ] Query AcoustID with fingerprint
-    - [ ] Link to MusicBrainz recording
+  - [x] **Primary: Fingerprint-based lookup** (Issue #68) ✓
+    - [x] Query AcoustID with fingerprint ✓
+    - [x] Link to MusicBrainz recording ✓
     - [ ] Link to artist/album via recording
   - [ ] Fallback: Embedded tag matching (Issue #28)
   - [ ] Fallback: Filename heuristics (Phase TBD)

@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, ProfileId,
-    QualityProfile, Track,
+    QualityProfile, Track, TrackFile, TrackFileId, TrackId,
 };
 use sqlx::SqlitePool;
 use sqlx::Row;
@@ -12,7 +12,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::repositories::{
     AlbumRepository, ArtistRepository, MetadataProfileRepository, QualityProfileRepository,
-    Repository, TrackRepository,
+    Repository, TrackRepository, TrackFileRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -1061,6 +1061,268 @@ impl MetadataProfileRepository for SqliteMetadataProfileRepository {
         } else {
             Ok(None)
         }
+    }
+}
+
+// ============================================================================
+// TrackFile Repository (SQLite)
+// ============================================================================
+
+/// SQLx-backed TrackFile repository
+pub struct SqliteTrackFileRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteTrackFileRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+/// Helper to convert a SQLx row to a TrackFile domain entity
+fn row_to_track_file(row: &sqlx::sqlite::SqliteRow) -> Result<TrackFile> {
+    let id_str: String = row.try_get("id")?;
+    let track_id_str: String = row.try_get("track_id")?;
+    let path_str: String = row.try_get("path")?;
+    let size_bytes: i64 = row.try_get("size_bytes")?;
+    let duration_ms: Option<i64> = row.try_get("duration_ms")?;
+    let bitrate_kbps: Option<i64> = row.try_get("bitrate_kbps")?;
+    let channels: Option<i64> = row.try_get("channels")?;
+    let codec: Option<String> = row.try_get("codec")?;
+    let hash: Option<String> = row.try_get("hash")?;
+    let fingerprint_hash: Option<String> = row.try_get("fingerprint_hash")?;
+    let fingerprint_duration: Option<i64> = row.try_get("fingerprint_duration")?;
+    let fingerprint_computed_at: Option<String> = row.try_get("fingerprint_computed_at")?;
+    let created_at: String = row.try_get("created_at")?;
+    let updated_at: String = row.try_get("updated_at")?;
+
+    Ok(TrackFile {
+        id: TrackFileId(Uuid::parse_str(&id_str).map_err(|e| anyhow!("Invalid UUID: {}", e))?),
+        track_id: TrackId(Uuid::parse_str(&track_id_str).map_err(|e| anyhow!("Invalid track UUID: {}", e))?),
+        path: path_str,
+        size_bytes: size_bytes as u64,
+        duration_ms: duration_ms.map(|d| d as u32),
+        bitrate_kbps: bitrate_kbps.map(|b| b as u32),
+        channels: channels.map(|c| c as u8),
+        codec,
+        hash,
+        fingerprint_hash,
+        fingerprint_duration: fingerprint_duration.map(|d| d as u32),
+        fingerprint_computed_at: fingerprint_computed_at
+            .map(|s| DateTime::parse_from_rfc3339(&s).map(|dt| dt.with_timezone(&Utc)))
+            .transpose()
+            .map_err(|e| anyhow!("Invalid fingerprint_computed_at timestamp: {}", e))?,
+        created_at: DateTime::parse_from_rfc3339(&created_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|e| anyhow!("Invalid created_at: {}", e))?,
+        updated_at: DateTime::parse_from_rfc3339(&updated_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|e| anyhow!("Invalid updated_at: {}", e))?,
+    })
+}
+
+#[async_trait::async_trait]
+impl Repository<TrackFile> for SqliteTrackFileRepository {
+    async fn create(&self, entity: TrackFile) -> Result<TrackFile> {
+        debug!(target: "repository", track_file_id = %entity.id, "creating track file");
+        
+        let q = r#"
+            INSERT INTO track_files (
+                id, track_id, path, size_bytes, duration_ms, bitrate_kbps,
+                channels, codec, hash, fingerprint_hash, fingerprint_duration,
+                fingerprint_computed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let id_str = entity.id.to_string();
+        let track_id_str = entity.track_id.to_string();
+        let path_str = &entity.path;
+        let size_bytes = entity.size_bytes as i64;
+        let duration_ms = entity.duration_ms.map(|d| d as i64);
+        let bitrate_kbps = entity.bitrate_kbps.map(|b| b as i64);
+        let channels = entity.channels.map(|c| c as i64);
+        let codec = entity.codec.as_deref();
+        let hash = entity.hash.as_deref();
+        let fingerprint_hash = entity.fingerprint_hash.as_deref();
+        let fingerprint_duration = entity.fingerprint_duration.map(|d| d as i64);
+        let fingerprint_computed_at = entity.fingerprint_computed_at.map(|dt| dt.to_rfc3339());
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(&id_str)
+            .bind(&track_id_str)
+            .bind(path_str)
+            .bind(size_bytes)
+            .bind(duration_ms)
+            .bind(bitrate_kbps)
+            .bind(channels)
+            .bind(codec)
+            .bind(hash)
+            .bind(fingerprint_hash)
+            .bind(fingerprint_duration)
+            .bind(fingerprint_computed_at.as_deref())
+            .bind(&created_at)
+            .bind(&updated_at)
+            .execute(&self.pool)
+            .await?;
+
+        debug!(target: "repository", track_file_id = %entity.id, "track file created successfully");
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<TrackFile>> {
+        let id_str = id.into();
+        debug!(target: "repository", track_file_id = %id_str, "fetching track file by id");
+        
+        let q = "SELECT * FROM track_files WHERE id = ?";
+        let row = sqlx::query(q)
+            .bind(&id_str)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        match row {
+            Some(r) => Ok(Some(row_to_track_file(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
+        debug!(target: "repository", limit, offset, "listing track files");
+        
+        let q = "SELECT * FROM track_files ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let rows = sqlx::query(q)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.iter().map(row_to_track_file).collect()
+    }
+
+    async fn update(&self, entity: TrackFile) -> Result<TrackFile> {
+        debug!(target: "repository", track_file_id = %entity.id, "updating track file");
+        
+        let q = r#"
+            UPDATE track_files SET
+                path = ?, size_bytes = ?, duration_ms = ?, bitrate_kbps = ?,
+                channels = ?, codec = ?, hash = ?, fingerprint_hash = ?,
+                fingerprint_duration = ?, fingerprint_computed_at = ?, updated_at = ?
+            WHERE id = ?
+        "#;
+
+        let id_str = entity.id.to_string();
+        let path_str = &entity.path;
+        let size_bytes = entity.size_bytes as i64;
+        let duration_ms = entity.duration_ms.map(|d| d as i64);
+        let bitrate_kbps = entity.bitrate_kbps.map(|b| b as i64);
+        let channels = entity.channels.map(|c| c as i64);
+        let codec = entity.codec.as_deref();
+        let hash = entity.hash.as_deref();
+        let fingerprint_hash = entity.fingerprint_hash.as_deref();
+        let fingerprint_duration = entity.fingerprint_duration.map(|d| d as i64);
+        let fingerprint_computed_at = entity.fingerprint_computed_at.map(|dt| dt.to_rfc3339());
+        let updated_at = Utc::now().to_rfc3339();
+
+        sqlx::query(q)
+            .bind(path_str)
+            .bind(size_bytes)
+            .bind(duration_ms)
+            .bind(bitrate_kbps)
+            .bind(channels)
+            .bind(codec)
+            .bind(hash)
+            .bind(fingerprint_hash)
+            .bind(fingerprint_duration)
+            .bind(fingerprint_computed_at.as_deref())
+            .bind(&updated_at)
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+
+        debug!(target: "repository", track_file_id = %entity.id, "track file updated successfully");
+        
+        // Return updated entity with new timestamp
+        self.get_by_id(id_str)
+            .await?
+            .ok_or_else(|| anyhow!("Track file disappeared after update"))
+    }
+
+    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+        let id_str = id.into();
+        debug!(target: "repository", track_file_id = %id_str, "deleting track file");
+        
+        let q = "DELETE FROM track_files WHERE id = ?";
+        sqlx::query(q)
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+
+        debug!(target: "repository", track_file_id = %id_str, "track file deleted successfully");
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl TrackFileRepository for SqliteTrackFileRepository {
+    async fn get_by_track(
+        &self,
+        track_id: TrackId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackFile>> {
+        debug!(target: "repository", track_id = %track_id, limit, offset, "fetching track files by track");
+        
+        let q = "SELECT * FROM track_files WHERE track_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let rows = sqlx::query(q)
+            .bind(track_id.to_string())
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.iter().map(row_to_track_file).collect()
+    }
+
+    async fn get_by_path(&self, path: &str) -> Result<Option<TrackFile>> {
+        debug!(target: "repository", path, "fetching track file by path");
+        
+        let q = "SELECT * FROM track_files WHERE path = ?";
+        let row = sqlx::query(q)
+            .bind(path)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        match row {
+            Some(r) => Ok(Some(row_to_track_file(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_with_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
+        debug!(target: "repository", limit, offset, "listing track files with fingerprints");
+        
+        let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NOT NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let rows = sqlx::query(q)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.iter().map(row_to_track_file).collect()
+    }
+
+    async fn list_without_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
+        debug!(target: "repository", limit, offset, "listing track files without fingerprints");
+        
+        let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let rows = sqlx::query(q)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.iter().map(row_to_track_file).collect()
     }
 }
 

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 pub mod events;
+pub mod import;
 pub mod matching;
 
 pub use matching::{TrackMatchingService, MatchResult, MatchingError, MatchingResult};
+pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
 
 use tracing::info;
 
