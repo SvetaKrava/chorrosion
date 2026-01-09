@@ -26,8 +26,36 @@ fn default_algorithm() -> u32 {
 }
 
 impl Fingerprint {
-    /// Create a new fingerprint.
-    pub fn new(hash: impl Into<String>, duration: u32) -> Self {
+    /// Create a new fingerprint with validation.
+    ///
+    /// This method validates the fingerprint hash and duration before creating the instance.
+    /// If you need to create a fingerprint without validation (e.g., in tests), use `new_unchecked()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The hash is empty
+    /// - The duration is 0
+    /// - The hash contains invalid base64 characters
+    /// - The hash has incorrect base64 padding
+    pub fn new(hash: impl Into<String>, duration: u32) -> crate::Result<Self> {
+        let fingerprint = Self {
+            hash: hash.into(),
+            duration,
+            algorithm: DEFAULT_ALGORITHM,
+        };
+        fingerprint.validate()?;
+        Ok(fingerprint)
+    }
+
+    /// Create a new fingerprint without validation.
+    ///
+    /// This method creates a fingerprint without validating the hash or duration.
+    /// Use this only when you're certain the data is valid, such as in tests or when
+    /// the data has already been validated.
+    ///
+    /// For production code, prefer `new()` which validates the input.
+    pub fn new_unchecked(hash: impl Into<String>, duration: u32) -> Self {
         Self {
             hash: hash.into(),
             duration,
@@ -90,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_fingerprint_creation() {
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new("AQADvEWZ==", 120).unwrap();
         assert_eq!(fp.hash, "AQADvEWZ==");
         assert_eq!(fp.duration, 120);
         assert_eq!(fp.algorithm, 4);
@@ -98,53 +126,62 @@ mod tests {
 
     #[test]
     fn test_fingerprint_validation_valid() {
-        let fp = Fingerprint::new("AQADvEWZ==", 120);
+        let fp = Fingerprint::new("AQADvEWZ==", 120).unwrap();
         assert!(fp.validate().is_ok());
     }
 
     #[test]
-    fn test_fingerprint_validation_empty_hash() {
-        let fp = Fingerprint::new("", 120);
-        assert!(fp.validate().is_err());
+    fn test_fingerprint_new_rejects_empty_hash() {
+        let result = Fingerprint::new("", 120);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_fingerprint_validation_zero_duration() {
-        let fp = Fingerprint::new("AQADvEWZ==", 0);
-        assert!(fp.validate().is_err());
+    fn test_fingerprint_new_rejects_zero_duration() {
+        let result = Fingerprint::new("AQADvEWZ==", 0);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_fingerprint_validation_invalid_chars() {
-        let fp = Fingerprint::new("AQADv!WZ==", 120);
-        assert!(fp.validate().is_err());
+    fn test_fingerprint_new_rejects_invalid_chars() {
+        let result = Fingerprint::new("AQADv!WZ==", 120);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_fingerprint_validation_padding_in_middle() {
+    fn test_fingerprint_new_rejects_padding_in_middle() {
         // = should only appear at the end, not in the middle
-        let fp = Fingerprint::new("AQAD=vEWZ", 120);
-        assert!(fp.validate().is_err());
+        let result = Fingerprint::new("AQAD=vEWZ", 120);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_fingerprint_validation_valid_no_padding() {
+    fn test_fingerprint_new_accepts_valid_no_padding() {
         // Valid base64 without padding
-        let fp = Fingerprint::new("AQADvEWZ", 120);
+        let fp = Fingerprint::new("AQADvEWZ", 120).unwrap();
         assert!(fp.validate().is_ok());
     }
 
     #[test]
-    fn test_fingerprint_validation_valid_single_padding() {
+    fn test_fingerprint_new_accepts_valid_single_padding() {
         // Valid base64 with single = padding
-        let fp = Fingerprint::new("AQADvEWZ=", 120);
+        let fp = Fingerprint::new("AQADvEWZ=", 120).unwrap();
         assert!(fp.validate().is_ok());
     }
 
     #[test]
-    fn test_fingerprint_validation_excessive_padding() {
+    fn test_fingerprint_new_rejects_excessive_padding() {
         // Invalid: too many padding characters (more than 2)
-        let fp = Fingerprint::new("AQADvEWZ===", 120);
+        let result = Fingerprint::new("AQADvEWZ===", 120);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fingerprint_new_unchecked() {
+        // new_unchecked should allow creating invalid fingerprints
+        let fp = Fingerprint::new_unchecked("", 0);
+        assert_eq!(fp.hash, "");
+        assert_eq!(fp.duration, 0);
         assert!(fp.validate().is_err());
     }
 }
