@@ -302,6 +302,8 @@ fn row_to_track(row: &sqlx::sqlite::SqliteRow) -> Result<Track> {
     let duration_ms: Option<i32> = row.try_get("duration_ms")?;
     let has_file: bool = row.try_get("has_file")?;
     let monitored: bool = row.try_get("monitored")?;
+    let musicbrainz_recording_id: Option<String> = row.try_get("musicbrainz_recording_id")?;
+    let match_confidence: Option<f64> = row.try_get("match_confidence")?;
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
@@ -315,6 +317,8 @@ fn row_to_track(row: &sqlx::sqlite::SqliteRow) -> Result<Track> {
         duration_ms: duration_ms.map(|n| n as u32),
         has_file,
         monitored,
+        musicbrainz_recording_id,
+        match_confidence: match_confidence.map(|s| s as f32),
         created_at: parse_dt(created_at_s)?,
         updated_at: parse_dt(updated_at_s)?,
     })

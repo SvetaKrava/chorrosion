@@ -64,9 +64,9 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [ ] Generate audio fingerprints during import/scan (Issue #65)
     - [x] Resolve via AcoustID to MusicBrainz IDs (MBIDs) ✓ (Issue #25)
     - [x] Confidence thresholds and tie-breakers ✓
-    - [ ] Database schema for fingerprint storage (Issue #66)
+    - [x] Database schema for fingerprint storage (Issue #66) ✓
     - [ ] File import integration with fingerprint generation (Issue #67)
-    - [ ] Primary matching engine: fingerprint lookup + MBID linking (Issue #68)
+    - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓
     - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
   - [ ] Fallback matching using embedded tags, then filename heuristics
 - [ ] Metadata refresh jobs

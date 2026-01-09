@@ -313,6 +313,8 @@ pub struct Track {
     pub duration_ms: Option<u32>,
     pub has_file: bool,
     pub monitored: bool,
+    pub musicbrainz_recording_id: Option<String>,
+    pub match_confidence: Option<f32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -330,6 +332,8 @@ impl Track {
             duration_ms: None,
             has_file: false,
             monitored: true,
+            musicbrainz_recording_id: None,
+            match_confidence: None,
             created_at: now,
             updated_at: now,
         }
@@ -403,6 +407,9 @@ pub struct TrackFile {
     pub channels: Option<u8>,
     pub codec: Option<String>,
     pub hash: Option<String>,
+    pub fingerprint_hash: Option<String>,
+    pub fingerprint_duration: Option<u32>,
+    pub fingerprint_computed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -420,6 +427,9 @@ impl TrackFile {
             channels: None,
             codec: None,
             hash: None,
+            fingerprint_hash: None,
+            fingerprint_duration: None,
+            fingerprint_computed_at: None,
             created_at: now,
             updated_at: now,
         }
