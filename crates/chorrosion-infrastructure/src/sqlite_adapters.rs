@@ -2319,5 +2319,252 @@ mod tests {
         assert!(fetched.secondary_album_types.is_empty());
         assert!(fetched.release_statuses.is_empty());
     }
-}
 
+    // ========================================================================
+    // TrackFile Repository Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn track_file_crud() {
+        let pool = setup_pool().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
+        
+        // Create artist, album, and track first (TrackFile requires a valid track_id)
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+        
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+        
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+        
+        let track = chorrosion_domain::Track::new(
+            album_id,
+            artist_id,
+            "Test Track".to_string(),
+        );
+        track_repo.create(track.clone()).await.expect("create track");
+
+        // Create track file
+        let track_file = chorrosion_domain::TrackFile::new(
+            track.id,
+            "/path/to/test.mp3".to_string(),
+            1024,
+        );
+        let track_file_id = track_file.id;
+        
+        let created = track_file_repo.create(track_file.clone()).await.expect("create");
+        assert_eq!(created.id, track_file_id);
+        assert_eq!(created.track_id, track.id);
+        assert_eq!(created.path, "/path/to/test.mp3");
+        assert_eq!(created.size_bytes, 1024);
+
+        // Get by id
+        let fetched = track_file_repo.get_by_id(track_file_id.to_string()).await.unwrap().unwrap();
+        assert_eq!(fetched.id, track_file_id);
+        assert_eq!(fetched.path, "/path/to/test.mp3");
+
+        // Update
+        let mut updated_file = fetched.clone();
+        updated_file.path = "/new/path/test.mp3".to_string();
+        updated_file.size_bytes = 2048;
+        updated_file.fingerprint_hash = Some("fingerprint_hash_value".to_string());
+        updated_file.fingerprint_duration = Some(180);
+        
+        let updated = track_file_repo.update(updated_file).await.expect("update");
+        assert_eq!(updated.path, "/new/path/test.mp3");
+        assert_eq!(updated.size_bytes, 2048);
+        assert_eq!(updated.fingerprint_hash, Some("fingerprint_hash_value".to_string()));
+        assert_eq!(updated.fingerprint_duration, Some(180));
+
+        // Delete
+        track_file_repo.delete(track_file_id.to_string()).await.expect("delete");
+        let absent = track_file_repo.get_by_id(track_file_id.to_string()).await.unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn track_file_get_by_track() {
+        let pool = setup_pool().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+        
+        // Create artist and album first
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+        
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+        
+        // Create tracks
+        let track1 = chorrosion_domain::Track::new(album_id, artist_id, "Track 1".to_string());
+        let track2 = chorrosion_domain::Track::new(album_id, artist_id, "Track 2".to_string());
+        track_repo.create(track1.clone()).await.expect("create track1");
+        track_repo.create(track2.clone()).await.expect("create track2");
+
+        // Create track files
+        for i in 0..3 {
+            let track_file = chorrosion_domain::TrackFile::new(
+                track1.id,
+                format!("/path/to/track1_{}.mp3", i),
+                1024 * i,
+            );
+            track_file_repo.create(track_file).await.expect("create");
+        }
+        
+        let track_file = chorrosion_domain::TrackFile::new(
+            track2.id,
+            "/path/to/track2.mp3".to_string(),
+            1024,
+        );
+        track_file_repo.create(track_file).await.expect("create");
+
+        // Get by track
+        let files = track_file_repo.get_by_track(track1.id, 10, 0).await.expect("get_by_track");
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|f| f.track_id == track1.id));
+        
+        let files2 = track_file_repo.get_by_track(track2.id, 10, 0).await.expect("get_by_track");
+        assert_eq!(files2.len(), 1);
+        assert_eq!(files2[0].track_id, track2.id);
+    }
+
+    #[tokio::test]
+    async fn track_file_get_by_path() {
+        let pool = setup_pool().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+        
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+        
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+        
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
+        track_repo.create(track.clone()).await.expect("create track");
+
+        let track_file = chorrosion_domain::TrackFile::new(
+            track.id,
+            "/unique/path/test.mp3".to_string(),
+            1024,
+        );
+        track_file_repo.create(track_file.clone()).await.expect("create");
+
+        // Get by path
+        let found = track_file_repo.get_by_path("/unique/path/test.mp3").await.expect("get_by_path");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().path, "/unique/path/test.mp3");
+
+        // Not found
+        let not_found = track_file_repo.get_by_path("/nonexistent.mp3").await.expect("get_by_path");
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn track_file_list_with_without_fingerprints() {
+        let pool = setup_pool().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+        
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+        
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+        
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
+        track_repo.create(track.clone()).await.expect("create track");
+
+        // Create files with fingerprints
+        for i in 0..2 {
+            let mut track_file = chorrosion_domain::TrackFile::new(
+                track.id,
+                format!("/path/with_fp_{}.mp3", i),
+                1024,
+            );
+            track_file.fingerprint_hash = Some(format!("hash_{}", i));
+            track_file.fingerprint_duration = Some(180);
+            track_file_repo.create(track_file).await.expect("create");
+        }
+
+        // Create files without fingerprints
+        for i in 0..3 {
+            let track_file = chorrosion_domain::TrackFile::new(
+                track.id,
+                format!("/path/without_fp_{}.mp3", i),
+                1024,
+            );
+            track_file_repo.create(track_file).await.expect("create");
+        }
+
+        // List with fingerprints
+        let with_fp = track_file_repo.list_with_fingerprints(10, 0).await.expect("list_with_fingerprints");
+        assert_eq!(with_fp.len(), 2);
+        assert!(with_fp.iter().all(|f| f.fingerprint_hash.is_some()));
+
+        // List without fingerprints
+        let without_fp = track_file_repo.list_without_fingerprints(10, 0).await.expect("list_without_fingerprints");
+        assert_eq!(without_fp.len(), 3);
+        assert!(without_fp.iter().all(|f| f.fingerprint_hash.is_none()));
+    }
+
+    #[tokio::test]
+    async fn track_file_list_pagination() {
+        let pool = setup_pool().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+        let track_repo = SqliteTrackRepository::new(pool.clone());
+        
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+        
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+        
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
+        track_repo.create(track.clone()).await.expect("create track");
+
+        // Create 10 track files
+        for i in 0..10 {
+            let track_file = chorrosion_domain::TrackFile::new(
+                track.id,
+                format!("/path/file_{}.mp3", i),
+                1024,
+            );
+            track_file_repo.create(track_file).await.expect("create");
+        }
+
+        // First page
+        let page1 = track_file_repo.list(5, 0).await.expect("list page 1");
+        assert_eq!(page1.len(), 5);
+
+        // Second page
+        let page2 = track_file_repo.list(5, 5).await.expect("list page 2");
+        assert_eq!(page2.len(), 5);
+
+        // Verify no overlap
+        let page1_ids: std::collections::HashSet<_> = page1.iter().map(|f| f.id).collect();
+        let page2_ids: std::collections::HashSet<_> = page2.iter().map(|f| f.id).collect();
+        assert!(page1_ids.is_disjoint(&page2_ids));
+    }
+}
