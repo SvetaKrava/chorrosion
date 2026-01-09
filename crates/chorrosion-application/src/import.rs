@@ -78,13 +78,13 @@ impl FileImportService {
     /// * `track_id` - The track this file belongs to
     ///
     /// # Returns
-    /// A TrackFile entity with fingerprint data populated
+    /// An ImportedFile containing the TrackFile entity and import metadata
     #[tracing::instrument(skip(self), fields(path = %path.as_ref().display()))]
     pub async fn import_file(
         &self,
         path: impl AsRef<Path>,
         track_id: TrackId,
-    ) -> ImportResult<TrackFile> {
+    ) -> ImportResult<ImportedFile> {
         let path = path.as_ref();
         
         // Validate file exists
@@ -107,12 +107,15 @@ impl FileImportService {
             size_bytes,
         );
 
+        let mut has_fingerprint = false;
+
         // Generate fingerprint
         match self.generate_fingerprint(path).await {
             Ok((hash, duration)) => {
                 track_file.fingerprint_hash = Some(hash);
                 track_file.fingerprint_duration = Some(duration);
                 track_file.fingerprint_computed_at = Some(Utc::now());
+                has_fingerprint = true;
                 
                 tracing::info!(
                     duration_seconds = duration,
@@ -128,7 +131,11 @@ impl FileImportService {
             }
         }
 
-        Ok(track_file)
+        Ok(ImportedFile {
+            track_file,
+            was_created: true,
+            has_fingerprint,
+        })
     }
 
     /// Import multiple files in batch.
@@ -137,20 +144,20 @@ impl FileImportService {
     /// * `files` - Collection of (path, track_id) tuples to import
     ///
     /// # Returns
-    /// A tuple of (successes, failures) where successes are TrackFile entities
+    /// A tuple of (successes, failures) where successes are ImportedFile entries
     /// and failures are (path, error) tuples
     #[tracing::instrument(skip(self, files), fields(count = files.len()))]
     pub async fn import_batch(
         &self,
         files: Vec<(String, TrackId)>,
-    ) -> (Vec<TrackFile>, Vec<(String, ImportError)>) {
+    ) -> (Vec<ImportedFile>, Vec<(String, ImportError)>) {
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
         for (path, track_id) in files {
             match self.import_file(&path, track_id).await {
-                Ok(track_file) => {
-                    successes.push(track_file);
+                Ok(imported_file) => {
+                    successes.push(imported_file);
                 }
                 Err(error) => {
                     failures.push((path, error));
@@ -222,12 +229,14 @@ mod tests {
         let result = service.import_file(&test_file, track_id).await;
         
         assert!(result.is_ok());
-        let track_file = result.unwrap();
-        assert_eq!(track_file.track_id, track_id);
-        assert_eq!(track_file.path, test_file.display().to_string());
-        assert!(track_file.size_bytes > 0);
+        let imported = result.unwrap();
+        assert_eq!(imported.track_file.track_id, track_id);
+        assert_eq!(imported.track_file.path, test_file.display().to_string());
+        assert!(imported.track_file.size_bytes > 0);
+        assert!(imported.was_created);
         // Fingerprint will be None since we can't generate for non-audio files
-        assert!(track_file.fingerprint_hash.is_none());
+        assert!(!imported.has_fingerprint);
+        assert!(imported.track_file.fingerprint_hash.is_none());
     }
 
     #[tokio::test]
