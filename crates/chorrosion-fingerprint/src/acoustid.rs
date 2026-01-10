@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::fingerprint::Fingerprint;
 use crate::error::Result;
+use crate::fingerprint::Fingerprint;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -118,9 +118,10 @@ impl AcoustidClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(crate::FingerprintError::AcoustidError(
-                format!("HTTP {}: {}", status, message)
-            ));
+            return Err(crate::FingerprintError::AcoustidError(format!(
+                "HTTP {}: {}",
+                status, message
+            )));
         }
 
         let body = response.text().await?;
@@ -146,7 +147,9 @@ impl AcoustidClient {
 
         if !api_response.status.eq_ignore_ascii_case("ok") {
             return Err(crate::FingerprintError::AcoustidError(
-                api_response.error.unwrap_or_else(|| "Unknown error".to_string())
+                api_response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ));
         }
 
@@ -169,7 +172,11 @@ impl AcoustidClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn lookup(&self, fingerprint: &Fingerprint, min_score: f32) -> Result<Vec<RecordingMatch>> {
+    pub async fn lookup(
+        &self,
+        fingerprint: &Fingerprint,
+        min_score: f32,
+    ) -> Result<Vec<RecordingMatch>> {
         if !(0.0..=1.0).contains(&min_score) {
             return Err(crate::FingerprintError::AcoustidError(
                 "Invalid parameter: min_score must be between 0.0 and 1.0".to_string(),
@@ -213,7 +220,7 @@ impl AcoustidClient {
         // If no matches at all, return error
         if all_matches.is_empty() {
             return Err(crate::FingerprintError::AcoustidError(
-                "No matches found for fingerprint".to_string()
+                "No matches found for fingerprint".to_string(),
             ));
         }
 
@@ -293,10 +300,9 @@ impl AcoustidClientBuilder {
     /// - The HTTP client cannot be created
     pub fn build(self) -> Result<AcoustidClient> {
         // Validate base URL format early
-        Url::parse(&self.base_url)
-            .map_err(|e| crate::FingerprintError::AcoustidError(
-                format!("Invalid base URL: {}", e)
-            ))?;
+        Url::parse(&self.base_url).map_err(|e| {
+            crate::FingerprintError::AcoustidError(format!("Invalid base URL: {}", e))
+        })?;
 
         let client = Client::builder()
             .timeout(self.timeout)
@@ -421,14 +427,14 @@ mod tests {
         let result = AcoustidClient::builder("test-key")
             .base_url("not-a-valid-url")
             .build();
-        
+
         assert!(result.is_err());
-        
+
         // Also test with a malformed URL
         let result = AcoustidClient::builder("test-key")
             .base_url("ht!tp://invalid")
             .build();
-        
+
         assert!(result.is_err());
     }
 
@@ -438,7 +444,7 @@ mod tests {
         let result = AcoustidClient::builder("test-key")
             .base_url("https://api.example.com/v2")
             .build();
-        
+
         assert!(result.is_ok());
     }
 
@@ -470,7 +476,11 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
-                assert!(msg.contains("No matches"), "Error should indicate no matches found: {}", msg);
+                assert!(
+                    msg.contains("No matches"),
+                    "Error should indicate no matches found: {}",
+                    msg
+                );
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
@@ -511,7 +521,11 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::LowConfidence { score } => {
-                assert!((score - 0.6).abs() < 0.001, "Expected score 0.6, got {}", score);
+                assert!(
+                    (score - 0.6).abs() < 0.001,
+                    "Expected score 0.6, got {}",
+                    score
+                );
             }
             other => panic!("Expected LowConfidence error, got {:?}", other),
         }
@@ -561,20 +575,24 @@ mod tests {
             .unwrap();
 
         let fp = Fingerprint::new_unchecked("AQADvEWZ==", 120);
-        
+
         // Test 1: min_score below best match - should succeed with best match
         let result = client.lookup_best(&fp, 0.5).await;
         assert!(result.is_ok());
         let best = result.unwrap();
         assert_eq!(best.title, Some("Song B".to_string()));
         assert!((best.score - 0.85).abs() < 0.001);
-        
+
         // Test 2: min_score above best match - should return LowConfidence with best score
         let result = client.lookup_best(&fp, 0.9).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::LowConfidence { score } => {
-                assert!((score - 0.85).abs() < 0.001, "Expected score 0.85, got {}", score);
+                assert!(
+                    (score - 0.85).abs() < 0.001,
+                    "Expected score 0.85, got {}",
+                    score
+                );
             }
             other => panic!("Expected LowConfidence error, got {:?}", other),
         }
@@ -588,7 +606,7 @@ mod tests {
         // Test with min_score > 1.0
         let result = client.lookup_best(&fp, 1.5).await;
         assert!(result.is_err());
-        
+
         // Test with min_score < 0.0
         let result = client.lookup_best(&fp, -0.1).await;
         assert!(result.is_err());
@@ -683,10 +701,17 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::FingerprintError::AcoustidError(msg) => {
-                assert!(msg.contains("401"), "Error message should contain status code 401: {}", msg);
+                assert!(
+                    msg.contains("401"),
+                    "Error message should contain status code 401: {}",
+                    msg
+                );
                 // The body is consumed as text, so we should see the JSON string representation
-                assert!(msg.contains("Invalid API key"), 
-                    "Error message should contain API key error from JSON body: {}", msg);
+                assert!(
+                    msg.contains("Invalid API key"),
+                    "Error message should contain API key error from JSON body: {}",
+                    msg
+                );
             }
             other => panic!("Expected AcoustidError, got {:?}", other),
         }
@@ -765,24 +790,32 @@ mod tests {
     fn test_acoustid_client_debug_redacts_api_key() {
         let client = AcoustidClient::new("super-secret-api-key").unwrap();
         let debug_output = format!("{:?}", client);
-        
+
         // API key should be redacted
-        assert!(!debug_output.contains("super-secret-api-key"),
-            "Debug output should not contain the actual API key");
-        assert!(debug_output.contains("[REDACTED]"),
-            "Debug output should show [REDACTED] instead of the API key");
+        assert!(
+            !debug_output.contains("super-secret-api-key"),
+            "Debug output should not contain the actual API key"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should show [REDACTED] instead of the API key"
+        );
     }
 
     #[test]
     fn test_acoustid_client_builder_debug_redacts_api_key() {
         let builder = AcoustidClient::builder("super-secret-api-key");
         let debug_output = format!("{:?}", builder);
-        
+
         // API key should be redacted
-        assert!(!debug_output.contains("super-secret-api-key"),
-            "Debug output should not contain the actual API key");
-        assert!(debug_output.contains("[REDACTED]"),
-            "Debug output should show [REDACTED] instead of the API key");
+        assert!(
+            !debug_output.contains("super-secret-api-key"),
+            "Debug output should not contain the actual API key"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should show [REDACTED] instead of the API key"
+        );
     }
 
     #[test]
@@ -792,7 +825,7 @@ mod tests {
             .base_url(custom_url)
             .build()
             .unwrap();
-        
+
         // Verify the custom base URL was applied
         assert_eq!(client.base_url, custom_url);
     }
@@ -804,17 +837,17 @@ mod tests {
             .timeout(custom_timeout)
             .build()
             .unwrap();
-        
+
         // The client's timeout is embedded in the reqwest::Client.
         // We can't directly inspect it after building, but the build() call
-        // succeeds and we test the actual timeout behavior in 
+        // succeeds and we test the actual timeout behavior in
         // test_builder_custom_timeout_behavior.
     }
 
     #[tokio::test]
     async fn test_builder_custom_base_url_used_in_requests() {
         let mock_server = MockServer::start().await;
-        
+
         Mock::given(method("GET"))
             .and(path("/lookup"))
             .respond_with(ResponseTemplate::new(200).set_body_json(sample_response()))
@@ -831,7 +864,10 @@ mod tests {
         let result = client.lookup(&fp, 0.5).await;
 
         // If the custom base URL wasn't used, this would fail to connect
-        assert!(result.is_ok(), "Request should succeed using custom base URL");
+        assert!(
+            result.is_ok(),
+            "Request should succeed using custom base URL"
+        );
     }
 
     #[tokio::test]
@@ -844,7 +880,7 @@ mod tests {
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_json(sample_response())
-                    .set_delay(Duration::from_millis(200))
+                    .set_delay(Duration::from_millis(200)),
             )
             .mount(&mock_server)
             .await;
@@ -867,24 +903,22 @@ mod tests {
     fn test_builder_chaining() {
         let custom_url = "https://custom.api.example.com/v2";
         let custom_timeout = Duration::from_secs(45);
-        
+
         // Test that builder methods can be chained
         let client = AcoustidClient::builder("test-key")
             .base_url(custom_url)
             .timeout(custom_timeout)
             .build()
             .unwrap();
-        
+
         assert_eq!(client.base_url, custom_url);
     }
 
     #[test]
     fn test_builder_default_values() {
         // Build with only required parameter to verify defaults
-        let client = AcoustidClient::builder("test-key")
-            .build()
-            .unwrap();
-        
+        let client = AcoustidClient::builder("test-key").build().unwrap();
+
         // Verify default base URL
         assert_eq!(client.base_url, ACOUSTID_API_BASE);
         // Default timeout is set but we can't easily inspect it in the client

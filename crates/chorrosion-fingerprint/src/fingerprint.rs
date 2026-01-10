@@ -82,7 +82,7 @@ impl Fingerprint {
 
         // Chromaprint hashes are base64-encoded: alphanumeric, +, /, with = only as padding at the end
         let trimmed = self.hash.trim_end_matches('=');
-        
+
         // Validate base64 padding length (0, 1, or 2 '=' characters allowed)
         let padding_len = self.hash.len() - trimmed.len();
         if padding_len > 2 {
@@ -90,14 +90,14 @@ impl Fingerprint {
                 "invalid base64 padding: too many '=' characters".to_string(),
             ));
         }
-        
+
         // Ensure = only appears at the end by checking if trimmed portion contains =
         if trimmed.contains('=') {
             return Err(crate::FingerprintError::InvalidFingerprint(
                 "padding character '=' must only appear at the end".to_string(),
             ));
         }
-        
+
         // Validate characters in the non-padding portion
         if !trimmed
             .chars()

@@ -9,10 +9,10 @@
 //! Implementation is intentionally minimal for now and returns
 //! a placeholder result until tag parsing is wired.
 
-use crate::matching::{MatchResult};
+use crate::matching::MatchResult;
+use std::path::Path;
 use thiserror::Error;
 use tracing::{debug, warn};
-use std::path::Path;
 
 /// Errors that can occur during embedded tag matching
 #[derive(Debug, Error)]
@@ -35,7 +35,10 @@ impl EmbeddedTagMatchingService {
     /// Attempt to match using embedded tags from the given file path.
     ///
     /// Returns `Ok(None)` when no match can be determined.
-    pub async fn match_from_file(&self, path: impl AsRef<Path>) -> EmbeddedTagResult<Option<MatchResult>> {
+    pub async fn match_from_file(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> EmbeddedTagResult<Option<MatchResult>> {
         let path = path.as_ref();
         debug!(target = "matching", path = %path.display(), "embedded tag matching invoked");
 

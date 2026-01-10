@@ -20,7 +20,9 @@ pub struct InMemoryEventBus {
 
 impl InMemoryEventBus {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(Vec::new())) }
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -48,14 +50,17 @@ impl EventPublisher for InMemoryEventBus {
             "occurred_at": event.occurred_at,
             "payload": event.payload,
         });
-        self.inner.lock().expect("Failed to acquire lock").push(value);
+        self.inner
+            .lock()
+            .expect("Failed to acquire lock")
+            .push(value);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chorrosion_domain::{TrackFileImported, TrackFileImportedPayload, TrackId, TrackFileId};
+    use chorrosion_domain::{TrackFileId, TrackFileImported, TrackFileImportedPayload, TrackId};
 
     #[test]
     fn publish_and_drain_events() {
@@ -76,7 +81,10 @@ mod tests {
         assert_eq!(drained.len(), 1);
         let v = &drained[0];
         assert_eq!(v["name"], "track.file.imported");
-        assert!(v["payload"]["path"].as_str().expect("Failed to get path").ends_with("Song.flac"));
+        assert!(v["payload"]["path"]
+            .as_str()
+            .expect("Failed to get path")
+            .ends_with("Song.flac"));
         assert!(bus.is_empty());
     }
 }

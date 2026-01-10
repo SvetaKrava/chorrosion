@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 // ============================================================================
 // Value Objects & IDs
@@ -210,7 +210,7 @@ impl ReleaseDate {
     /// Returns `None` if the string cannot be parsed or contains invalid date values.
     pub fn parse_str(s: &str) -> Option<Self> {
         let s = s.trim();
-        
+
         // Try ISO 8601 datetime formats first (with timezone)
         if (s.contains('T') || s.contains('Z') || s.contains('+')) && s.len() > 10 {
             if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
@@ -242,15 +242,25 @@ impl ReleaseDate {
         }
 
         // Try delimited formats (YYYY-MM-DD or YYYY/MM/DD)
-        let delimiter = if s.contains('-') { '-' } else if s.contains('/') { '/' } else { return None; };
+        let delimiter = if s.contains('-') {
+            '-'
+        } else if s.contains('/') {
+            '/'
+        } else {
+            return None;
+        };
         let parts: Vec<&str> = s.split(delimiter).collect();
-        
+
         match parts.len() {
             1 => {
                 // Year only
                 let year = parts[0].parse().ok()?;
                 Self::validate_year(year)?;
-                Some(Self { year, month: None, day: None })
+                Some(Self {
+                    year,
+                    month: None,
+                    day: None,
+                })
             }
             2 => {
                 // Year-Month
@@ -258,7 +268,11 @@ impl ReleaseDate {
                 let month: u32 = parts[1].parse().ok()?;
                 Self::validate_year(year)?;
                 Self::validate_month(month)?;
-                Some(Self { year, month: Some(month), day: None })
+                Some(Self {
+                    year,
+                    month: Some(month),
+                    day: None,
+                })
             }
             3 => {
                 // Full date
@@ -268,7 +282,11 @@ impl ReleaseDate {
                 Self::validate_year(year)?;
                 Self::validate_month(month)?;
                 Self::validate_day(year, month, day)?;
-                Some(Self { year, month: Some(month), day: Some(day) })
+                Some(Self {
+                    year,
+                    month: Some(month),
+                    day: Some(day),
+                })
             }
             _ => None,
         }
@@ -281,7 +299,11 @@ impl ReleaseDate {
                 // Year only (YYYY)
                 let year = s.parse().ok()?;
                 Self::validate_year(year)?;
-                Some(Self { year, month: None, day: None })
+                Some(Self {
+                    year,
+                    month: None,
+                    day: None,
+                })
             }
             6 => {
                 // YYYYMM
@@ -289,7 +311,11 @@ impl ReleaseDate {
                 let month = s[4..6].parse().ok()?;
                 Self::validate_year(year)?;
                 Self::validate_month(month)?;
-                Some(Self { year, month: Some(month), day: None })
+                Some(Self {
+                    year,
+                    month: Some(month),
+                    day: None,
+                })
             }
             8 => {
                 // YYYYMMDD
@@ -299,7 +325,11 @@ impl ReleaseDate {
                 Self::validate_year(year)?;
                 Self::validate_month(month)?;
                 Self::validate_day(year, month, day)?;
-                Some(Self { year, month: Some(month), day: Some(day) })
+                Some(Self {
+                    year,
+                    month: Some(month),
+                    day: Some(day),
+                })
             }
             _ => None,
         }
@@ -568,14 +598,24 @@ impl Validate for Artist {
     fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if self.name.trim().is_empty() {
-            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+            errors.push(ValidationError {
+                field: "name",
+                message: "name cannot be empty".into(),
+            });
         }
         if let Some(path) = &self.path {
             if path.trim().is_empty() {
-                errors.push(ValidationError { field: "path", message: "path cannot be empty when provided".into() });
+                errors.push(ValidationError {
+                    field: "path",
+                    message: "path cannot be empty when provided".into(),
+                });
             }
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -583,9 +623,16 @@ impl Validate for Album {
     fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if self.title.trim().is_empty() {
-            errors.push(ValidationError { field: "title", message: "title cannot be empty".into() });
+            errors.push(ValidationError {
+                field: "title",
+                message: "title cannot be empty".into(),
+            });
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -593,15 +640,32 @@ impl Validate for Track {
     fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if self.title.trim().is_empty() {
-            errors.push(ValidationError { field: "title", message: "title cannot be empty".into() });
+            errors.push(ValidationError {
+                field: "title",
+                message: "title cannot be empty".into(),
+            });
         }
         if let Some(n) = self.track_number {
-            if n == 0 { errors.push(ValidationError { field: "track_number", message: "track number must be >= 1".into() }); }
+            if n == 0 {
+                errors.push(ValidationError {
+                    field: "track_number",
+                    message: "track number must be >= 1".into(),
+                });
+            }
         }
         if let Some(d) = self.duration_ms {
-            if d == 0 { errors.push(ValidationError { field: "duration_ms", message: "duration must be > 0".into() }); }
+            if d == 0 {
+                errors.push(ValidationError {
+                    field: "duration_ms",
+                    message: "duration must be > 0".into(),
+                });
+            }
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -609,17 +673,34 @@ impl Validate for QualityProfile {
     fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if self.name.trim().is_empty() {
-            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+            errors.push(ValidationError {
+                field: "name",
+                message: "name cannot be empty".into(),
+            });
         }
         if self.allowed_qualities.is_empty() {
-            errors.push(ValidationError { field: "allowed_qualities", message: "at least one quality must be allowed".into() });
+            errors.push(ValidationError {
+                field: "allowed_qualities",
+                message: "at least one quality must be allowed".into(),
+            });
         }
         if let Some(cutoff) = &self.cutoff_quality {
-            if !self.allowed_qualities.iter().any(|q| q.eq_ignore_ascii_case(cutoff)) {
-                errors.push(ValidationError { field: "cutoff_quality", message: "cutoff must be one of allowed_qualities".into() });
+            if !self
+                .allowed_qualities
+                .iter()
+                .any(|q| q.eq_ignore_ascii_case(cutoff))
+            {
+                errors.push(ValidationError {
+                    field: "cutoff_quality",
+                    message: "cutoff must be one of allowed_qualities".into(),
+                });
             }
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -627,9 +708,16 @@ impl Validate for MetadataProfile {
     fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if self.name.trim().is_empty() {
-            errors.push(ValidationError { field: "name", message: "name cannot be empty".into() });
+            errors.push(ValidationError {
+                field: "name",
+                message: "name cannot be empty".into(),
+            });
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -668,7 +756,9 @@ pub fn generate_track_path(
     } else {
         format!("{}.{}", file_stem, extension.trim_start_matches('.'))
     };
-    base.join(artist_component).join(album_component).join(file_name)
+    base.join(artist_component)
+        .join(album_component)
+        .join(file_name)
 }
 
 // ============================================================================
@@ -684,7 +774,11 @@ pub struct DomainEvent<TPayload> {
 
 impl<TPayload> DomainEvent<TPayload> {
     pub fn new(name: &'static str, payload: TPayload) -> Self {
-        Self { name, occurred_at: Utc::now(), payload }
+        Self {
+            name,
+            occurred_at: Utc::now(),
+            payload,
+        }
     }
 }
 
@@ -775,7 +869,10 @@ mod tests {
 
         let ymd = ReleaseDate::parse_str("2024-12-31").unwrap();
         assert_eq!(ymd.precision(), ReleaseDatePrecision::Day);
-        assert_eq!(ymd.to_naive_date_opt(), NaiveDate::from_ymd_opt(2024, 12, 31));
+        assert_eq!(
+            ymd.to_naive_date_opt(),
+            NaiveDate::from_ymd_opt(2024, 12, 31)
+        );
     }
 
     #[test]
@@ -832,7 +929,6 @@ mod tests {
         // Year validation for RFC3339 formats (outside valid range should fail)
         assert!(ReleaseDate::parse_str("1850-01-01T00:00:00Z").is_none());
         assert!(ReleaseDate::parse_str("2150-12-31T23:59:59Z").is_none());
-
     }
 
     #[test]
@@ -843,7 +939,7 @@ mod tests {
 
         // Invalid day (February 30th)
         assert!(ReleaseDate::parse_str("2024-02-30").is_none());
-        
+
         // Invalid day (April 31st)
         assert!(ReleaseDate::parse_str("2024-04-31").is_none());
 
@@ -852,7 +948,7 @@ mod tests {
 
         // Invalid year (too old)
         assert!(ReleaseDate::parse_str("1899-01-01").is_none());
-        
+
         // Invalid year (too far future)
         assert!(ReleaseDate::parse_str("2101-01-01").is_none());
     }
@@ -898,16 +994,16 @@ mod tests {
     fn release_date_invalid_formats() {
         // Empty string
         assert!(ReleaseDate::parse_str("").is_none());
-        
+
         // Invalid separators
         assert!(ReleaseDate::parse_str("2024.12.31").is_none());
-        
+
         // Too many parts
         assert!(ReleaseDate::parse_str("2024-12-31-01").is_none());
-        
+
         // Non-numeric
         assert!(ReleaseDate::parse_str("abcd-ef-gh").is_none());
-        
+
         // Partial numeric
         assert!(ReleaseDate::parse_str("2024-1a").is_none());
     }
@@ -938,8 +1034,17 @@ mod tests {
     #[test]
     fn generate_track_path_sanitizes_and_formats() {
         let base = PathBuf::from("/music");
-        let path = generate_track_path(&base, "Arti:st?", "Alb*um|", Some(1), "Intro/Opening", "flac");
-        let expected_end = Path::new("Arti st").join("Alb um").join("01 - Intro Opening.flac");
+        let path = generate_track_path(
+            &base,
+            "Arti:st?",
+            "Alb*um|",
+            Some(1),
+            "Intro/Opening",
+            "flac",
+        );
+        let expected_end = Path::new("Arti st")
+            .join("Alb um")
+            .join("01 - Intro Opening.flac");
         assert!(path.ends_with(expected_end));
     }
 
@@ -1004,7 +1109,11 @@ mod tests {
         assert_eq!(event.payload.name, "Updated Artist");
         assert!(!event.payload.monitored);
         let artist_id = ArtistId::new();
-        let payload = ArtistUpdatedPayload { artist_id, name: "Updated Again".into(), monitored: true };
+        let payload = ArtistUpdatedPayload {
+            artist_id,
+            name: "Updated Again".into(),
+            monitored: true,
+        };
         let event: ArtistUpdated = DomainEvent::new("artist.updated", payload);
         assert_eq!(event.name, "artist.updated");
         assert_eq!(event.payload.artist_id, artist_id);
@@ -1025,7 +1134,12 @@ mod tests {
         assert!(!event.payload.monitored);
         let album_id = AlbumId::new();
         let artist_id2 = ArtistId::new();
-        let payload = AlbumUpdatedPayload { album_id, artist_id: artist_id2, title: "Updated Again".into(), monitored: true };
+        let payload = AlbumUpdatedPayload {
+            album_id,
+            artist_id: artist_id2,
+            title: "Updated Again".into(),
+            monitored: true,
+        };
         let event: AlbumUpdated = DomainEvent::new("album.updated", payload);
         assert_eq!(event.name, "album.updated");
         assert_eq!(event.payload.album_id, album_id);
@@ -1047,7 +1161,12 @@ mod tests {
         let track_id = TrackId::new();
         let album_id2 = AlbumId::new();
         let artist_id2 = ArtistId::new();
-        let payload = TrackUpdatedPayload { track_id, album_id: album_id2, artist_id: artist_id2, title: "Updated Again".into() };
+        let payload = TrackUpdatedPayload {
+            track_id,
+            album_id: album_id2,
+            artist_id: artist_id2,
+            title: "Updated Again".into(),
+        };
         let event: TrackUpdated = DomainEvent::new("track.updated", payload);
         assert_eq!(event.name, "track.updated");
         assert_eq!(event.payload.track_id, track_id);
