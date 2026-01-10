@@ -168,7 +168,22 @@ impl MusicBrainzClient {
         self.get(&url).await
     }
 
-    /// Look up a recording (track) by MusicBrainz ID.
+    /// Look up a recording (track) by MusicBrainz ID, including artist credits and releases.
+    ///
+    /// # Arguments
+    /// * `mbid` - MusicBrainz recording ID.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use chorrosion_musicbrainz::MusicBrainzClient;
+    /// # use uuid::Uuid;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = MusicBrainzClient::new()?;
+    /// let mbid = Uuid::parse_str("e5a3f0c4-1fae-4f2e-8f76-0c3b4f1e4fa6")?; // Paranoid Android
+    /// let recording = client.lookup_recording(mbid).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn lookup_recording(&self, mbid: Uuid) -> Result<Recording> {
         let url = format!(
             "{}/recording/{}?fmt=json&inc=artists+releases+release-groups",
