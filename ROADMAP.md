@@ -58,8 +58,8 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] MusicBrainz API client implementation
   - [x] Artist search and lookup
   - [x] Album (release group) search and lookup
-  - [ ] Recording (track) lookup
-  - [ ] Cover art fetching
+  - [x] Recording (track) lookup ✓ (Issue #26)
+  - [x] Cover art fetching ✓ (Issue #26)
   - [ ] Fingerprint-based matching (Chromaprint/AcoustID) as primary
     - [ ] Generate audio fingerprints during import/scan (Issue #65)
     - [x] Resolve via AcoustID to MusicBrainz IDs (MBIDs) ✓ (Issue #25)

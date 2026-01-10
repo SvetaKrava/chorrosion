@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
+pub mod embedded_tags;
 pub mod events;
 pub mod import;
 pub mod matching;
-pub mod embedded_tags;
 
-pub use matching::{TrackMatchingService, MatchResult, MatchingError, MatchingResult};
+pub use embedded_tags::{EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult};
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
-pub use embedded_tags::{EmbeddedTagMatchingService, EmbeddedTagError, EmbeddedTagResult};
+pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 
 use tracing::info;
 

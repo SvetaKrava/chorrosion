@@ -8,7 +8,7 @@
 //! 3. Filename heuristics (future)
 
 use chorrosion_domain::{Track, TrackFile, TrackFileId, TrackId};
-use chorrosion_fingerprint::{Fingerprint, AcoustidClient, FingerprintError};
+use chorrosion_fingerprint::{AcoustidClient, Fingerprint, FingerprintError};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -168,7 +168,10 @@ impl TrackMatchingService {
         &self,
         track_files: &[TrackFile],
         min_confidence: f32,
-    ) -> (Vec<(TrackFileId, MatchResult)>, Vec<(TrackFileId, MatchingError)>) {
+    ) -> (
+        Vec<(TrackFileId, MatchResult)>,
+        Vec<(TrackFileId, MatchingError)>,
+    ) {
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
@@ -216,11 +219,7 @@ mod tests {
 
     #[test]
     fn apply_match_updates_track() {
-        let mut track = Track::new(
-            Default::default(),
-            Default::default(),
-            "Test Track",
-        );
+        let mut track = Track::new(Default::default(), Default::default(), "Test Track");
 
         let match_result = MatchResult {
             musicbrainz_recording_id: "12345678-1234-1234-1234-123456789012".to_string(),
@@ -242,7 +241,7 @@ mod tests {
     #[test]
     fn match_error_for_missing_fingerprint() {
         let track_file = TrackFile::new(TrackId::new(), "/path/to/file.flac", 1024);
-        
+
         // Track file with no fingerprint should error
         assert!(matches!(
             MatchingError::NoFingerprint(track_file.id),

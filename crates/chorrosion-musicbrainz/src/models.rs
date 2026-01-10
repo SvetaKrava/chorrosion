@@ -131,3 +131,95 @@ pub struct AlbumSearchResult {
     #[serde(rename = "release-groups")]
     pub release_groups: Vec<Album>,
 }
+
+/// Recording information from MusicBrainz.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Recording {
+    /// MusicBrainz recording ID (MBID).
+    pub id: Uuid,
+    /// Recording title.
+    pub title: String,
+    /// Length in milliseconds, if provided.
+    pub length: Option<u32>,
+    /// Artist credit entries for this recording.
+    #[serde(rename = "artist-credit", default)]
+    pub artist_credit: Vec<ArtistCredit>,
+    /// Releases that include this recording.
+    #[serde(default)]
+    pub releases: Vec<Release>,
+}
+
+/// Release information linked to a recording.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Release {
+    /// MusicBrainz release ID.
+    pub id: Uuid,
+    /// Release title.
+    pub title: String,
+    /// Release status (e.g., Official).
+    pub status: Option<String>,
+    /// Release country.
+    pub country: Option<String>,
+    /// Release date (YYYY, YYYY-MM, or YYYY-MM-DD).
+    #[serde(default)]
+    pub date: Option<String>,
+    /// Release group reference.
+    #[serde(rename = "release-group")]
+    pub release_group: ReleaseGroupRef,
+}
+
+/// Minimal reference to a release group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReleaseGroupRef {
+    /// Release group ID (MBID).
+    pub id: Uuid,
+    /// Release group title.
+    pub title: String,
+    /// Primary type (Album, EP, Single, etc.).
+    #[serde(rename = "primary-type")]
+    pub primary_type: Option<String>,
+}
+
+/// Cover art response from Cover Art Archive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CoverArtResponse {
+    /// Images associated with the release group.
+    #[serde(default)]
+    pub images: Vec<CoverArtImage>,
+}
+
+/// Individual cover art image entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoverArtImage {
+    /// Full-size image URL.
+    pub image: String,
+    /// Thumbnail URLs by size.
+    #[serde(default)]
+    pub thumbnails: CoverArtThumbnails,
+    /// Whether this image is the front cover.
+    pub front: bool,
+    /// Whether this image is the back cover.
+    pub back: bool,
+    /// Whether the image is approved.
+    pub approved: bool,
+    /// Image types (e.g., ["Front"], ["Back"]).
+    #[serde(default)]
+    pub types: Vec<String>,
+    /// Optional comment/description.
+    #[serde(default)]
+    pub comment: Option<String>,
+    /// Optional image ID.
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+/// Thumbnail URLs from Cover Art Archive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CoverArtThumbnails {
+    #[serde(rename = "250", default)]
+    pub small: Option<String>,
+    #[serde(rename = "500", default)]
+    pub large: Option<String>,
+    #[serde(rename = "1200", default)]
+    pub extra_large: Option<String>,
+}

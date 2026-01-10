@@ -4,15 +4,15 @@ use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, ProfileId,
     QualityProfile, Track, TrackFile, TrackFileId, TrackId,
 };
-use sqlx::SqlitePool;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::Row;
+use sqlx::SqlitePool;
 use tracing::debug;
 use uuid::Uuid;
-use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::repositories::{
     AlbumRepository, ArtistRepository, MetadataProfileRepository, QualityProfileRepository,
-    Repository, TrackRepository, TrackFileRepository,
+    Repository, TrackFileRepository, TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -50,16 +50,16 @@ impl Repository<Artist> for SqliteArtistRepository {
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(q)
-            .bind(id_str)                 // 1: id
-            .bind(entity.name.clone())    // 2: name
-            .bind(foreign_id)             // 3: foreign_artist_id
-            .bind(metadata_id)            // 4: metadata_profile_id
-            .bind(quality_id)             // 5: quality_profile_id
-            .bind(status)                 // 6: status
-            .bind(path)                   // 7: path
-            .bind(monitored)              // 8: monitored
-            .bind(created_at)             // 9: created_at
-            .bind(updated_at)             // 10: updated_at
+            .bind(id_str) // 1: id
+            .bind(entity.name.clone()) // 2: name
+            .bind(foreign_id) // 3: foreign_artist_id
+            .bind(metadata_id) // 4: metadata_profile_id
+            .bind(quality_id) // 5: quality_profile_id
+            .bind(status) // 6: status
+            .bind(path) // 7: path
+            .bind(monitored) // 8: monitored
+            .bind(created_at) // 9: created_at
+            .bind(updated_at) // 10: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -158,13 +158,16 @@ impl ArtistRepository for SqliteArtistRepository {
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
         debug!(target: "repository", limit, offset, "listing monitored artists");
-        let rows = sqlx::query("SELECT * FROM artists WHERE monitored = 1 ORDER BY name LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM artists WHERE monitored = 1 ORDER BY name LIMIT ? OFFSET ?")
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
-        for r in rows { out.push(row_to_artist(&r)?); }
+        for r in rows {
+            out.push(row_to_artist(&r)?);
+        }
         Ok(out)
     }
 
@@ -175,14 +178,17 @@ impl ArtistRepository for SqliteArtistRepository {
         offset: i64,
     ) -> Result<Vec<Artist>> {
         debug!(target: "repository", ?status, limit, offset, "fetching artists by status");
-        let rows = sqlx::query("SELECT * FROM artists WHERE status = ? ORDER BY name LIMIT ? OFFSET ?")
-            .bind(status.to_string())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM artists WHERE status = ? ORDER BY name LIMIT ? OFFSET ?")
+                .bind(status.to_string())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
-        for r in rows { out.push(row_to_artist(&r)?); }
+        for r in rows {
+            out.push(row_to_artist(&r)?);
+        }
         Ok(out)
     }
 }
@@ -277,7 +283,8 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
         artist_id,
         foreign_album_id,
         title,
-        release_date: release_date.and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+        release_date: release_date
+            .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
         album_type,
         status: parse_album_status(&status_str)?,
         monitored,
@@ -353,7 +360,9 @@ impl Repository<Album> for SqliteAlbumRepository {
         let artist_id_str = entity.artist_id.to_string();
         let foreign_id = entity.foreign_album_id.clone();
         let title = entity.title.clone();
-        let release_date = entity.release_date.map(|d| d.format("%Y-%m-%d").to_string());
+        let release_date = entity
+            .release_date
+            .map(|d| d.format("%Y-%m-%d").to_string());
         let album_type = entity.album_type.clone();
         let status = entity.status.to_string();
         let monitored = entity.monitored;
@@ -422,7 +431,11 @@ impl Repository<Album> for SqliteAlbumRepository {
             .bind(entity.artist_id.to_string())
             .bind(entity.foreign_album_id.clone())
             .bind(entity.title.clone())
-            .bind(entity.release_date.map(|d| d.format("%Y-%m-%d").to_string()))
+            .bind(
+                entity
+                    .release_date
+                    .map(|d| d.format("%Y-%m-%d").to_string()),
+            )
             .bind(entity.album_type.clone())
             .bind(entity.status.to_string())
             .bind(entity.monitored)
@@ -456,12 +469,13 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", %artist_id, limit, offset, "fetching albums by artist");
-        let rows = sqlx::query("SELECT * FROM albums WHERE artist_id = ? ORDER BY title LIMIT ? OFFSET ?")
-            .bind(artist_id.to_string())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM albums WHERE artist_id = ? ORDER BY title LIMIT ? OFFSET ?")
+                .bind(artist_id.to_string())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -485,12 +499,13 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", ?status, limit, offset, "fetching albums by status");
-        let rows = sqlx::query("SELECT * FROM albums WHERE status = ? ORDER BY title LIMIT ? OFFSET ?")
-            .bind(status.to_string())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM albums WHERE status = ? ORDER BY title LIMIT ? OFFSET ?")
+                .bind(status.to_string())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -500,11 +515,12 @@ impl AlbumRepository for SqliteAlbumRepository {
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing monitored albums");
-        let rows = sqlx::query("SELECT * FROM albums WHERE monitored = 1 ORDER BY title LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM albums WHERE monitored = 1 ORDER BY title LIMIT ? OFFSET ?")
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -519,12 +535,14 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", album_type, limit, offset, "fetching albums by type");
-        let rows = sqlx::query("SELECT * FROM albums WHERE album_type = ? ORDER BY title LIMIT ? OFFSET ?")
-            .bind(album_type)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(
+            "SELECT * FROM albums WHERE album_type = ? ORDER BY title LIMIT ? OFFSET ?",
+        )
+        .bind(album_type)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -603,11 +621,12 @@ impl Repository<Track> for SqliteTrackRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks");
-        let rows = sqlx::query("SELECT * FROM tracks ORDER BY track_number, title LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM tracks ORDER BY track_number, title LIMIT ? OFFSET ?")
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -666,7 +685,7 @@ impl TrackRepository for SqliteTrackRepository {
         debug!(target: "repository", %album_id, limit, offset, "fetching tracks by album");
         let album_id_str = album_id.to_string();
         let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE album_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?"
+            "SELECT * FROM tracks WHERE album_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?",
         )
         .bind(album_id_str)
         .bind(limit)
@@ -735,7 +754,7 @@ impl TrackRepository for SqliteTrackRepository {
     async fn list_without_files(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks without files");
         let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE has_file = 0 ORDER BY track_number, title LIMIT ? OFFSET ?"
+            "SELECT * FROM tracks WHERE has_file = 0 ORDER BY track_number, title LIMIT ? OFFSET ?",
         )
         .bind(limit)
         .bind(offset)
@@ -1098,7 +1117,9 @@ fn row_to_track_file(row: &sqlx::sqlite::SqliteRow) -> Result<TrackFile> {
 
     Ok(TrackFile {
         id: TrackFileId(Uuid::parse_str(&id_str).map_err(|e| anyhow!("Invalid UUID: {}", e))?),
-        track_id: TrackId(Uuid::parse_str(&track_id_str).map_err(|e| anyhow!("Invalid track UUID: {}", e))?),
+        track_id: TrackId(
+            Uuid::parse_str(&track_id_str).map_err(|e| anyhow!("Invalid track UUID: {}", e))?,
+        ),
         path: path_str,
         size_bytes: size_bytes as u64,
         duration_ms: duration_ms.map(|d| d as u32),
@@ -1125,7 +1146,7 @@ fn row_to_track_file(row: &sqlx::sqlite::SqliteRow) -> Result<TrackFile> {
 impl Repository<TrackFile> for SqliteTrackFileRepository {
     async fn create(&self, entity: TrackFile) -> Result<TrackFile> {
         debug!(target: "repository", track_file_id = %entity.id, "creating track file");
-        
+
         let q = r#"
             INSERT INTO track_files (
                 id, track_id, path, size_bytes, duration_ms, bitrate_kbps,
@@ -1174,7 +1195,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<TrackFile>> {
         let id_str = id.into();
         debug!(target: "repository", track_file_id = %id_str, "fetching track file by id");
-        
+
         let q = "SELECT * FROM track_files WHERE id = ?";
         let row = sqlx::query(q)
             .bind(&id_str)
@@ -1189,7 +1210,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files");
-        
+
         let q = "SELECT * FROM track_files ORDER BY created_at DESC LIMIT ? OFFSET ?";
         let rows = sqlx::query(q)
             .bind(limit)
@@ -1202,7 +1223,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
 
     async fn update(&self, entity: TrackFile) -> Result<TrackFile> {
         debug!(target: "repository", track_file_id = %entity.id, "updating track file");
-        
+
         let q = r#"
             UPDATE track_files SET
                 path = ?, size_bytes = ?, duration_ms = ?, bitrate_kbps = ?,
@@ -1245,12 +1266,9 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
     async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
         let id_str = id.into();
         debug!(target: "repository", track_file_id = %id_str, "deleting track file");
-        
+
         let q = "DELETE FROM track_files WHERE id = ?";
-        sqlx::query(q)
-            .bind(&id_str)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(q).bind(&id_str).execute(&self.pool).await?;
 
         debug!(target: "repository", track_file_id = %id_str, "track file deleted successfully");
         Ok(())
@@ -1266,7 +1284,7 @@ impl TrackFileRepository for SqliteTrackFileRepository {
         offset: i64,
     ) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", track_id = %track_id, limit, offset, "fetching track files by track");
-        
+
         let q = "SELECT * FROM track_files WHERE track_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
         let rows = sqlx::query(q)
             .bind(track_id.to_string())
@@ -1280,12 +1298,9 @@ impl TrackFileRepository for SqliteTrackFileRepository {
 
     async fn get_by_path(&self, path: &str) -> Result<Option<TrackFile>> {
         debug!(target: "repository", path, "fetching track file by path");
-        
+
         let q = "SELECT * FROM track_files WHERE path = ?";
-        let row = sqlx::query(q)
-            .bind(path)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row = sqlx::query(q).bind(path).fetch_optional(&self.pool).await?;
 
         match row {
             Some(r) => Ok(Some(row_to_track_file(&r)?)),
@@ -1295,7 +1310,7 @@ impl TrackFileRepository for SqliteTrackFileRepository {
 
     async fn list_with_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files with fingerprints");
-        
+
         let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NOT NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
         let rows = sqlx::query(q)
             .bind(limit)
@@ -1308,7 +1323,7 @@ impl TrackFileRepository for SqliteTrackFileRepository {
 
     async fn list_without_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files without fingerprints");
-        
+
         let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
         let rows = sqlx::query(q)
             .bind(limit)
@@ -1336,7 +1351,10 @@ mod tests {
             .await
             .expect("connect in-memory sqlite");
 
-        sqlx::migrate!("../../migrations").run(&pool).await.expect("migrate");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("migrate");
         pool
     }
 
@@ -1370,7 +1388,11 @@ mod tests {
         artist.foreign_artist_id = Some("mbid:alpha".to_string());
         repo.create(artist.clone()).await.expect("create alpha");
 
-        let by_name = repo.get_by_name("Alpha").await.expect("by name").expect("exists");
+        let by_name = repo
+            .get_by_name("Alpha")
+            .await
+            .expect("by name")
+            .expect("exists");
         assert_eq!(by_name.name, "Alpha");
 
         let by_foreign = repo
@@ -1551,11 +1573,17 @@ mod tests {
         album_repo.create(album3.clone()).await.expect("create 3");
 
         // Test get_by_artist
-        let albums_a = album_repo.get_by_artist(id_a, 10, 0).await.expect("get by artist A");
+        let albums_a = album_repo
+            .get_by_artist(id_a, 10, 0)
+            .await
+            .expect("get by artist A");
         assert_eq!(albums_a.len(), 2);
         assert!(albums_a.iter().all(|a| a.artist_id == id_a));
 
-        let albums_b = album_repo.get_by_artist(id_b, 10, 0).await.expect("get by artist B");
+        let albums_b = album_repo
+            .get_by_artist(id_b, 10, 0)
+            .await
+            .expect("get by artist B");
         assert_eq!(albums_b.len(), 1);
         assert_eq!(albums_b[0].title, "Album 3");
 
@@ -1657,18 +1685,32 @@ mod tests {
 
         let mut compilation = chorrosion_domain::Album::new(artist_id, "Compilation");
         compilation.album_type = Some("compilation".to_string());
-        album_repo.create(compilation).await.expect("create compilation");
+        album_repo
+            .create(compilation)
+            .await
+            .expect("create compilation");
 
         // Test get_by_album_type
-        let studio = album_repo.get_by_album_type("studio", 10, 0).await.expect("studio");
+        let studio = album_repo
+            .get_by_album_type("studio", 10, 0)
+            .await
+            .expect("studio");
         assert_eq!(studio.len(), 2);
-        assert!(studio.iter().all(|a| a.album_type.as_deref() == Some("studio")));
+        assert!(studio
+            .iter()
+            .all(|a| a.album_type.as_deref() == Some("studio")));
 
-        let live_albums = album_repo.get_by_album_type("live", 10, 0).await.expect("live");
+        let live_albums = album_repo
+            .get_by_album_type("live", 10, 0)
+            .await
+            .expect("live");
         assert_eq!(live_albums.len(), 1);
         assert_eq!(live_albums[0].title, "Live");
 
-        let comps = album_repo.get_by_album_type("compilation", 10, 0).await.expect("compilation");
+        let comps = album_repo
+            .get_by_album_type("compilation", 10, 0)
+            .await
+            .expect("compilation");
         assert_eq!(comps.len(), 1);
         assert_eq!(comps[0].title, "Compilation");
     }
@@ -1698,14 +1740,27 @@ mod tests {
         assert_eq!(updated.title, "After");
         assert!(!updated.monitored);
 
-        let fetched = album_repo.get_by_id(album_id.to_string()).await.unwrap().unwrap();
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.title, "After");
         assert_eq!(fetched.album_type.as_deref(), Some("live"));
-        assert_eq!(fetched.release_date, Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
+        assert_eq!(
+            fetched.release_date,
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap())
+        );
 
         // Delete and ensure gone
-        album_repo.delete(album_id.to_string()).await.expect("delete");
-        let absent = album_repo.get_by_id(album_id.to_string()).await.expect("get");
+        album_repo
+            .delete(album_id.to_string())
+            .await
+            .expect("delete");
+        let absent = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("get");
         assert!(absent.is_none());
     }
 
@@ -1767,17 +1822,29 @@ mod tests {
         album_repo.create(album2).await.expect("create album2");
 
         // Verify albums exist
-        let albums = album_repo.get_by_artist(artist_id, 10, 0).await.expect("get albums");
+        let albums = album_repo
+            .get_by_artist(artist_id, 10, 0)
+            .await
+            .expect("get albums");
         assert_eq!(albums.len(), 2);
 
         // Delete artist (should cascade to albums due to FK constraint)
-        artist_repo.delete(artist_id.to_string()).await.expect("delete artist");
+        artist_repo
+            .delete(artist_id.to_string())
+            .await
+            .expect("delete artist");
 
         // Verify albums are also deleted
-        let absent1 = album_repo.get_by_id(album1_id.to_string()).await.expect("get1");
+        let absent1 = album_repo
+            .get_by_id(album1_id.to_string())
+            .await
+            .expect("get1");
         assert!(absent1.is_none());
 
-        let absent2 = album_repo.get_by_id(album2_id.to_string()).await.expect("get2");
+        let absent2 = album_repo
+            .get_by_id(album2_id.to_string())
+            .await
+            .expect("get2");
         assert!(absent2.is_none());
     }
 
@@ -1811,7 +1878,11 @@ mod tests {
         assert_eq!(created.title, "Track 1");
         assert_eq!(created.track_number, Some(1));
 
-        let fetched = track_repo.get_by_id(track.id.to_string()).await.unwrap().unwrap();
+        let fetched = track_repo
+            .get_by_id(track.id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.title, "Track 1");
         assert_eq!(fetched.album_id, album_id);
         assert_eq!(fetched.artist_id, artist_id);
@@ -1861,17 +1932,26 @@ mod tests {
         track_repo.create(track4).await.expect("create track4");
 
         // Query by album1
-        let album1_tracks = track_repo.get_by_album(album1_id, 10, 0).await.expect("get by album");
+        let album1_tracks = track_repo
+            .get_by_album(album1_id, 10, 0)
+            .await
+            .expect("get by album");
         assert_eq!(album1_tracks.len(), 2);
         assert_eq!(album1_tracks[0].title, "Track 1");
         assert_eq!(album1_tracks[1].title, "Track 2");
 
         // Query by artist1 (should include tracks from both albums)
-        let artist1_tracks = track_repo.get_by_artist(artist1_id, 10, 0).await.expect("get by artist");
+        let artist1_tracks = track_repo
+            .get_by_artist(artist1_id, 10, 0)
+            .await
+            .expect("get by artist");
         assert_eq!(artist1_tracks.len(), 3);
 
         // Query by artist2
-        let artist2_tracks = track_repo.get_by_artist(artist2_id, 10, 0).await.expect("get by artist");
+        let artist2_tracks = track_repo
+            .get_by_artist(artist2_id, 10, 0)
+            .await
+            .expect("get by artist");
         assert_eq!(artist2_tracks.len(), 1);
         assert_eq!(artist2_tracks[0].title, "Track 4");
     }
@@ -1895,7 +1975,11 @@ mod tests {
         track.foreign_track_id = Some("mbid-456".to_string());
         track_repo.create(track.clone()).await.expect("create");
 
-        let fetched = track_repo.get_by_foreign_id("mbid-456").await.unwrap().unwrap();
+        let fetched = track_repo
+            .get_by_foreign_id("mbid-456")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.title, "Track");
         assert_eq!(fetched.id, track.id);
 
@@ -1924,30 +2008,39 @@ mod tests {
         track1.has_file = true;
         track_repo.create(track1).await.expect("create");
 
-        let mut track2 = chorrosion_domain::Track::new(album_id, artist_id, "Monitored without file");
+        let mut track2 =
+            chorrosion_domain::Track::new(album_id, artist_id, "Monitored without file");
         track2.monitored = true;
         track2.has_file = false;
         track_repo.create(track2).await.expect("create");
 
-        let mut track3 = chorrosion_domain::Track::new(album_id, artist_id, "Not monitored without file");
+        let mut track3 =
+            chorrosion_domain::Track::new(album_id, artist_id, "Not monitored without file");
         track3.monitored = false;
         track3.has_file = false;
         track_repo.create(track3).await.expect("create");
 
-        let mut track4 = chorrosion_domain::Track::new(album_id, artist_id, "Not monitored with file");
+        let mut track4 =
+            chorrosion_domain::Track::new(album_id, artist_id, "Not monitored with file");
         track4.monitored = false;
         track4.has_file = true;
         track_repo.create(track4).await.expect("create");
 
         // Query monitored
-        let monitored = track_repo.list_monitored(10, 0).await.expect("list monitored");
+        let monitored = track_repo
+            .list_monitored(10, 0)
+            .await
+            .expect("list monitored");
         assert_eq!(monitored.len(), 2);
         let monitored_titles: Vec<_> = monitored.iter().map(|t| t.title.as_str()).collect();
         assert!(monitored_titles.contains(&"Monitored with file"));
         assert!(monitored_titles.contains(&"Monitored without file"));
 
         // Query without files
-        let without_files = track_repo.list_without_files(10, 0).await.expect("list without files");
+        let without_files = track_repo
+            .list_without_files(10, 0)
+            .await
+            .expect("list without files");
         assert_eq!(without_files.len(), 2);
         let without_files_titles: Vec<_> = without_files.iter().map(|t| t.title.as_str()).collect();
         assert!(without_files_titles.contains(&"Monitored without file"));
@@ -1982,7 +2075,11 @@ mod tests {
         let updated = track_repo.update(track.clone()).await.expect("update");
         assert_eq!(updated.title, "After");
 
-        let fetched = track_repo.get_by_id(track_id.to_string()).await.unwrap().unwrap();
+        let fetched = track_repo
+            .get_by_id(track_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.title, "After");
         assert_eq!(fetched.track_number, Some(5));
         assert_eq!(fetched.duration_ms, Some(240000));
@@ -1990,8 +2087,14 @@ mod tests {
         assert!(!fetched.monitored);
 
         // Delete and ensure gone
-        track_repo.delete(track_id.to_string()).await.expect("delete");
-        let absent = track_repo.get_by_id(track_id.to_string()).await.expect("get");
+        track_repo
+            .delete(track_id.to_string())
+            .await
+            .expect("delete");
+        let absent = track_repo
+            .get_by_id(track_id.to_string())
+            .await
+            .expect("get");
         assert!(absent.is_none());
     }
 
@@ -2066,9 +2169,18 @@ mod tests {
         assert!(exists.is_some());
 
         // Delete album should cascade to tracks
-        album_repo.delete(album_id.to_string()).await.expect("delete album");
-        let track_check = track_repo.get_by_id(track_id.to_string()).await.expect("query");
-        assert!(track_check.is_none(), "track should be gone when album deleted");
+        album_repo
+            .delete(album_id.to_string())
+            .await
+            .expect("delete album");
+        let track_check = track_repo
+            .get_by_id(track_id.to_string())
+            .await
+            .expect("query");
+        assert!(
+            track_check.is_none(),
+            "track should be gone when album deleted"
+        );
     }
 
     #[tokio::test]
@@ -2095,9 +2207,18 @@ mod tests {
         assert!(exists.is_some());
 
         // Delete artist should cascade to both albums and tracks
-        artist_repo.delete(artist_id.to_string()).await.expect("delete artist");
-        let track_check = track_repo.get_by_id(track_id.to_string()).await.expect("query");
-        assert!(track_check.is_none(), "track should be gone when artist deleted");
+        artist_repo
+            .delete(artist_id.to_string())
+            .await
+            .expect("delete artist");
+        let track_check = track_repo
+            .get_by_id(track_id.to_string())
+            .await
+            .expect("query");
+        assert!(
+            track_check.is_none(),
+            "track should be gone when artist deleted"
+        );
     }
 
     // ========================================================================
@@ -2109,7 +2230,10 @@ mod tests {
         let pool = setup_pool().await;
         let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
 
-        let mut profile = chorrosion_domain::QualityProfile::new("Lossless", vec!["FLAC".to_string(), "WAV".to_string()]);
+        let mut profile = chorrosion_domain::QualityProfile::new(
+            "Lossless",
+            vec!["FLAC".to_string(), "WAV".to_string()],
+        );
         profile.upgrade_allowed = true;
         profile.cutoff_quality = Some("FLAC".to_string());
 
@@ -2118,9 +2242,16 @@ mod tests {
         assert_eq!(created.allowed_qualities.len(), 2);
         assert!(created.upgrade_allowed);
 
-        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        let fetched = profile_repo
+            .get_by_id(profile.id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.name, "Lossless");
-        assert_eq!(fetched.allowed_qualities, vec!["FLAC".to_string(), "WAV".to_string()]);
+        assert_eq!(
+            fetched.allowed_qualities,
+            vec!["FLAC".to_string(), "WAV".to_string()]
+        );
         assert_eq!(fetched.cutoff_quality.as_deref(), Some("FLAC"));
         assert!(fetched.upgrade_allowed);
     }
@@ -2130,12 +2261,18 @@ mod tests {
         let pool = setup_pool().await;
         let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
 
-        let profile = chorrosion_domain::QualityProfile::new("Lossy", vec!["MP3".to_string(), "AAC".to_string()]);
+        let profile = chorrosion_domain::QualityProfile::new(
+            "Lossy",
+            vec!["MP3".to_string(), "AAC".to_string()],
+        );
         profile_repo.create(profile.clone()).await.expect("create");
 
         let found = profile_repo.get_by_name("Lossy").await.unwrap().unwrap();
         assert_eq!(found.id, profile.id);
-        assert_eq!(found.allowed_qualities, vec!["MP3".to_string(), "AAC".to_string()]);
+        assert_eq!(
+            found.allowed_qualities,
+            vec!["MP3".to_string(), "AAC".to_string()]
+        );
 
         let absent = profile_repo.get_by_name("NonExistent").await.unwrap();
         assert!(absent.is_none());
@@ -2146,7 +2283,8 @@ mod tests {
         let pool = setup_pool().await;
         let profile_repo = SqliteQualityProfileRepository::new(pool.clone());
 
-        let mut profile = chorrosion_domain::QualityProfile::new("Original", vec!["FLAC".to_string()]);
+        let mut profile =
+            chorrosion_domain::QualityProfile::new("Original", vec!["FLAC".to_string()]);
         let profile_id = profile.id;
         profile_repo.create(profile.clone()).await.expect("create");
 
@@ -2158,12 +2296,22 @@ mod tests {
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.allowed_qualities.len(), 2);
 
-        let fetched = profile_repo.get_by_id(profile_id.to_string()).await.unwrap().unwrap();
+        let fetched = profile_repo
+            .get_by_id(profile_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.name, "Updated");
 
         // Delete
-        profile_repo.delete(profile_id.to_string()).await.expect("delete");
-        let absent = profile_repo.get_by_id(profile_id.to_string()).await.unwrap();
+        profile_repo
+            .delete(profile_id.to_string())
+            .await
+            .expect("delete");
+        let absent = profile_repo
+            .get_by_id(profile_id.to_string())
+            .await
+            .unwrap();
         assert!(absent.is_none());
     }
 
@@ -2227,11 +2375,24 @@ mod tests {
         assert_eq!(created.secondary_album_types.len(), 1);
         assert_eq!(created.release_statuses.len(), 2);
 
-        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        let fetched = profile_repo
+            .get_by_id(profile.id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.name, "Standard");
-        assert_eq!(fetched.primary_album_types, vec!["Album".to_string(), "EP".to_string()]);
-        assert_eq!(fetched.secondary_album_types, vec!["Compilation".to_string()]);
-        assert_eq!(fetched.release_statuses, vec!["Official".to_string(), "Promotion".to_string()]);
+        assert_eq!(
+            fetched.primary_album_types,
+            vec!["Album".to_string(), "EP".to_string()]
+        );
+        assert_eq!(
+            fetched.secondary_album_types,
+            vec!["Compilation".to_string()]
+        );
+        assert_eq!(
+            fetched.release_statuses,
+            vec!["Official".to_string(), "Promotion".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -2270,12 +2431,22 @@ mod tests {
         assert_eq!(updated.primary_album_types.len(), 2);
         assert_eq!(updated.release_statuses.len(), 1);
 
-        let fetched = profile_repo.get_by_id(profile_id.to_string()).await.unwrap().unwrap();
+        let fetched = profile_repo
+            .get_by_id(profile_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.name, "Updated");
 
         // Delete
-        profile_repo.delete(profile_id.to_string()).await.expect("delete");
-        let absent = profile_repo.get_by_id(profile_id.to_string()).await.unwrap();
+        profile_repo
+            .delete(profile_id.to_string())
+            .await
+            .expect("delete");
+        let absent = profile_repo
+            .get_by_id(profile_id.to_string())
+            .await
+            .unwrap();
         assert!(absent.is_none());
     }
 
@@ -2308,7 +2479,11 @@ mod tests {
         assert!(created.secondary_album_types.is_empty());
         assert!(created.release_statuses.is_empty());
 
-        let fetched = profile_repo.get_by_id(profile.id.to_string()).await.unwrap().unwrap();
+        let fetched = profile_repo
+            .get_by_id(profile.id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert!(fetched.primary_album_types.is_empty());
         assert!(fetched.secondary_album_types.is_empty());
         assert!(fetched.release_statuses.is_empty());
@@ -2322,43 +2497,46 @@ mod tests {
     async fn track_file_crud() {
         let pool = setup_pool().await;
         let track_file_repo = SqliteTrackFileRepository::new(pool.clone());
-        
+
         // Create artist, album, and track first (TrackFile requires a valid track_id)
         let artist_repo = SqliteArtistRepository::new(pool.clone());
         let album_repo = SqliteAlbumRepository::new(pool.clone());
         let track_repo = SqliteTrackRepository::new(pool.clone());
-        
+
         let artist = chorrosion_domain::Artist::new("Test Artist");
         let artist_id = artist.id;
         artist_repo.create(artist).await.expect("create artist");
-        
+
         let album = chorrosion_domain::Album::new(artist_id, "Test Album");
         let album_id = album.id;
         album_repo.create(album).await.expect("create album");
-        
-        let track = chorrosion_domain::Track::new(
-            album_id,
-            artist_id,
-            "Test Track".to_string(),
-        );
-        track_repo.create(track.clone()).await.expect("create track");
+
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
+        track_repo
+            .create(track.clone())
+            .await
+            .expect("create track");
 
         // Create track file
-        let track_file = chorrosion_domain::TrackFile::new(
-            track.id,
-            "/path/to/test.mp3".to_string(),
-            1024,
-        );
+        let track_file =
+            chorrosion_domain::TrackFile::new(track.id, "/path/to/test.mp3".to_string(), 1024);
         let track_file_id = track_file.id;
-        
-        let created = track_file_repo.create(track_file.clone()).await.expect("create");
+
+        let created = track_file_repo
+            .create(track_file.clone())
+            .await
+            .expect("create");
         assert_eq!(created.id, track_file_id);
         assert_eq!(created.track_id, track.id);
         assert_eq!(created.path, "/path/to/test.mp3");
         assert_eq!(created.size_bytes, 1024);
 
         // Get by id
-        let fetched = track_file_repo.get_by_id(track_file_id.to_string()).await.unwrap().unwrap();
+        let fetched = track_file_repo
+            .get_by_id(track_file_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.id, track_file_id);
         assert_eq!(fetched.path, "/path/to/test.mp3");
 
@@ -2368,16 +2546,25 @@ mod tests {
         updated_file.size_bytes = 2048;
         updated_file.fingerprint_hash = Some("fingerprint_hash_value".to_string());
         updated_file.fingerprint_duration = Some(180);
-        
+
         let updated = track_file_repo.update(updated_file).await.expect("update");
         assert_eq!(updated.path, "/new/path/test.mp3");
         assert_eq!(updated.size_bytes, 2048);
-        assert_eq!(updated.fingerprint_hash, Some("fingerprint_hash_value".to_string()));
+        assert_eq!(
+            updated.fingerprint_hash,
+            Some("fingerprint_hash_value".to_string())
+        );
         assert_eq!(updated.fingerprint_duration, Some(180));
 
         // Delete
-        track_file_repo.delete(track_file_id.to_string()).await.expect("delete");
-        let absent = track_file_repo.get_by_id(track_file_id.to_string()).await.unwrap();
+        track_file_repo
+            .delete(track_file_id.to_string())
+            .await
+            .expect("delete");
+        let absent = track_file_repo
+            .get_by_id(track_file_id.to_string())
+            .await
+            .unwrap();
         assert!(absent.is_none());
     }
 
@@ -2388,21 +2575,27 @@ mod tests {
         let artist_repo = SqliteArtistRepository::new(pool.clone());
         let album_repo = SqliteAlbumRepository::new(pool.clone());
         let track_repo = SqliteTrackRepository::new(pool.clone());
-        
+
         // Create artist and album first
         let artist = chorrosion_domain::Artist::new("Test Artist");
         let artist_id = artist.id;
         artist_repo.create(artist).await.expect("create artist");
-        
+
         let album = chorrosion_domain::Album::new(artist_id, "Test Album");
         let album_id = album.id;
         album_repo.create(album).await.expect("create album");
-        
+
         // Create tracks
         let track1 = chorrosion_domain::Track::new(album_id, artist_id, "Track 1".to_string());
         let track2 = chorrosion_domain::Track::new(album_id, artist_id, "Track 2".to_string());
-        track_repo.create(track1.clone()).await.expect("create track1");
-        track_repo.create(track2.clone()).await.expect("create track2");
+        track_repo
+            .create(track1.clone())
+            .await
+            .expect("create track1");
+        track_repo
+            .create(track2.clone())
+            .await
+            .expect("create track2");
 
         // Create track files
         for i in 0..3 {
@@ -2413,20 +2606,23 @@ mod tests {
             );
             track_file_repo.create(track_file).await.expect("create");
         }
-        
-        let track_file = chorrosion_domain::TrackFile::new(
-            track2.id,
-            "/path/to/track2.mp3".to_string(),
-            1024,
-        );
+
+        let track_file =
+            chorrosion_domain::TrackFile::new(track2.id, "/path/to/track2.mp3".to_string(), 1024);
         track_file_repo.create(track_file).await.expect("create");
 
         // Get by track
-        let files = track_file_repo.get_by_track(track1.id, 10, 0).await.expect("get_by_track");
+        let files = track_file_repo
+            .get_by_track(track1.id, 10, 0)
+            .await
+            .expect("get_by_track");
         assert_eq!(files.len(), 3);
         assert!(files.iter().all(|f| f.track_id == track1.id));
-        
-        let files2 = track_file_repo.get_by_track(track2.id, 10, 0).await.expect("get_by_track");
+
+        let files2 = track_file_repo
+            .get_by_track(track2.id, 10, 0)
+            .await
+            .expect("get_by_track");
         assert_eq!(files2.len(), 1);
         assert_eq!(files2[0].track_id, track2.id);
     }
@@ -2438,32 +2634,41 @@ mod tests {
         let artist_repo = SqliteArtistRepository::new(pool.clone());
         let album_repo = SqliteAlbumRepository::new(pool.clone());
         let track_repo = SqliteTrackRepository::new(pool.clone());
-        
+
         let artist = chorrosion_domain::Artist::new("Test Artist");
         let artist_id = artist.id;
         artist_repo.create(artist).await.expect("create artist");
-        
+
         let album = chorrosion_domain::Album::new(artist_id, "Test Album");
         let album_id = album.id;
         album_repo.create(album).await.expect("create album");
-        
-        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
-        track_repo.create(track.clone()).await.expect("create track");
 
-        let track_file = chorrosion_domain::TrackFile::new(
-            track.id,
-            "/unique/path/test.mp3".to_string(),
-            1024,
-        );
-        track_file_repo.create(track_file.clone()).await.expect("create");
+        let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
+        track_repo
+            .create(track.clone())
+            .await
+            .expect("create track");
+
+        let track_file =
+            chorrosion_domain::TrackFile::new(track.id, "/unique/path/test.mp3".to_string(), 1024);
+        track_file_repo
+            .create(track_file.clone())
+            .await
+            .expect("create");
 
         // Get by path
-        let found = track_file_repo.get_by_path("/unique/path/test.mp3").await.expect("get_by_path");
+        let found = track_file_repo
+            .get_by_path("/unique/path/test.mp3")
+            .await
+            .expect("get_by_path");
         assert!(found.is_some());
         assert_eq!(found.unwrap().path, "/unique/path/test.mp3");
 
         // Not found
-        let not_found = track_file_repo.get_by_path("/nonexistent.mp3").await.expect("get_by_path");
+        let not_found = track_file_repo
+            .get_by_path("/nonexistent.mp3")
+            .await
+            .expect("get_by_path");
         assert!(not_found.is_none());
     }
 
@@ -2474,17 +2679,20 @@ mod tests {
         let artist_repo = SqliteArtistRepository::new(pool.clone());
         let album_repo = SqliteAlbumRepository::new(pool.clone());
         let track_repo = SqliteTrackRepository::new(pool.clone());
-        
+
         let artist = chorrosion_domain::Artist::new("Test Artist");
         let artist_id = artist.id;
         artist_repo.create(artist).await.expect("create artist");
-        
+
         let album = chorrosion_domain::Album::new(artist_id, "Test Album");
         let album_id = album.id;
         album_repo.create(album).await.expect("create album");
-        
+
         let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
-        track_repo.create(track.clone()).await.expect("create track");
+        track_repo
+            .create(track.clone())
+            .await
+            .expect("create track");
 
         // Create files with fingerprints
         for i in 0..2 {
@@ -2509,12 +2717,18 @@ mod tests {
         }
 
         // List with fingerprints
-        let with_fp = track_file_repo.list_with_fingerprints(10, 0).await.expect("list_with_fingerprints");
+        let with_fp = track_file_repo
+            .list_with_fingerprints(10, 0)
+            .await
+            .expect("list_with_fingerprints");
         assert_eq!(with_fp.len(), 2);
         assert!(with_fp.iter().all(|f| f.fingerprint_hash.is_some()));
 
         // List without fingerprints
-        let without_fp = track_file_repo.list_without_fingerprints(10, 0).await.expect("list_without_fingerprints");
+        let without_fp = track_file_repo
+            .list_without_fingerprints(10, 0)
+            .await
+            .expect("list_without_fingerprints");
         assert_eq!(without_fp.len(), 3);
         assert!(without_fp.iter().all(|f| f.fingerprint_hash.is_none()));
     }
@@ -2526,25 +2740,25 @@ mod tests {
         let artist_repo = SqliteArtistRepository::new(pool.clone());
         let album_repo = SqliteAlbumRepository::new(pool.clone());
         let track_repo = SqliteTrackRepository::new(pool.clone());
-        
+
         let artist = chorrosion_domain::Artist::new("Test Artist");
         let artist_id = artist.id;
         artist_repo.create(artist).await.expect("create artist");
-        
+
         let album = chorrosion_domain::Album::new(artist_id, "Test Album");
         let album_id = album.id;
         album_repo.create(album).await.expect("create album");
-        
+
         let track = chorrosion_domain::Track::new(album_id, artist_id, "Test Track".to_string());
-        track_repo.create(track.clone()).await.expect("create track");
+        track_repo
+            .create(track.clone())
+            .await
+            .expect("create track");
 
         // Create 10 track files
         for i in 0..10 {
-            let track_file = chorrosion_domain::TrackFile::new(
-                track.id,
-                format!("/path/file_{}.mp3", i),
-                1024,
-            );
+            let track_file =
+                chorrosion_domain::TrackFile::new(track.id, format!("/path/file_{}.mp3", i), 1024);
             track_file_repo.create(track_file).await.expect("create");
         }
 

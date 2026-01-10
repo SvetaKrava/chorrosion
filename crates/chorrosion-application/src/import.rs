@@ -43,10 +43,10 @@ pub type ImportResult<T> = Result<T, ImportError>;
 pub struct ImportedFile {
     /// The created or updated TrackFile entity
     pub track_file: TrackFile,
-    
+
     /// Whether the file was newly created (true) or updated (false)
     pub was_created: bool,
-    
+
     /// Whether a fingerprint was successfully generated
     pub has_fingerprint: bool,
 }
@@ -86,26 +86,22 @@ impl FileImportService {
         track_id: TrackId,
     ) -> ImportResult<ImportedFile> {
         let path = path.as_ref();
-        
+
         // Validate file exists
         if !path.exists() {
             return Err(ImportError::FileNotFound(path.display().to_string()));
         }
 
         // Read file metadata
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| ImportError::MetadataError(e.to_string()))?;
-        
+        let metadata =
+            std::fs::metadata(path).map_err(|e| ImportError::MetadataError(e.to_string()))?;
+
         let size_bytes = metadata.len();
-        
+
         tracing::debug!(size_bytes, "Read file metadata");
 
         // Create initial TrackFile entity
-        let mut track_file = TrackFile::new(
-            track_id,
-            path.display().to_string(),
-            size_bytes,
-        );
+        let mut track_file = TrackFile::new(track_id, path.display().to_string(), size_bytes);
 
         let mut has_fingerprint = false;
 
@@ -116,7 +112,7 @@ impl FileImportService {
                 track_file.fingerprint_duration = Some(duration);
                 track_file.fingerprint_computed_at = Some(Utc::now());
                 has_fingerprint = true;
-                
+
                 tracing::info!(
                     duration_seconds = duration,
                     "Successfully generated fingerprint"
@@ -182,17 +178,17 @@ impl FileImportService {
         // Use the fingerprint crate to generate the fingerprint
         // This is a placeholder - actual implementation would use chromaprint
         // For now, we'll simulate it by using the AcoustID client's fingerprint generation
-        
+
         tracing::debug!(path = %path.display(), "Generating fingerprint");
-        
+
         // In a real implementation, this would:
         // 1. Decode the audio file (using FFmpeg or similar)
         // 2. Generate Chromaprint fingerprint
         // 3. Return base64-encoded hash and duration
-        
+
         // For now, return an error since we don't have the actual implementation
         Err(ImportError::FingerprintError(
-            "Fingerprint generation not yet implemented - requires FFmpeg integration".to_string()
+            "Fingerprint generation not yet implemented - requires FFmpeg integration".to_string(),
         ))
     }
 }
@@ -210,9 +206,9 @@ mod tests {
     async fn test_import_nonexistent_file_fails() {
         let service = create_test_service();
         let track_id = TrackId::new();
-        
+
         let result = service.import_file("nonexistent_file.mp3", track_id).await;
-        
+
         assert!(matches!(result, Err(ImportError::FileNotFound(_))));
     }
 
@@ -220,14 +216,12 @@ mod tests {
     async fn test_import_creates_track_file() {
         let service = create_test_service();
         let track_id = TrackId::new();
-        
+
         // Use the Cargo.toml file as a test file (guaranteed to exist)
-        let test_file = std::env::current_dir()
-            .unwrap()
-            .join("Cargo.toml");
-        
+        let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
+
         let result = service.import_file(&test_file, track_id).await;
-        
+
         assert!(result.is_ok());
         let imported = result.unwrap();
         assert_eq!(imported.track_file.track_id, track_id);
@@ -242,21 +236,21 @@ mod tests {
     #[tokio::test]
     async fn test_batch_import_handles_mixed_results() {
         let service = create_test_service();
-        
+
         let test_file = std::env::current_dir()
             .unwrap()
             .join("Cargo.toml")
             .display()
             .to_string();
-        
+
         let files = vec![
             (test_file.clone(), TrackId::new()),
             ("nonexistent.mp3".to_string(), TrackId::new()),
             (test_file, TrackId::new()),
         ];
-        
+
         let (successes, failures) = service.import_batch(files).await;
-        
+
         assert_eq!(successes.len(), 2);
         assert_eq!(failures.len(), 1);
         assert!(matches!(failures[0].1, ImportError::FileNotFound(_)));
