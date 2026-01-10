@@ -16,5 +16,6 @@ pub mod rate_limiter;
 pub use client::MusicBrainzClient;
 pub use error::{MusicBrainzError, Result};
 pub use models::{
-    Album, AlbumSearchResult, Artist, ArtistSearchResult, SearchQuery, SearchResponse,
+    Album, AlbumSearchResult, Artist, ArtistSearchResult, CoverArtImage, CoverArtResponse,
+    CoverArtThumbnails, Recording, Release, ReleaseGroupRef, SearchQuery, SearchResponse,
 };

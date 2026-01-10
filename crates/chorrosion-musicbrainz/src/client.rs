@@ -2,17 +2,22 @@
 
 use crate::error::{MusicBrainzError, Result};
 use crate::models::{
-    Album, AlbumSearchResult, Artist, ArtistSearchResult, SearchQuery, SearchResponse,
+    Album, AlbumSearchResult, Artist, ArtistSearchResult, CoverArtResponse, Recording, SearchQuery,
+    SearchResponse,
 };
 use crate::rate_limiter::RateLimiter;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tracing::{debug, trace};
 use url::Url;
 use uuid::Uuid;
 
 const MUSICBRAINZ_API_BASE: &str = "https://musicbrainz.org/ws/2";
+const COVER_ART_ARCHIVE_BASE: &str = "https://coverartarchive.org";
 const USER_AGENT: &str = concat!(
     "Chorrosion/",
     env!("CARGO_PKG_VERSION"),
@@ -24,7 +29,9 @@ const USER_AGENT: &str = concat!(
 pub struct MusicBrainzClient {
     client: Client,
     base_url: String,
+    cover_art_base_url: String,
     rate_limiter: RateLimiter,
+    cover_art_cache: Arc<Mutex<HashMap<Uuid, CoverArtResponse>>>,
 }
 
 impl MusicBrainzClient {
@@ -161,6 +168,42 @@ impl MusicBrainzClient {
         self.get(&url).await
     }
 
+    /// Look up a recording (track) by MusicBrainz ID.
+    pub async fn lookup_recording(&self, mbid: Uuid) -> Result<Recording> {
+        let url = format!(
+            "{}/recording/{}?fmt=json&inc=artists+releases+release-groups",
+            self.base_url, mbid
+        );
+        self.get(&url).await
+    }
+
+    /// Fetch cover art metadata for a release group from the Cover Art Archive.
+    /// Results are cached in-memory for the lifetime of the client.
+    pub async fn fetch_cover_art(&self, release_group_mbid: Uuid) -> Result<CoverArtResponse> {
+        if let Some(cached) = self
+            .cover_art_cache
+            .lock()
+            .await
+            .get(&release_group_mbid)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+
+        let url = format!(
+            "{}/release-group/{}",
+            self.cover_art_base_url, release_group_mbid
+        );
+        let response: CoverArtResponse = self.get(&url).await?;
+
+        self.cover_art_cache
+            .lock()
+            .await
+            .insert(release_group_mbid, response.clone());
+
+        Ok(response)
+    }
+
     /// Internal method to perform rate-limited GET requests.
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
         let _permit = self.rate_limiter.acquire().await;
@@ -220,7 +263,9 @@ impl Default for MusicBrainzClient {
         MusicBrainzClient {
             client,
             base_url: MUSICBRAINZ_API_BASE.to_string(),
+            cover_art_base_url: COVER_ART_ARCHIVE_BASE.to_string(),
             rate_limiter,
+            cover_art_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -229,6 +274,7 @@ impl Default for MusicBrainzClient {
 #[derive(Debug)]
 pub struct MusicBrainzClientBuilder {
     base_url: String,
+    cover_art_base_url: String,
     timeout: Duration,
     rate_limit_interval: Duration,
 }
@@ -237,6 +283,7 @@ impl Default for MusicBrainzClientBuilder {
     fn default() -> Self {
         Self {
             base_url: MUSICBRAINZ_API_BASE.to_string(),
+            cover_art_base_url: COVER_ART_ARCHIVE_BASE.to_string(),
             timeout: Duration::from_secs(30),
             rate_limit_interval: Duration::from_secs(1),
         }
@@ -247,6 +294,12 @@ impl MusicBrainzClientBuilder {
     /// Set a custom base URL (useful for testing with mock servers).
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
+        self
+    }
+
+    /// Set a custom Cover Art Archive base URL (useful for testing).
+    pub fn cover_art_base_url(mut self, url: impl Into<String>) -> Self {
+        self.cover_art_base_url = url.into();
         self
     }
 
@@ -274,7 +327,9 @@ impl MusicBrainzClientBuilder {
         Ok(MusicBrainzClient {
             client,
             base_url: self.base_url,
+            cover_art_base_url: self.cover_art_base_url,
             rate_limiter,
+            cover_art_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }
