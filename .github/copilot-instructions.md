@@ -112,9 +112,11 @@ Notes for agents
 - Never commit directly to `main`. Always work on a branch.
 - Branch naming: `feat/<topic>-<issue#>` or `docs/<topic>` (e.g., `feat/domain-events-23`).
 - Open a Pull Request to merge into `main`; squash-merge is preferred.
-- PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), and reference the related issue (e.g., `Closes #23`).
+- PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), **code formatted** (`cargo fmt`), and reference the related issue (e.g., `Closes #23`).
 - PR↔Issue linkage: PRs must link the related issue using closing keywords (`Closes`/`Fixes`/`Resolves #<issue>`), and the issue should reference the PR once opened.
 - **PR creation checklist:**
+  - Run `cargo fmt` before pushing to maintain consistent formatting
+  - Run `cargo test --workspace` and `cargo clippy -- -D warnings` locally
   - Link related issues using closing keywords in PR body (e.g., `Closes #28`)
   - Add cross-references to related PRs when relevant (e.g., `Builds on #80`)
   - Assign the appropriate milestone (Phase 1, Phase 2, etc.) to track progress
@@ -129,4 +131,4 @@ Notes for agents
 - Add GitHub cross-references between related issues and PRs for traceability.
 - When starting new work, verify ROADMAP reflects current status before creating PRs.
 
-Last Updated: 2026-01-09
+Last Updated: 2026-01-10
