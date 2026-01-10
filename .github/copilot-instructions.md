@@ -112,7 +112,7 @@ Notes for agents
 - Never commit directly to `main`. Always work on a branch.
 - Branch naming: `feat/<topic>-<issue#>` or `docs/<topic>` (e.g., `feat/domain-events-23`).
 - Open a Pull Request to merge into `main`; squash-merge is preferred.
-- PR requirements: all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), **code formatted** (`cargo fmt`), and reference the related issue (e.g., `Closes #23`).
+- PR requirements: **code formatted** (`cargo fmt`), all tests pass (`cargo test --workspace`), clippy clean (`cargo clippy -- -D warnings`), and reference the related issue (e.g., `Closes #23`).
 - PR↔Issue linkage: PRs must link the related issue using closing keywords (`Closes`/`Fixes`/`Resolves #<issue>`), and the issue should reference the PR once opened.
 - **PR creation checklist:**
   - Run `cargo fmt` before pushing to maintain consistent formatting
