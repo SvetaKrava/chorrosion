@@ -51,12 +51,12 @@ impl Scheduler {
             )
             .await;
 
-        // Refresh all albums metadata every 12 hours (staggered after artists)
+        // Refresh all albums metadata every 12 hours, offset by 15 minutes from artists
         self.registry
             .register(
                 "refresh-albums",
                 RefreshAlbumJob::all(),
-                Schedule::Interval(12 * 60 * 60),
+                Schedule::Interval(12 * 60 * 60 + 15 * 60),
             )
             .await;
 
