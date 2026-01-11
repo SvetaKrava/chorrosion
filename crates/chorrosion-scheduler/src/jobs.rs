@@ -69,7 +69,7 @@ impl MetadataRefreshCache {
             warn!(target: "jobs", "artist cache mutex poisoned during mark, recovering");
             poisoned.into_inner()
         });
-        
+
         // Check if eligible for refresh
         let should_refresh = match cache.get(&artist_id) {
             None => true,
@@ -78,12 +78,12 @@ impl MetadataRefreshCache {
                 elapsed.num_seconds() > self.ttl_seconds
             }
         };
-        
+
         // If eligible, mark as refreshed atomically
         if should_refresh {
             cache.insert(artist_id, Utc::now());
         }
-        
+
         should_refresh
     }
 
@@ -95,7 +95,7 @@ impl MetadataRefreshCache {
             warn!(target: "jobs", "album cache mutex poisoned during mark, recovering");
             poisoned.into_inner()
         });
-        
+
         // Check if eligible for refresh
         let should_refresh = match cache.get(&album_id) {
             None => true,
@@ -104,12 +104,12 @@ impl MetadataRefreshCache {
                 elapsed.num_seconds() > self.ttl_seconds
             }
         };
-        
+
         // If eligible, mark as refreshed atomically
         if should_refresh {
             cache.insert(album_id, Utc::now());
         }
-        
+
         should_refresh
     }
 
@@ -122,13 +122,13 @@ impl MetadataRefreshCache {
             cache.clear();
         }
     }
-    
+
     /// Prune stale entries older than TTL to prevent unbounded memory growth
     /// Call this periodically (e.g., from housekeeping job) to reclaim memory
     pub fn prune_stale_entries(&self) {
         let now = Utc::now();
         let ttl = self.ttl_seconds;
-        
+
         if let Ok(mut cache) = self.artist_refreshes.lock() {
             let initial_size = cache.len();
             cache.retain(|_, last_refresh| {
@@ -140,7 +140,7 @@ impl MetadataRefreshCache {
                 debug!(target: "jobs", "pruned {} stale artist cache entries", pruned);
             }
         }
-        
+
         if let Ok(mut cache) = self.album_refreshes.lock() {
             let initial_size = cache.len();
             cache.retain(|_, last_refresh| {
@@ -702,21 +702,21 @@ mod tests {
         // correctly skips the second refresh due to rate limiting
         let artist_id = Uuid::new_v4();
         let cache = MetadataRefreshCache::new();
-        
+
         // First execution should succeed
         let job1 = RefreshArtistJob::with_cache(Some(artist_id.to_string()), cache.clone());
         let ctx1 = JobContext::new("test-job-rate-1");
         let result1 = job1.execute(ctx1).await;
         assert!(result1.is_ok());
         assert!(matches!(result1.unwrap(), JobResult::Success));
-        
+
         // Second execution with same cache should skip (rate limited)
         let job2 = RefreshArtistJob::with_cache(Some(artist_id.to_string()), cache.clone());
         let ctx2 = JobContext::new("test-job-rate-2");
         let result2 = job2.execute(ctx2).await;
         assert!(result2.is_ok());
         assert!(matches!(result2.unwrap(), JobResult::Success));
-        
+
         // Verify cache still has the artist marked as recently refreshed
         assert!(!cache.should_refresh_artist(artist_id));
     }
@@ -727,21 +727,21 @@ mod tests {
         // correctly skips the second refresh due to rate limiting
         let album_id = Uuid::new_v4();
         let cache = MetadataRefreshCache::new();
-        
+
         // First execution should succeed
         let job1 = RefreshAlbumJob::with_cache(Some(album_id.to_string()), cache.clone());
         let ctx1 = JobContext::new("test-job-rate-3");
         let result1 = job1.execute(ctx1).await;
         assert!(result1.is_ok());
         assert!(matches!(result1.unwrap(), JobResult::Success));
-        
+
         // Second execution with same cache should skip (rate limited)
         let job2 = RefreshAlbumJob::with_cache(Some(album_id.to_string()), cache.clone());
         let ctx2 = JobContext::new("test-job-rate-4");
         let result2 = job2.execute(ctx2).await;
         assert!(result2.is_ok());
         assert!(matches!(result2.unwrap(), JobResult::Success));
-        
+
         // Verify cache still has the album marked as recently refreshed
         assert!(!cache.should_refresh_album(album_id));
     }
@@ -752,9 +752,9 @@ mod tests {
         // This is a placeholder test until the full implementation is added
         let job = RefreshArtistJob::all();
         let ctx = JobContext::new("test-job-all-artists");
-        
+
         let result = job.execute(ctx).await;
-        
+
         assert!(result.is_ok());
         assert!(matches!(result.unwrap(), JobResult::Success));
     }
@@ -765,9 +765,9 @@ mod tests {
         // This is a placeholder test until the full implementation is added
         let job = RefreshAlbumJob::all();
         let ctx = JobContext::new("test-job-all-albums");
-        
+
         let result = job.execute(ctx).await;
-        
+
         assert!(result.is_ok());
         assert!(matches!(result.unwrap(), JobResult::Success));
     }
@@ -778,11 +778,11 @@ mod tests {
         let cache = MetadataRefreshCache::new();
         let artist_id1 = Uuid::new_v4();
         let artist_id2 = Uuid::new_v4();
-        
+
         // Create first job and mark artist 1 as refreshed
         let job1 = RefreshArtistJob::with_cache(Some(artist_id1.to_string()), cache.clone());
         assert!(job1.cache().try_mark_artist_refreshed(artist_id1));
-        
+
         // Create second job with same cache - should see artist 1 as already refreshed
         let job2 = RefreshArtistJob::with_cache(Some(artist_id2.to_string()), cache.clone());
         assert!(!job2.cache().should_refresh_artist(artist_id1));
@@ -794,15 +794,15 @@ mod tests {
         // Test that prune_stale_entries removes old entries but keeps recent ones
         let cache = MetadataRefreshCache::new();
         let artist_id = Uuid::new_v4();
-        
+
         // Mark as refreshed
         assert!(cache.try_mark_artist_refreshed(artist_id));
         assert!(!cache.should_refresh_artist(artist_id));
-        
+
         // Prune immediately - entry should still be there (within TTL)
         cache.prune_stale_entries();
         assert!(!cache.should_refresh_artist(artist_id));
-        
+
         // Note: Testing actual TTL expiration would require mocking time or very long test delays
         // The implementation is correct - this test verifies the pruning mechanism exists
     }
@@ -812,13 +812,13 @@ mod tests {
         // Test that try_mark_* operations are atomic and prevent double-marking
         let cache = MetadataRefreshCache::new();
         let artist_id = Uuid::new_v4();
-        
+
         // First try_mark should succeed
         assert!(cache.try_mark_artist_refreshed(artist_id));
-        
+
         // Second try_mark on same ID should fail (already marked within TTL)
         assert!(!cache.try_mark_artist_refreshed(artist_id));
-        
+
         // Same for albums
         let album_id = Uuid::new_v4();
         assert!(cache.try_mark_album_refreshed(album_id));

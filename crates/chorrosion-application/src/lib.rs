@@ -2,10 +2,16 @@
 use chorrosion_config::AppConfig;
 pub mod embedded_tags;
 pub mod events;
+pub mod filename_heuristics;
 pub mod import;
 pub mod matching;
 
-pub use embedded_tags::{EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult};
+pub use embedded_tags::{
+    EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
+};
+pub use filename_heuristics::{
+    FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
+};
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 

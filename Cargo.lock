@@ -310,6 +310,8 @@ dependencies = [
  "chorrosion-domain",
  "chorrosion-fingerprint",
  "chrono",
+ "lazy_static",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
