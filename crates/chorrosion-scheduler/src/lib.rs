@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use jobs::{BacklogSearchJob, HousekeepingJob, RefreshArtistJob, RssSyncJob};
+use jobs::{BacklogSearchJob, HousekeepingJob, RefreshAlbumJob, RefreshArtistJob, RssSyncJob};
 
 #[allow(dead_code)]
 pub struct Scheduler {
@@ -48,6 +48,15 @@ impl Scheduler {
                 "refresh-artists",
                 RefreshArtistJob::all(),
                 Schedule::Interval(12 * 60 * 60),
+            )
+            .await;
+
+        // Refresh all albums metadata every 12 hours, offset by 15 minutes from artists
+        self.registry
+            .register(
+                "refresh-albums",
+                RefreshAlbumJob::all(),
+                Schedule::Interval(12 * 60 * 60 + 15 * 60),
             )
             .await;
 

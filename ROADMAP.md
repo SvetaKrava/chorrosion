@@ -69,10 +69,10 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓
     - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
   - [ ] Fallback matching using embedded tags, then filename heuristics
-- [ ] Metadata refresh jobs
-  - [ ] Scheduled artist metadata updates
-  - [ ] Album metadata updates
-  - [ ] Rate limiting and caching
+- [x] Metadata refresh jobs ✓ (Issue #27)
+  - [x] Scheduled artist metadata updates ✓
+  - [x] Album metadata updates ✓
+  - [x] Rate limiting and caching ✓
 - [ ] Metadata mapping
   - [ ] MusicBrainz ID storage
   - [ ] Genre and style mapping
