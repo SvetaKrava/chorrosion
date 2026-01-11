@@ -2,10 +2,21 @@
 
 //! Track matching service using fingerprints as primary lookup strategy.
 //!
-//! The matching engine implements a fallback chain:
-//! 1. Fingerprint-based lookup via AcoustID
-//! 2. Embedded metadata tags (future)
-//! 3. Filename heuristics (future)
+//! The matching engine implements a comprehensive fallback chain:
+//! 1. **Fingerprint-based lookup** via AcoustID (highest confidence: 0.8-1.0)
+//!    - Audio fingerprint matched against MusicBrainz database
+//!    - Most reliable method, resistant to file format/tags changes
+//! 2. **Embedded metadata tags** (medium confidence: 0.5-0.9)
+//!    - Parses ID3/Vorbis/MP4 tags (artist/album/track metadata)
+//!    - Less reliable than fingerprints but better than filename heuristics
+//!    - Future enhancement: requires external audio libraries
+//! 3. **Filename heuristics** (lower confidence: 0.3-0.7)
+//!    - Pattern-based extraction from filename (e.g., "Artist - 01 - Title")
+//!    - Fallback when no fingerprint or tags available
+//!    - Supports common naming conventions
+//!
+//! Each fallback step is attempted if the previous step fails or is unavailable.
+//! Confidence scores decrease at each level, allowing confidence-based filtering.
 
 use chorrosion_domain::{Track, TrackFile, TrackFileId, TrackId};
 use chorrosion_fingerprint::{AcoustidClient, Fingerprint, FingerprintError};
