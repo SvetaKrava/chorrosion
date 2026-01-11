@@ -149,14 +149,14 @@ mod tests {
 
     #[tokio::test]
     async fn returns_file_not_found_error() {
-        let svc = EmbeddedTagMatchingService::default();
+        let svc = EmbeddedTagMatchingService;
         let result = svc.match_from_file("does_not_exist.mp3").await;
         assert!(matches!(result, Err(EmbeddedTagError::FileNotFound(_))));
     }
 
     #[tokio::test]
     async fn returns_none_on_extraction_not_implemented() {
-        let svc = EmbeddedTagMatchingService::default();
+        let svc = EmbeddedTagMatchingService;
         let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
         let result = svc.match_from_file(&test_file).await;
         // Should return None since extraction is not yet implemented

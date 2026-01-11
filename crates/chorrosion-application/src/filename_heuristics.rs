@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn parse_detailed_pattern() {
-        let service = FilenameHeuristicsService::default();
+        let service = FilenameHeuristicsService;
 
         // Cargo.toml exists but won't match pattern
         let result = service.parse_filename(
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn parse_artist_track_title() {
-        let service = FilenameHeuristicsService::default();
+        let service = FilenameHeuristicsService;
         let path = std::env::current_dir().unwrap().join("Cargo.toml");
 
         let result = service.parse_filename(&path, Some("Pink Floyd"), Some("The Wall"));
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn parse_track_title_space_separated() {
-        let service = FilenameHeuristicsService::default();
+        let service = FilenameHeuristicsService;
         let path = std::env::current_dir().unwrap().join("Cargo.toml");
 
         let result = service.parse_filename(&path, Some("Artist"), Some("Album"));
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn file_not_found_error() {
-        let service = FilenameHeuristicsService::default();
+        let service = FilenameHeuristicsService;
         let result = service.parse_filename("does_not_exist.mp3", None, None);
         assert!(matches!(
             result,
