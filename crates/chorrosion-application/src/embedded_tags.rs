@@ -163,10 +163,13 @@ mod tests {
         assert!(matches!(result, Ok(None)));
     }
 
-    #[test]
-    fn extract_tags_not_yet_implemented() {
+    #[tokio::test]
+    async fn extract_tags_not_yet_implemented() {
+        let svc = EmbeddedTagMatchingService;
         let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
-        // Extract tags test will be implemented when tag parsing libraries are added
-        assert!(test_file.exists());
+
+        // Verify extract_tags returns NotImplemented error
+        let result = svc.extract_tags(&test_file).await;
+        assert!(matches!(result, Err(EmbeddedTagError::NotImplemented(_))));
     }
 }
