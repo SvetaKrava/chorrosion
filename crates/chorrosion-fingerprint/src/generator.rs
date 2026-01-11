@@ -280,8 +280,9 @@ mod tests {
         let gen = FingerprintGenerator::new();
         assert_eq!(std::mem::size_of_val(&gen), 0); // ZST
 
-        let gen_default = FingerprintGenerator::default();
-        assert_eq!(std::mem::size_of_val(&gen_default), 0);
+        // Default impl works but for ZST, just use constructor
+        let gen2 = FingerprintGenerator;
+        assert_eq!(std::mem::size_of_val(&gen2), 0);
     }
 
     #[test]
