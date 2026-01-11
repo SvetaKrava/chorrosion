@@ -61,7 +61,17 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Recording (track) lookup ✓ (Issue #26)
   - [x] Cover art fetching ✓ (Issue #26)
   - [ ] Fingerprint-based matching (Chromaprint/AcoustID) as primary
-    - [ ] Generate audio fingerprints during import/scan (Issue #65)
+    - [ ] Generate audio fingerprints during import/scan
+      - [x] Phase 1: Core framework and format detection (Issue #65, PR #90) ✓
+        - [x] FingerprintGenerator module with async API
+        - [x] FLAC/MP3 format detection and routing
+        - [x] AudioSamples container with 120s duration limiting
+        - [x] Comprehensive error handling and test coverage
+      - [ ] Phase 2: Symphonia-based audio decoding (Issue #65.2)
+        - [ ] Implement FLAC audio sample extraction
+        - [ ] Implement MP3 audio sample extraction
+        - [ ] Chromaprint fingerprint generation
+      - [ ] Advanced formats: OGG, Opus, WavPack, APE (Issue #89 - optional FFmpeg)
     - [x] Resolve via AcoustID to MusicBrainz IDs (MBIDs) ✓ (Issue #25)
     - [x] Confidence thresholds and tie-breakers ✓
     - [x] Database schema for fingerprint storage (Issue #66) ✓
