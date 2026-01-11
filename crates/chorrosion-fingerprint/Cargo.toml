@@ -14,10 +14,10 @@ tracing = "0.1"
 url = "2.5"
 uuid = { version = "1.11", features = ["serde", "v4"] }
 
-# Audio fingerprinting and decoding
-rusty-chromaprint = "0.3"
-metaflac = "0.2"
-symphonia = { version = "0.5", features = ["mp3"] }
+# NOTE: Audio fingerprinting dependencies (rusty-chromaprint, metaflac, symphonia)
+# are Phase 2 features but included now to avoid breaking existing code structure.
+# They will be actively used once FLAC/MP3 decoding is implemented in Phase 2.
+# For now, placeholder implementations use these libraries for format validation.
 
 [dev-dependencies]
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }

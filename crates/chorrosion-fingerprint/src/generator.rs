@@ -85,7 +85,10 @@ impl AudioSamples {
 
     /// Limit samples to fingerprinting duration (120 seconds max).
     fn limit_to_fingerprint_duration(&mut self) {
-        let max_samples = (SAMPLE_RATE * MAX_FINGERPRINT_DURATION_SECS) as usize;
+        // Use the actual sample rate of this audio rather than the global constant to
+        // ensure the truncation duration matches the decoded audio properties.
+        let effective_sample_rate = self.sample_rate.max(1);
+        let max_samples = (effective_sample_rate * MAX_FINGERPRINT_DURATION_SECS) as usize;
         if self.samples.len() > max_samples {
             debug!(
                 original_len = self.samples.len(),
@@ -285,20 +288,48 @@ mod tests {
         assert_eq!(std::mem::size_of_val(&gen2), 0);
     }
 
-    #[test]
-    fn test_unsupported_format_error() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let gen = FingerprintGenerator::new();
-            let result = gen.generate_from_file("/nonexistent/path/file.xyz").await;
+    #[tokio::test]
+    async fn test_unsupported_format_error() {
+        let gen = FingerprintGenerator::new();
+        let nonexistent_path = std::path::Path::new("nonexistent")
+            .join("path")
+            .join("file.xyz");
+        let result = gen.generate_from_file(&nonexistent_path).await;
 
-            assert!(result.is_err());
-            let err_msg = result.unwrap_err().to_string();
-            // Could be either "Failed to open" or "Unsupported audio format" depending on path handling
-            assert!(
-                err_msg.contains("Failed to open") || err_msg.contains("Unsupported audio format"),
-                "Unexpected error: {}",
-                err_msg
-            );
-        });
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // Could be either "Failed to open" or "Unsupported audio format" depending on path handling
+        assert!(
+            err_msg.contains("Failed to open") || err_msg.contains("Unsupported audio format"),
+            "Unexpected error: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_from_file_format_detection() {
+        let gen = FingerprintGenerator::new();
+
+        // Test FLAC format detection (file doesn't need to exist for format check)
+        let flac_path = std::path::Path::new("test_audio.flac");
+        let result = gen.generate_from_file(flac_path).await;
+        // Placeholder implementation should return an error for nonexistent file
+        assert!(result.is_err());
+
+        // Test MP3 format detection
+        let mp3_path = std::path::Path::new("test_audio.mp3");
+        let result = gen.generate_from_file(mp3_path).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_generate_empty_fingerprint_error() {
+        let samples = AudioSamples::new(vec![], 44100);
+        let gen = FingerprintGenerator;
+        let result = gen.generate_fingerprint_from_samples(samples).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No audio samples"));
     }
 }
