@@ -339,7 +339,7 @@ impl FingerprintGenerator {
     /// Generate fingerprint from audio samples.
     async fn generate_fingerprint_from_samples(
         &self,
-        mut samples: AudioSamples,
+        samples: AudioSamples,
     ) -> Result<Fingerprint> {
         if samples.samples.is_empty() {
             return Err(FingerprintError::AudioProcessing(
