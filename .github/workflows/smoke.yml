@@ -26,6 +26,15 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install chromaprint (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install chromaprint:x64-windows
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
+          echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
+
       - name: Install chromaprint (macOS)
         if: runner.os == 'macOS'
         run: |
