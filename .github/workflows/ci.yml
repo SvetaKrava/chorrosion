@@ -18,10 +18,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu:/usr/lib
-      LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu:/usr/lib
 
     steps:
       - name: Checkout
@@ -34,18 +30,23 @@ jobs:
         if: runner.os == 'macos'
         run: |
           brew install chromaprint pkg-config
-          # Verify installation and get library location
-          pkg-config --cflags --libs libchromaprint
+          prefix="$(brew --prefix chromaprint)"
+          echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
+          pkg-config --cflags --libs chromaprint
+          ls -l ${prefix}/lib | grep chromaprint || true
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libchromaprint-dev pkg-config
-          # Verify installation
-          pkg-config --cflags --libs libchromaprint
-          # Find the actual library location
-          find /usr -name "libchromaprint.so*" -o -name "libchromaprint.a" 2>/dev/null || true
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          pkg-config --cflags --libs chromaprint
+          ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -69,10 +70,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu:/usr/lib
-      LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu:/usr/lib
 
     steps:
       - name: Checkout
@@ -85,18 +82,23 @@ jobs:
         if: runner.os == 'macos'
         run: |
           brew install chromaprint pkg-config
-          # Verify installation and get library location
-          pkg-config --cflags --libs libchromaprint
+          prefix="$(brew --prefix chromaprint)"
+          echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
+          pkg-config --cflags --libs chromaprint
+          ls -l ${prefix}/lib | grep chromaprint || true
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libchromaprint-dev pkg-config
-          # Verify installation
-          pkg-config --cflags --libs libchromaprint
-          # Find the actual library location
-          find /usr -name "libchromaprint.so*" -o -name "libchromaprint.a" 2>/dev/null || true
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          pkg-config --cflags --libs chromaprint
+          ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
