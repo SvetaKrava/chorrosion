@@ -18,6 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
 
     steps:
       - name: Checkout
@@ -32,7 +34,7 @@ jobs:
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev
+        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev pkg-config
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -56,6 +58,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
 
     steps:
       - name: Checkout
@@ -70,7 +74,7 @@ jobs:
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev
+        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev pkg-config
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
