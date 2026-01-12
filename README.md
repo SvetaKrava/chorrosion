@@ -20,7 +20,11 @@ Axum + Tokio powered service with a typed domain model, OpenAPI-documented REST 
 
 ## Quickstart
 
-Prerequisites: Rust toolchain (stable), `cargo`.
+### Prerequisites
+
+- Rust toolchain (stable) — see [rustup.rs](https://rustup.rs/)
+- `cargo`
+- **System libraries**: Chromaprint and FFmpeg for audio fingerprinting — see [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md) for platform-specific installation
 
 Default server binds to `127.0.0.1:5150`.
 
