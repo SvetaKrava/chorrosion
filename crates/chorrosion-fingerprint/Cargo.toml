@@ -13,6 +13,8 @@ tokio = { version = "1.42", features = ["sync", "time"] }
 tracing = "0.1"
 url = "2.5"
 uuid = { version = "1.11", features = ["serde", "v4"] }
+chromaprint = "0.2"
+symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3", "pcm"] }
 
 # NOTE: Audio fingerprinting dependencies (rusty-chromaprint, metaflac, symphonia)
 # are Phase 2 features but included now to avoid breaking existing code structure.
