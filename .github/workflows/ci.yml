@@ -20,6 +20,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu
+      CHROMAPRINT_INCLUDE_DIR: /usr/include
 
     steps:
       - name: Checkout
@@ -34,7 +36,13 @@ jobs:
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-dev pkg-config
+          # Verify installation
+          pkg-config --cflags --libs libchromaprint
+          # Find the actual library location
+          find /usr -name "libchromaprint.so*" -o -name "libchromaprint.a" 2>/dev/null || true
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -60,6 +68,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu
+      CHROMAPRINT_INCLUDE_DIR: /usr/include
 
     steps:
       - name: Checkout
@@ -74,7 +84,13 @@ jobs:
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-dev pkg-config
+          # Verify installation
+          pkg-config --cflags --libs libchromaprint
+          # Find the actual library location
+          find /usr -name "libchromaprint.so*" -o -name "libchromaprint.a" 2>/dev/null || true
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
