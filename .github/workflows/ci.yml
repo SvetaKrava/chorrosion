@@ -20,8 +20,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu
-      CHROMAPRINT_INCLUDE_DIR: /usr/include
+      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu:/usr/lib
+      LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu:/usr/lib
 
     steps:
       - name: Checkout
@@ -71,8 +71,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu
-      CHROMAPRINT_INCLUDE_DIR: /usr/include
+      CHROMAPRINT_LIB_DIR: /usr/lib/x86_64-linux-gnu:/usr/lib
+      LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu:/usr/lib
 
     steps:
       - name: Checkout
