@@ -5,6 +5,7 @@ This project uses chromaprint for audio fingerprinting. On Windows, the chromapr
 ## Prerequisites
 
 ### 1. vcpkg Installation
+
 Install vcpkg at `C:\util\vcpkg` if not already present:
 
 ```powershell
@@ -34,6 +35,7 @@ Or add permanently to system environment variables.
 ## Configuration Details
 
 ### Build Configuration (.cargo/config.toml)
+
 The project includes a `.cargo/config.toml` that adds the vcpkg lib directory to the linker search path:
 
 ```toml
@@ -55,14 +57,17 @@ cargo test --workspace
 
 ## Troubleshooting
 
-**Error: "LINK : fatal error LNK1181: cannot open input file 'chromaprint.lib'"**
+## Error: "LINK : fatal error LNK1181: cannot open input file 'chromaprint.lib'"
+
 - Verify `C:\util\vcpkg\installed\x64-windows\lib\chromaprint.lib` exists
 - Check `.cargo/config.toml` rustflags are correct
 
-**Error: "DLL not found" at runtime**
+## Error: "DLL not found" at runtime
+
 - Ensure PATH includes `C:\util\vcpkg\installed\x64-windows\bin`
 - This directory contains ffmpeg DLLs required by chromaprint
 
-**vcpkg install fails**
+## vcpkg install fails
+
 - Run `C:\util\vcpkg\vcpkg integrate install` to set up MSBuild integration
 - Ensure Visual Studio Build Tools are installed

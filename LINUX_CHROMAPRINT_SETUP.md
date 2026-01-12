@@ -34,7 +34,8 @@ pkg-config --cflags --libs libchromaprint
 ```
 
 This should output something like:
-```
+
+```bash
 -I/usr/include -L/usr/lib/x86_64-linux-gnu -lchromaprint
 ```
 
@@ -72,29 +73,37 @@ export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
 
 ## Troubleshooting
 
-**Error: "rust-lld: error: unable to find library -lchromaprint"**
+### Error: "rust-lld: error: unable to find library -lchromaprint"
+
 - Ensure chromaprint is installed: `sudo apt-get install -y libchromaprint-dev`
 - Verify pkg-config can find it: `pkg-config --list-all | grep chromaprint`
 - Try setting PKG_CONFIG_PATH as shown above
 
-**Error: "package 'libchromaprint' not found"**
+### Error: "package 'libchromaprint' not found"
+
 - Install pkg-config: `sudo apt-get install -y pkg-config`
 - Check the installation: `dpkg -l | grep chromaprint`
 - If not listed, reinstall: `sudo apt-get install --reinstall libchromaprint-dev`
 
-**Build fails with linking errors**
+### Build fails with linking errors
+
 - Try clearing Cargo cache:
+
   ```bash
   cargo clean
   cargo build
   ```
+
 - Ensure pkg-config is in PATH:
+
   ```bash
   which pkg-config
   ```
 
-**Architecture mismatch**
+### Architecture mismatch
+
 - Ensure the chromaprint library matches your system architecture:
+
   ```bash
   dpkg -l libchromaprint0  # Check installed architecture
   uname -m                 # Check system architecture
