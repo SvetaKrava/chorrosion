@@ -26,6 +26,14 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install chromaprint (macOS)
+        if: runner.os == 'macos'
+        run: brew install chromaprint
+
+      - name: Install chromaprint (Ubuntu)
+        if: runner.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -55,6 +63,14 @@ jobs:
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install chromaprint (macOS)
+        if: runner.os == 'macos'
+        run: brew install chromaprint
+
+      - name: Install chromaprint (Ubuntu)
+        if: runner.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
