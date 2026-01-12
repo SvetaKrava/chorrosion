@@ -32,7 +32,10 @@ jobs:
 
       - name: Install chromaprint (macOS)
         if: runner.os == 'macos'
-        run: brew install chromaprint
+        run: |
+          brew install chromaprint pkg-config
+          # Verify installation and get library location
+          pkg-config --cflags --libs libchromaprint
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
@@ -80,7 +83,10 @@ jobs:
 
       - name: Install chromaprint (macOS)
         if: runner.os == 'macos'
-        run: brew install chromaprint
+        run: |
+          brew install chromaprint pkg-config
+          # Verify installation and get library location
+          pkg-config --cflags --libs libchromaprint
 
       - name: Install chromaprint (Ubuntu)
         if: runner.os == 'linux'
