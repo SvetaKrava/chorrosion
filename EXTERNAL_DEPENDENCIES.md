@@ -1,3 +1,5 @@
+<!-- markdownlint-disable-file MD024 -->
+
 # External Dependencies
 
 This document lists system-level dependencies required to build and run Chorrosion. Most Rust dependencies are managed by Cargo, but certain native libraries must be installed separately.
@@ -5,6 +7,7 @@ This document lists system-level dependencies required to build and run Chorrosi
 ## Quick Setup
 
 ### Windows
+
 ```powershell
 # Install vcpkg (one-time setup)
 git clone https://github.com/microsoft/vcpkg C:\util\vcpkg
@@ -22,12 +25,14 @@ $env:PATH="C:\util\vcpkg\installed\x64-windows\bin;$env:PATH"
 ```
 
 ### Linux (Ubuntu/Debian)
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y libchromaprint-dev libchromaprint0
 ```
 
 ### macOS
+
 ```bash
 brew install chromaprint
 ```
@@ -44,7 +49,8 @@ brew install chromaprint
 
 #### Installation by Platform
 
-**Windows:**
+##### Windows
+
 ```powershell
 # Requires vcpkg at C:\util\vcpkg
 C:\util\vcpkg\vcpkg install chromaprint:x64-windows
@@ -54,7 +60,8 @@ Get-ChildItem "C:\util\vcpkg\installed\x64-windows\lib\chromaprint.lib"
 Get-ChildItem "C:\util\vcpkg\installed\x64-windows\bin\*.dll" | Select-String chromaprint
 ```
 
-**Linux (Ubuntu/Debian):**
+##### Linux (Ubuntu/Debian)
+
 ```bash
 sudo apt-get install -y libchromaprint-dev libchromaprint0
 
@@ -63,7 +70,8 @@ pkg-config --modversion libchromaprint
 ldconfig -p | grep chromaprint
 ```
 
-**macOS:**
+##### macOS
+
 ```bash
 brew install chromaprint
 
@@ -80,15 +88,18 @@ pkg-config --modversion libchromaprint
 
 #### Installation by Platform
 
-**Windows:**
+##### Windows
+
 - Automatically installed with `vcpkg install chromaprint:x64-windows`
 - Location: `C:\util\vcpkg\installed\x64-windows\bin\`
 
-**Linux (Ubuntu/Debian):**
+##### Linux (Ubuntu/Debian)
+
 - Automatically installed as a dependency of `libchromaprint-dev`
 - Or install explicitly: `sudo apt-get install -y ffmpeg`
 
-**macOS:**
+##### macOS
+
 - Automatically installed with `brew install chromaprint`
 - Or install explicitly: `brew install ffmpeg`
 
@@ -97,14 +108,16 @@ pkg-config --modversion libchromaprint
 **Purpose:** C++ compiler and linker for native library integration  
 **Required for:** Linking against `chromaprint.lib`
 
-**Installation:**
+#### Installation
+
 ```powershell
 # Install via Visual Studio Installer
 # Select: "Desktop development with C++" workload
 # Or install Community Edition: https://visualstudio.microsoft.com/downloads/
 ```
 
-**Verification:**
+#### Verification
+
 ```powershell
 # Check if MSVC is available
 cl.exe /? # Should show compiler help
@@ -116,7 +129,8 @@ link.exe /? # Should show linker help
 **Purpose:** Rust compiler and package manager  
 **Version:** 1.56+ (tested with latest stable)
 
-**Installation:**
+#### Installation
+
 ```bash
 # Windows, macOS, Linux
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -139,7 +153,8 @@ This tells the MSVC linker where to find `chromaprint.lib`.
 
 ### Environment Variables
 
-**Windows:**
+#### Windows
+
 ```powershell
 # For compilation (optional - handled by .cargo/config.toml)
 $env:VCPKG_ROOT="C:\util\vcpkg"
@@ -148,7 +163,8 @@ $env:VCPKG_ROOT="C:\util\vcpkg"
 $env:PATH="C:\util\vcpkg\installed\x64-windows\bin;$env:PATH"
 ```
 
-**Linux/macOS:**
+#### Linux/macOS
+
 ```bash
 # Usually handled by pkg-config automatically
 # But can be set if needed:
@@ -177,30 +193,37 @@ Use this checklist to verify all dependencies are installed correctly:
 
 ### "LINK : fatal error LNK1181: cannot open input file 'chromaprint.lib'"
 
-**Windows only**
+> [!IMPORTANT]
+> Windows only
+
 - Verify `C:\util\vcpkg\installed\x64-windows\lib\chromaprint.lib` exists
 - Check `.cargo/config.toml` has correct rustflags path
 - Ensure vcpkg is installed at `C:\util\vcpkg`
 
 ### "DLL not found" at Runtime
 
-**Windows only**
+> [!IMPORTANT]
+> Windows only
+
 - Add `C:\util\vcpkg\installed\x64-windows\bin` to PATH
 - Or run: `$env:PATH="C:\util\vcpkg\installed\x64-windows\bin;$env:PATH"`
 
 ### "Package chromaprint not found by pkg-config"
 
-**Linux/macOS**
+> [!IMPORTANT]
+> Linux/macOS
+
 - Install development headers: `sudo apt-get install -y libchromaprint-dev` (Ubuntu) or `brew install chromaprint` (macOS)
 - Verify: `pkg-config --list-all | grep chromaprint`
 
 ### vcpkg Integration Issues
 
-**Windows**
+> [!IMPORTANT]
+> Windows
+
 ```powershell
 # Reset vcpkg integration
-C:\util\vcpkg\vcpkg integrate remove
-C:\util\vcpkg\vcpkg integrate install
+C:\util\vcpkg\vcpkg integrate remove C:\util\vcpkg\vcpkg integrate install
 
 # Re-install chromaprint
 C:\util\vcpkg\vcpkg remove chromaprint:x64-windows
@@ -213,7 +236,8 @@ C:\util\vcpkg\vcpkg install chromaprint:x64-windows
 
 For GitHub Actions and other CI/CD systems:
 
-**Windows Runners:**
+### Windows Runners
+
 ```yaml
 - name: Setup vcpkg
   run: |
@@ -227,7 +251,8 @@ For GitHub Actions and other CI/CD systems:
   run: echo "C:\vcpkg\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 ```
 
-**Linux Runners:**
+### Linux Runners
+
 ```yaml
 - name: Install dependencies
   run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev libchromaprint0
@@ -236,7 +261,8 @@ For GitHub Actions and other CI/CD systems:
   run: cargo build --verbose
 ```
 
-**macOS Runners:**
+### macOS Runners
+
 ```yaml
 - name: Install dependencies
   run: brew install chromaprint
