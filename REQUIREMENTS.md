@@ -3,7 +3,7 @@
 ## Quick Reference
 
 | Component | Windows | Linux | macOS |
-|-----------|---------|-------|-------|
+| --------- | ------- | ----- | ----- |
 | **Rust** | ✓ via rustup | ✓ via rustup | ✓ via rustup |
 | **Cargo** | ✓ (with Rust) | ✓ (with Rust) | ✓ (with Rust) |
 | **chromaprint** | ✓ via vcpkg | ✓ apt-get/yum/pacman | ✓ brew |
@@ -13,6 +13,7 @@
 ## Installation Commands
 
 ### Windows (PowerShell)
+
 ```powershell
 # One-time: Run automated setup
 .\setup-windows.ps1
@@ -25,6 +26,7 @@ $env:PATH="C:\util\vcpkg\installed\x64-windows\bin;$env:PATH"
 ```
 
 ### Linux
+
 ```bash
 # Ubuntu/Debian
 chmod +x setup-unix.sh
@@ -35,6 +37,7 @@ sudo apt-get install -y libchromaprint-dev libchromaprint0 ffmpeg
 ```
 
 ### macOS
+
 ```bash
 # Using Homebrew
 chmod +x setup-unix.sh
@@ -67,7 +70,7 @@ cargo run -p chorrosion-cli
 
 - **Detailed Instructions**: [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
 - **Windows-Specific**: [WINDOWS_CHROMAPRINT_SETUP.md](WINDOWS_CHROMAPRINT_SETUP.md)
-- **Setup Scripts**: 
+- **Setup Scripts**:
   - Windows: `setup-windows.ps1`
   - Linux/macOS: `setup-unix.sh`
 

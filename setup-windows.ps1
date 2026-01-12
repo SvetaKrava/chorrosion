@@ -100,7 +100,7 @@ Write-Host "  $chromaprintBin" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "You can do this via:" -ForegroundColor Gray
 Write-Host "  - Windows Settings → Environment Variables" -ForegroundColor Gray
-Write-Host "  - setx PATH ""$chromaprintBin;%PATH%""" -ForegroundColor Gray
+Write-Host "  - PowerShell: Use [Environment]::SetEnvironmentVariable('PATH', <updatedPath>, 'User') to append this directory safely." -ForegroundColor Gray
 
 # Step 5: Verification
 if (-not $SkipVerification) {

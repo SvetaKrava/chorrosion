@@ -35,7 +35,7 @@ if [ "$OS" = "linux" ]; then
         sudo yum install -y chromaprint-devel chromaprint ffmpeg
     elif command -v pacman &> /dev/null; then
         echo "Using pacman (Arch)..."
-        sudo pacman -S chromaprint ffmpeg
+        sudo pacman -S --noconfirm chromaprint ffmpeg
     else
         echo "❌ Unsupported package manager. Please install chromaprint manually."
         exit 1
@@ -112,7 +112,7 @@ echo ""
 # Step 4: Build test
 echo "Step 4: Testing build..."
 
-if cargo build -p chorrosion-fingerprint 2>/dev/null; then
+if cargo build -p chorrosion-fingerprint; then
     echo "✓ fingerprint crate builds successfully"
 else
     echo "⚠ fingerprint crate build failed. Review errors above."

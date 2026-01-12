@@ -221,9 +221,21 @@ impl FingerprintGenerator {
             })?;
 
         let mut sample_rate = track.codec_params.sample_rate.unwrap_or(SAMPLE_RATE);
-        let mut samples: Vec<i16> = Vec::new();
+        let estimated_capacity = track
+            .codec_params
+            .n_frames
+            .and_then(|f| usize::try_from(f).ok())
+            .unwrap_or(sample_rate as usize * 120);
+        let mut samples: Vec<i16> = Vec::with_capacity(estimated_capacity);
+
+        let max_samples = (MAX_FINGERPRINT_DURATION_SECS as usize) * (sample_rate as usize);
 
         loop {
+            // Early exit if we've already collected enough samples for fingerprinting
+            if samples.len() >= max_samples {
+                break;
+            }
+
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
                 Err(SymphoniaError::IoError(err)) if err.kind() == ErrorKind::UnexpectedEof => {
@@ -305,13 +317,14 @@ impl FingerprintGenerator {
                             mixed += buf.chan(ch)[frame_idx] as f64;
                         }
                         mixed /= channels as f64;
-                        let clipped = (mixed / i32::MAX as f64).clamp(-1.0, 1.0);
-                        samples.push((clipped * i16::MAX as f64) as i16);
+                        let clipped = (mixed / (i32::MAX as f64 / i16::MAX as f64))
+                            .clamp(i16::MIN as f64, i16::MAX as f64);
+                        samples.push(clipped as i16);
                     }
                 }
                 _other => {
                     return Err(FingerprintError::AudioProcessing(format!(
-                        "Unsupported sample format for {:?}",
+                        "Unsupported sample format for {}",
                         extension
                     )));
                 }
@@ -340,9 +353,6 @@ impl FingerprintGenerator {
             sample_rate = samples.sample_rate,
             "Generating fingerprint from audio samples"
         );
-
-        // Limit to fingerprinting duration (120 seconds max)
-        samples.limit_to_fingerprint_duration();
 
         let mut ctx = Chromaprint::new();
 
