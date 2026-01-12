@@ -34,7 +34,7 @@ jobs:
           echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
           echo "DYLD_LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
-          pkg-config --cflags --libs chromaprint
+          pkg-config --cflags --libs libchromaprint
           ls -l ${prefix}/lib | grep chromaprint || true
 
       - name: Install chromaprint (Ubuntu)
@@ -45,7 +45,7 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
-          pkg-config --cflags --libs chromaprint
+          pkg-config --cflags --libs libchromaprint
           ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
 
       - name: Cache Cargo
@@ -86,7 +86,7 @@ jobs:
           echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
           echo "DYLD_LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
-          pkg-config --cflags --libs chromaprint
+          pkg-config --cflags --libs libchromaprint
           ls -l ${prefix}/lib | grep chromaprint || true
 
       - name: Install chromaprint (Ubuntu)
@@ -97,7 +97,7 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
-          pkg-config --cflags --libs chromaprint
+          pkg-config --cflags --libs libchromaprint
           ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
 
       - name: Cache Cargo
