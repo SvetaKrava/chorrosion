@@ -5,6 +5,7 @@ pub mod events;
 pub mod filename_heuristics;
 pub mod import;
 pub mod matching;
+pub mod matching_precedence;
 
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
@@ -14,6 +15,10 @@ pub use filename_heuristics::{
 };
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
+pub use matching_precedence::{
+    MatchingStrategy, PrecedenceMatchingEngine, PrecedenceMatchingError, PrecedenceMatchingResult,
+    PrecedenceMatchResult,
+};
 
 use tracing::info;
 
