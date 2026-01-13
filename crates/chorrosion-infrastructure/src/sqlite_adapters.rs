@@ -35,8 +35,8 @@ impl Repository<Artist> for SqliteArtistRepository {
         let q = r#"
             INSERT INTO artists (
                 id, name, foreign_artist_id, musicbrainz_artist_id, metadata_profile_id, quality_profile_id,
-                status, path, monitored, artist_type, sort_name, country, disambiguation, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, path, monitored, artist_type, sort_name, country, disambiguation, genre_tags, style_tags, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let id_str = entity.id.to_string();
@@ -64,8 +64,10 @@ impl Repository<Artist> for SqliteArtistRepository {
             .bind(entity.sort_name.clone()) // 11: sort_name
             .bind(entity.country.clone()) // 12: country
             .bind(entity.disambiguation.clone()) // 13: disambiguation
-            .bind(created_at) // 14: created_at
-            .bind(updated_at) // 15: updated_at
+            .bind(entity.genre_tags.clone()) // 14: genre_tags
+            .bind(entity.style_tags.clone()) // 15: style_tags
+            .bind(created_at) // 16: created_at
+            .bind(updated_at) // 17: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -115,6 +117,8 @@ impl Repository<Artist> for SqliteArtistRepository {
                 sort_name = ?,
                 country = ?,
                 disambiguation = ?,
+                genre_tags = ?,
+                style_tags = ?,
                 updated_at = ?
             WHERE id = ?
         "#;
@@ -131,6 +135,8 @@ impl Repository<Artist> for SqliteArtistRepository {
             .bind(entity.sort_name.clone())
             .bind(entity.country.clone())
             .bind(entity.disambiguation.clone())
+            .bind(entity.genre_tags.clone())
+            .bind(entity.style_tags.clone())
             .bind(entity.updated_at.to_rfc3339())
             .bind(entity.id.to_string())
             .execute(&self.pool)
@@ -266,6 +272,8 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
     let sort_name: Option<String> = row.try_get("sort_name")?;
     let country: Option<String> = row.try_get("country")?;
     let disambiguation: Option<String> = row.try_get("disambiguation")?;
+    let genre_tags: Option<String> = row.try_get("genre_tags")?;
+    let style_tags: Option<String> = row.try_get("style_tags")?;
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
@@ -283,6 +291,8 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         sort_name,
         country,
         disambiguation,
+        genre_tags,
+        style_tags,
         created_at: parse_dt(created_at_s)?,
         updated_at: parse_dt(updated_at_s)?,
     })
@@ -304,6 +314,8 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
     let primary_type: Option<String> = row.try_get("primary_type")?;
     let secondary_types: Option<String> = row.try_get("secondary_types")?;
     let first_release_date: Option<String> = row.try_get("first_release_date")?;
+    let genre_tags: Option<String> = row.try_get("genre_tags")?;
+    let style_tags: Option<String> = row.try_get("style_tags")?;
     let status_str: String = row.try_get("status")?;
     let monitored: bool = row.try_get("monitored")?;
     let created_at_s: String = row.try_get("created_at")?;
@@ -322,6 +334,8 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
         primary_type,
         secondary_types,
         first_release_date,
+        genre_tags,
+        style_tags,
         status: parse_album_status(&status_str)?,
         monitored,
         created_at: parse_dt(created_at_s)?,
@@ -389,8 +403,8 @@ impl Repository<Album> for SqliteAlbumRepository {
             INSERT INTO albums (
                 id, artist_id, foreign_album_id, musicbrainz_release_group_id, musicbrainz_release_id,
                 title, release_date, album_type, primary_type, secondary_types, first_release_date,
-                status, monitored, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                genre_tags, style_tags, status, monitored, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let id_str = entity.id.to_string();
@@ -418,6 +432,8 @@ impl Repository<Album> for SqliteAlbumRepository {
             .bind(entity.primary_type.clone())
             .bind(entity.secondary_types.clone())
             .bind(entity.first_release_date.clone())
+            .bind(entity.genre_tags.clone())
+            .bind(entity.style_tags.clone())
             .bind(status)
             .bind(monitored)
             .bind(created_at)
@@ -469,6 +485,8 @@ impl Repository<Album> for SqliteAlbumRepository {
                 primary_type = ?,
                 secondary_types = ?,
                 first_release_date = ?,
+                genre_tags = ?,
+                style_tags = ?,
                 status = ?,
                 monitored = ?,
                 updated_at = ?
@@ -489,6 +507,8 @@ impl Repository<Album> for SqliteAlbumRepository {
             .bind(entity.primary_type.clone())
             .bind(entity.secondary_types.clone())
             .bind(entity.first_release_date.clone())
+            .bind(entity.genre_tags.clone())
+            .bind(entity.style_tags.clone())
             .bind(entity.status.to_string())
             .bind(entity.monitored)
             .bind(entity.updated_at.to_rfc3339())
