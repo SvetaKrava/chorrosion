@@ -34,13 +34,14 @@ impl Repository<Artist> for SqliteArtistRepository {
         // Insert artist row
         let q = r#"
             INSERT INTO artists (
-                id, name, foreign_artist_id, metadata_profile_id, quality_profile_id,
-                status, path, monitored, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, name, foreign_artist_id, musicbrainz_artist_id, metadata_profile_id, quality_profile_id,
+                status, path, monitored, artist_type, sort_name, country, disambiguation, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let id_str = entity.id.to_string();
         let foreign_id = entity.foreign_artist_id.clone();
+        let musicbrainz_id = entity.musicbrainz_artist_id.clone();
         let metadata_id = entity.metadata_profile_id.map(|p| p.to_string());
         let quality_id = entity.quality_profile_id.map(|p| p.to_string());
         let status = entity.status.to_string();
@@ -53,13 +54,18 @@ impl Repository<Artist> for SqliteArtistRepository {
             .bind(id_str) // 1: id
             .bind(entity.name.clone()) // 2: name
             .bind(foreign_id) // 3: foreign_artist_id
-            .bind(metadata_id) // 4: metadata_profile_id
-            .bind(quality_id) // 5: quality_profile_id
-            .bind(status) // 6: status
-            .bind(path) // 7: path
-            .bind(monitored) // 8: monitored
-            .bind(created_at) // 9: created_at
-            .bind(updated_at) // 10: updated_at
+            .bind(musicbrainz_id) // 4: musicbrainz_artist_id
+            .bind(metadata_id) // 5: metadata_profile_id
+            .bind(quality_id) // 6: quality_profile_id
+            .bind(status) // 7: status
+            .bind(path) // 8: path
+            .bind(monitored) // 9: monitored
+            .bind(entity.artist_type.clone()) // 10: artist_type
+            .bind(entity.sort_name.clone()) // 11: sort_name
+            .bind(entity.country.clone()) // 12: country
+            .bind(entity.disambiguation.clone()) // 13: disambiguation
+            .bind(created_at) // 14: created_at
+            .bind(updated_at) // 15: updated_at
             .execute(&self.pool)
             .await?;
         Ok(entity)
@@ -99,22 +105,32 @@ impl Repository<Artist> for SqliteArtistRepository {
             UPDATE artists SET
                 name = ?,
                 foreign_artist_id = ?,
+                musicbrainz_artist_id = ?,
                 metadata_profile_id = ?,
                 quality_profile_id = ?,
                 status = ?,
                 path = ?,
                 monitored = ?,
+                artist_type = ?,
+                sort_name = ?,
+                country = ?,
+                disambiguation = ?,
                 updated_at = ?
             WHERE id = ?
         "#;
         sqlx::query(q)
             .bind(entity.name.clone())
             .bind(entity.foreign_artist_id.clone())
+            .bind(entity.musicbrainz_artist_id.clone())
             .bind(entity.metadata_profile_id.map(|p| p.to_string()))
             .bind(entity.quality_profile_id.map(|p| p.to_string()))
             .bind(entity.status.to_string())
             .bind(entity.path.clone())
             .bind(entity.monitored)
+            .bind(entity.artist_type.clone())
+            .bind(entity.sort_name.clone())
+            .bind(entity.country.clone())
+            .bind(entity.disambiguation.clone())
             .bind(entity.updated_at.to_rfc3339())
             .bind(entity.id.to_string())
             .execute(&self.pool)
@@ -240,11 +256,16 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
 
     let name: String = row.try_get("name")?;
     let foreign_artist_id: Option<String> = row.try_get("foreign_artist_id")?;
+    let musicbrainz_artist_id: Option<String> = row.try_get("musicbrainz_artist_id")?;
     let metadata_profile_id: Option<String> = row.try_get("metadata_profile_id")?;
     let quality_profile_id: Option<String> = row.try_get("quality_profile_id")?;
     let status_str: String = row.try_get("status")?;
     let path: Option<String> = row.try_get("path")?;
     let monitored: bool = row.try_get("monitored")?;
+    let artist_type: Option<String> = row.try_get("artist_type")?;
+    let sort_name: Option<String> = row.try_get("sort_name")?;
+    let country: Option<String> = row.try_get("country")?;
+    let disambiguation: Option<String> = row.try_get("disambiguation")?;
     let created_at_s: String = row.try_get("created_at")?;
     let updated_at_s: String = row.try_get("updated_at")?;
 
@@ -252,11 +273,16 @@ fn row_to_artist(row: &sqlx::sqlite::SqliteRow) -> Result<Artist> {
         id,
         name,
         foreign_artist_id,
+        musicbrainz_artist_id,
         metadata_profile_id: parse_uuid_opt(metadata_profile_id)?,
         quality_profile_id: parse_uuid_opt(quality_profile_id)?,
         status: parse_artist_status(&status_str)?,
         path,
         monitored,
+        artist_type,
+        sort_name,
+        country,
+        disambiguation,
         created_at: parse_dt(created_at_s)?,
         updated_at: parse_dt(updated_at_s)?,
     })
@@ -270,9 +296,14 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
     let artist_id = ArtistId::from_uuid(Uuid::parse_str(&artist_id_str)?);
 
     let foreign_album_id: Option<String> = row.try_get("foreign_album_id")?;
+    let musicbrainz_release_group_id: Option<String> = row.try_get("musicbrainz_release_group_id")?;
+    let musicbrainz_release_id: Option<String> = row.try_get("musicbrainz_release_id")?;
     let title: String = row.try_get("title")?;
     let release_date: Option<String> = row.try_get("release_date")?;
     let album_type: Option<String> = row.try_get("album_type")?;
+    let primary_type: Option<String> = row.try_get("primary_type")?;
+    let secondary_types: Option<String> = row.try_get("secondary_types")?;
+    let first_release_date: Option<String> = row.try_get("first_release_date")?;
     let status_str: String = row.try_get("status")?;
     let monitored: bool = row.try_get("monitored")?;
     let created_at_s: String = row.try_get("created_at")?;
@@ -282,10 +313,15 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
         id,
         artist_id,
         foreign_album_id,
+        musicbrainz_release_group_id,
+        musicbrainz_release_id,
         title,
         release_date: release_date
             .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
         album_type,
+        primary_type,
+        secondary_types,
+        first_release_date,
         status: parse_album_status(&status_str)?,
         monitored,
         created_at: parse_dt(created_at_s)?,
@@ -351,9 +387,10 @@ impl Repository<Album> for SqliteAlbumRepository {
         debug!(target: "repository", album_id = %entity.id, "creating album");
         let q = r#"
             INSERT INTO albums (
-                id, artist_id, foreign_album_id, title, release_date,
-                album_type, status, monitored, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, artist_id, foreign_album_id, musicbrainz_release_group_id, musicbrainz_release_id,
+                title, release_date, album_type, primary_type, secondary_types, first_release_date,
+                status, monitored, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let id_str = entity.id.to_string();
@@ -373,9 +410,14 @@ impl Repository<Album> for SqliteAlbumRepository {
             .bind(id_str)
             .bind(artist_id_str)
             .bind(foreign_id)
+            .bind(entity.musicbrainz_release_group_id.clone())
+            .bind(entity.musicbrainz_release_id.clone())
             .bind(title)
             .bind(release_date)
             .bind(album_type)
+            .bind(entity.primary_type.clone())
+            .bind(entity.secondary_types.clone())
+            .bind(entity.first_release_date.clone())
             .bind(status)
             .bind(monitored)
             .bind(created_at)
@@ -419,9 +461,14 @@ impl Repository<Album> for SqliteAlbumRepository {
             UPDATE albums SET
                 artist_id = ?,
                 foreign_album_id = ?,
+                musicbrainz_release_group_id = ?,
+                musicbrainz_release_id = ?,
                 title = ?,
                 release_date = ?,
                 album_type = ?,
+                primary_type = ?,
+                secondary_types = ?,
+                first_release_date = ?,
                 status = ?,
                 monitored = ?,
                 updated_at = ?
@@ -430,6 +477,8 @@ impl Repository<Album> for SqliteAlbumRepository {
         sqlx::query(q)
             .bind(entity.artist_id.to_string())
             .bind(entity.foreign_album_id.clone())
+            .bind(entity.musicbrainz_release_group_id.clone())
+            .bind(entity.musicbrainz_release_id.clone())
             .bind(entity.title.clone())
             .bind(
                 entity
@@ -437,6 +486,9 @@ impl Repository<Album> for SqliteAlbumRepository {
                     .map(|d| d.format("%Y-%m-%d").to_string()),
             )
             .bind(entity.album_type.clone())
+            .bind(entity.primary_type.clone())
+            .bind(entity.secondary_types.clone())
+            .bind(entity.first_release_date.clone())
             .bind(entity.status.to_string())
             .bind(entity.monitored)
             .bind(entity.updated_at.to_rfc3339())
