@@ -92,20 +92,20 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Database schema with indices ✓
   - [x] Domain model updates ✓
   - [x] Repository layer persistence ✓
-  - [x] Genre and style mapping (Issue #2, PR #93) - In Progress
+  - [x] Genre and style mapping (Issue #2, PR #93) ✓ COMPLETE
     - [x] Database migration with genre/style columns ✓
     - [x] Domain model updates ✓
     - [x] Repository layer updates ✓
-    - [ ] Integration tests for genre/style persistence
-    - [ ] PR creation and merge
-  - [x] Artist relationships (Issue #68, PR #94) - In Progress
+    - [x] Integration tests for genre/style persistence ✓
+    - [x] PR creation and merge ✓
+  - [x] Artist relationships (Issue #68, PR #94) ✓ COMPLETE
     - [x] Database schema for artist_relationships table ✓
     - [x] ArtistRelationship domain model ✓
     - [x] ArtistRelationshipRepository trait with specialized queries ✓
     - [x] SqliteArtistRelationshipRepository implementation ✓
     - [x] Query methods: by source/related artist, by type, existence check ✓
     - [x] 4 comprehensive integration tests ✓
-    - [ ] PR creation and merge
+    - [x] PR creation and merge ✓
   - [ ] Matching precedence enforcement: fingerprint > embedded tags > filename
 
 ### 2.2 Additional Metadata Sources
