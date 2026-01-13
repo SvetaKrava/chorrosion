@@ -9,7 +9,7 @@
 //! The caller is responsible for saving entities via the TrackFileRepository.
 
 use chorrosion_domain::{TrackFile, TrackId};
-use chorrosion_fingerprint::AcoustidClient;
+use chorrosion_fingerprint::{AcoustidClient, FingerprintGenerator};
 use chrono::Utc;
 use std::path::Path;
 use std::sync::Arc;
@@ -175,21 +175,15 @@ impl FileImportService {
     /// # Returns
     /// A tuple of (fingerprint_hash, duration_seconds)
     async fn generate_fingerprint(&self, path: &Path) -> ImportResult<(String, u32)> {
-        // Use the fingerprint crate to generate the fingerprint
-        // This is a placeholder - actual implementation would use chromaprint
-        // For now, we'll simulate it by using the AcoustID client's fingerprint generation
-
         tracing::debug!(path = %path.display(), "Generating fingerprint");
 
-        // In a real implementation, this would:
-        // 1. Decode the audio file (using FFmpeg or similar)
-        // 2. Generate Chromaprint fingerprint
-        // 3. Return base64-encoded hash and duration
+        let generator = FingerprintGenerator::new();
 
-        // For now, return an error since we don't have the actual implementation
-        Err(ImportError::FingerprintError(
-            "Fingerprint generation not yet implemented - requires FFmpeg integration".to_string(),
-        ))
+        generator
+            .generate_from_file(path)
+            .await
+            .map(|fp| (fp.hash, fp.duration))
+            .map_err(|e| ImportError::FingerprintError(e.to_string()))
     }
 }
 

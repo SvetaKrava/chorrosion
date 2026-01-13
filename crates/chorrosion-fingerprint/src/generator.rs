@@ -45,10 +45,18 @@
 //! - Feature flag: `ffmpeg-support`
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{ErrorKind, Read, Seek};
 use std::path::Path;
 
-use tracing::{debug, instrument, warn};
+use chromaprint::Chromaprint;
+use symphonia::core::audio::{AudioBufferRef, Signal};
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use tracing::{debug, instrument};
 
 use crate::{Fingerprint, FingerprintError, Result};
 
@@ -59,17 +67,16 @@ const MAX_FINGERPRINT_DURATION_SECS: u32 = 120;
 /// Sample rate for audio processing (44.1 kHz is standard).
 const SAMPLE_RATE: u32 = 44100;
 
-/// Audio samples: mono samples (f32) at 44.1 kHz.
+/// Audio samples: mono, 16-bit PCM at a given sample rate.
 struct AudioSamples {
-    samples: Vec<f32>,
-    #[allow(dead_code)] // Used in Phase 2 for actual audio decoding
+    samples: Vec<i16>,
     sample_rate: u32,
     duration_secs: u32,
 }
 
 impl AudioSamples {
     /// Create new audio samples with calculated duration.
-    fn new(samples: Vec<f32>, sample_rate: u32) -> Self {
+    fn new(samples: Vec<i16>, sample_rate: u32) -> Self {
         let duration_secs = if samples.is_empty() {
             0
         } else {
@@ -129,11 +136,9 @@ impl FingerprintGenerator {
         let path = path.as_ref();
 
         debug!("Opening audio file for fingerprinting");
-        let file = File::open(path).map_err(|e| {
+        let reader = File::open(path).map_err(|e| {
             FingerprintError::AudioProcessing(format!("Failed to open audio file: {}", e))
         })?;
-
-        let reader = BufReader::new(file);
 
         // Detect format from file extension
         let extension = path
@@ -159,47 +164,182 @@ impl FingerprintGenerator {
     }
 
     /// Extract audio samples from FLAC file.
-    ///
-    /// TODO: Implement using symphonia FLAC decoder in Phase 2.
-    async fn extract_flac_samples<R: Read + Seek>(&self, _reader: R) -> Result<AudioSamples> {
+    async fn extract_flac_samples<R: Read + Seek + MediaSource + 'static>(
+        &self,
+        reader: R,
+    ) -> Result<AudioSamples> {
         debug!("Extracting samples from FLAC file");
-
-        warn!("FLAC decoding not yet implemented in Phase 1; use placeholder fingerprint");
-
-        // TODO Phase 2: Implement FLAC decoding with symphonia
-        // let mut probe = symphonia::default::get_probe();
-        // let source = Box::new(reader);
-        // let probed = probe.instantiate(source)?;
-        // let reader = probed.format;
-        // let track = reader.default_track()?;
-        // let mut decoder = symphonia::default::get_codec_registry().make(track.codec_params)?;
-        // Then iterate over frames and collect samples
-
-        let samples = vec![0.0f32; 44100 * 2]; // Placeholder: 2 seconds of silence
-        Ok(AudioSamples::new(samples, SAMPLE_RATE))
+        self.decode_audio(reader, "flac").await
     }
 
     /// Extract audio samples from MP3 file.
-    ///
-    /// TODO: Implement using symphonia MP3 decoder in Phase 2.
-    async fn extract_mp3_samples<R: Read + Seek>(&self, _reader: R) -> Result<AudioSamples> {
+    async fn extract_mp3_samples<R: Read + Seek + MediaSource + 'static>(
+        &self,
+        reader: R,
+    ) -> Result<AudioSamples> {
         debug!("Extracting samples from MP3 file");
+        self.decode_audio(reader, "mp3").await
+    }
 
-        warn!("MP3 decoding not yet implemented in Phase 1; use placeholder fingerprint");
+    /// Decode audio using symphonia and return mono PCM samples.
+    async fn decode_audio<R: Read + Seek + MediaSource + 'static>(
+        &self,
+        reader: R,
+        extension: &str,
+    ) -> Result<AudioSamples> {
+        let mss = MediaSourceStream::new(Box::new(reader), Default::default());
 
-        // TODO Phase 2: Implement MP3 decoding with symphonia
-        // Similar to FLAC decoder above
+        let mut hint = Hint::new();
+        hint.with_extension(extension);
 
-        let samples = vec![0.0f32; 44100 * 2]; // Placeholder: 2 seconds of silence
-        Ok(AudioSamples::new(samples, SAMPLE_RATE))
+        let format_opts = FormatOptions::default();
+        let metadata_opts = MetadataOptions::default();
+
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &metadata_opts)
+            .map_err(|e| {
+                FingerprintError::AudioProcessing(format!(
+                    "Failed to probe {} stream: {}",
+                    extension, e
+                ))
+            })?;
+
+        let mut format = probed.format;
+        let track = format.default_track().ok_or_else(|| {
+            FingerprintError::AudioProcessing("No audio tracks found".to_string())
+        })?;
+
+        let track_id = track.id;
+
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .map_err(|e| {
+                FingerprintError::AudioProcessing(format!(
+                    "Failed to create decoder for {}: {}",
+                    extension, e
+                ))
+            })?;
+
+        let mut sample_rate = track.codec_params.sample_rate.unwrap_or(SAMPLE_RATE);
+        let estimated_capacity = track
+            .codec_params
+            .n_frames
+            .and_then(|f| usize::try_from(f).ok())
+            .unwrap_or(sample_rate as usize * 120);
+        let mut samples: Vec<i16> = Vec::with_capacity(estimated_capacity);
+
+        let max_samples = (MAX_FINGERPRINT_DURATION_SECS as usize) * (sample_rate as usize);
+
+        loop {
+            // Early exit if we've already collected enough samples for fingerprinting
+            if samples.len() >= max_samples {
+                break;
+            }
+
+            let packet = match format.next_packet() {
+                Ok(packet) => packet,
+                Err(SymphoniaError::IoError(err)) if err.kind() == ErrorKind::UnexpectedEof => {
+                    break
+                }
+                Err(SymphoniaError::ResetRequired) => {
+                    decoder.reset();
+                    continue;
+                }
+                Err(e) => {
+                    return Err(FingerprintError::AudioProcessing(format!(
+                        "Error reading {} packet: {}",
+                        extension, e
+                    )))
+                }
+            };
+
+            if packet.track_id() != track_id {
+                continue;
+            }
+
+            let decoded = decoder.decode(&packet).map_err(|e| {
+                FingerprintError::AudioProcessing(format!(
+                    "Failed to decode {} frame: {}",
+                    extension, e
+                ))
+            })?;
+
+            match decoded {
+                AudioBufferRef::F32(buf) => {
+                    let spec = buf.spec();
+                    if spec.rate > 0 {
+                        sample_rate = spec.rate;
+                    }
+
+                    let channels = spec.channels.count().max(1);
+                    let frames = buf.frames();
+
+                    for frame_idx in 0..frames {
+                        let mut mixed = 0.0f32;
+                        for ch in 0..channels {
+                            mixed += buf.chan(ch)[frame_idx];
+                        }
+                        mixed /= channels as f32;
+                        let clipped = mixed.clamp(-1.0, 1.0);
+                        samples.push((clipped * i16::MAX as f32) as i16);
+                    }
+                }
+                AudioBufferRef::S16(buf) => {
+                    let spec = buf.spec();
+                    if spec.rate > 0 {
+                        sample_rate = spec.rate;
+                    }
+
+                    let channels = spec.channels.count().max(1);
+                    let frames = buf.frames();
+
+                    for frame_idx in 0..frames {
+                        let mut mixed: i32 = 0;
+                        for ch in 0..channels {
+                            mixed += buf.chan(ch)[frame_idx] as i32;
+                        }
+                        mixed /= channels as i32;
+                        samples.push(mixed.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+                    }
+                }
+                AudioBufferRef::S32(buf) => {
+                    let spec = buf.spec();
+                    if spec.rate > 0 {
+                        sample_rate = spec.rate;
+                    }
+
+                    let channels = spec.channels.count().max(1);
+                    let frames = buf.frames();
+
+                    for frame_idx in 0..frames {
+                        let mut mixed: f64 = 0.0;
+                        for ch in 0..channels {
+                            mixed += buf.chan(ch)[frame_idx] as f64;
+                        }
+                        mixed /= channels as f64;
+                        let clipped = (mixed / (i32::MAX as f64 / i16::MAX as f64))
+                            .clamp(i16::MIN as f64, i16::MAX as f64);
+                        samples.push(clipped as i16);
+                    }
+                }
+                _other => {
+                    return Err(FingerprintError::AudioProcessing(format!(
+                        "Unsupported sample format for {}",
+                        extension
+                    )));
+                }
+            }
+        }
+
+        let mut audio = AudioSamples::new(samples, sample_rate);
+        audio.limit_to_fingerprint_duration();
+        Ok(audio)
     }
 
     /// Generate fingerprint from audio samples.
-    ///
-    /// TODO: Implement using rusty-chromaprint in Phase 2.
     async fn generate_fingerprint_from_samples(
         &self,
-        mut samples: AudioSamples,
+        samples: AudioSamples,
     ) -> Result<Fingerprint> {
         if samples.samples.is_empty() {
             return Err(FingerprintError::AudioProcessing(
@@ -210,25 +350,35 @@ impl FingerprintGenerator {
         debug!(
             sample_count = samples.samples.len(),
             duration_secs = samples.duration_secs,
+            sample_rate = samples.sample_rate,
             "Generating fingerprint from audio samples"
         );
 
-        // Limit to fingerprinting duration (120 seconds max)
-        samples.limit_to_fingerprint_duration();
+        let mut ctx = Chromaprint::new();
 
-        // TODO Phase 2: Implement Chromaprint generation
-        // let mut printer = FingerprintPrinter::new(samples.sample_rate);
-        // printer.feed(&samples.samples)?;
-        // let hash = printer.finish()?;
+        if !ctx.start(samples.sample_rate as i32, 1) {
+            return Err(FingerprintError::AudioProcessing(
+                "Failed to start Chromaprint".to_string(),
+            ));
+        }
 
-        // For Phase 1, generate a deterministic placeholder based on sample hash
-        warn!("Chromaprint generation not yet implemented in Phase 1; using placeholder");
-        let hash = format!("PLACEHOLDER_{:x}", samples.samples.len());
+        if !ctx.feed(&samples.samples) {
+            return Err(FingerprintError::AudioProcessing(
+                "Failed to feed samples to Chromaprint".to_string(),
+            ));
+        }
 
-        debug!(
-            fingerprint_hash = %hash,
-            "Generated placeholder fingerprint"
-        );
+        if !ctx.finish() {
+            return Err(FingerprintError::AudioProcessing(
+                "Chromaprint finalize failed".to_string(),
+            ));
+        }
+
+        let hash = ctx.fingerprint().ok_or_else(|| {
+            FingerprintError::AudioProcessing(
+                "Chromaprint did not return a fingerprint".to_string(),
+            )
+        })?;
 
         Fingerprint::new(hash, samples.duration_secs)
     }
@@ -246,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_audio_samples_creation() {
-        let samples = vec![0.1f32, 0.2, 0.3];
+        let samples = vec![1i16, 2, 3];
         let audio = AudioSamples::new(samples.clone(), 44100);
 
         assert_eq!(audio.samples, samples);
@@ -257,7 +407,7 @@ mod tests {
     #[test]
     fn test_audio_samples_limit_to_fingerprint_duration() {
         let sample_count = (44100 * 150) as usize; // 150 seconds of audio
-        let samples = vec![0.1f32; sample_count];
+        let samples = vec![10i16; sample_count];
         let mut audio = AudioSamples::new(samples, 44100);
 
         audio.limit_to_fingerprint_duration();
@@ -269,7 +419,7 @@ mod tests {
     #[test]
     fn test_audio_samples_no_limit_needed() {
         let sample_count = (44100 * 60) as usize; // 60 seconds of audio
-        let samples = vec![0.1f32; sample_count];
+        let samples = vec![10i16; sample_count];
         let mut audio = AudioSamples::new(samples.clone(), 44100);
 
         audio.limit_to_fingerprint_duration();

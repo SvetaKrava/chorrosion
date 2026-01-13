@@ -1,0 +1,18 @@
+# Windows-specific configuration for chromaprint (native library)
+# Uses VCPKG_ROOT environment variable set by GitHub Actions
+# GitHub runners have vcpkg pre-installed at %VCPKG_INSTALLATION_ROOT%
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-L", "C:/vcpkg/installed/x64-windows/lib"]
+
+# macOS configuration for chromaprint
+# Homebrew installs to /opt/homebrew (Apple Silicon) or /usr/local (Intel)
+[target.aarch64-apple-darwin]
+rustflags = ["-L", "/opt/homebrew/opt/chromaprint/lib", "-L", "/usr/local/opt/chromaprint/lib"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-L", "/usr/local/opt/chromaprint/lib", "-L", "/opt/homebrew/opt/chromaprint/lib"]
+
+# Linux configuration for chromaprint
+# Standard Ubuntu/Debian library locations
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-L", "/usr/lib/x86_64-linux-gnu", "-L", "/usr/lib"]
