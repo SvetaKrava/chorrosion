@@ -2984,4 +2984,131 @@ mod tests {
         assert_eq!(fetched.primary_type.as_deref(), Some("EP"));
         assert_eq!(fetched.first_release_date.as_deref(), Some("2021-06-20"));
     }
+
+    #[tokio::test]
+    async fn artist_with_genre_and_style_tags() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool);
+
+        let mut artist = chorrosion_domain::Artist::new("Test Artist");
+        artist.genre_tags = Some("rock|pop|indie".to_string());
+        artist.style_tags = Some("energetic|melodic".to_string());
+        let artist_id = artist.id;
+
+        repo.create(artist).await.expect("create artist");
+
+        let fetched = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch artist")
+            .expect("artist exists");
+
+        assert_eq!(fetched.genre_tags.as_deref(), Some("rock|pop|indie"));
+        assert_eq!(fetched.style_tags.as_deref(), Some("energetic|melodic"));
+    }
+
+    #[tokio::test]
+    async fn artist_genre_style_update_persists() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        repo.create(artist).await.expect("create");
+
+        let mut updated = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        // Initially no tags
+        assert!(updated.genre_tags.is_none());
+        assert!(updated.style_tags.is_none());
+
+        // Add tags
+        updated.genre_tags = Some("jazz|blues".to_string());
+        updated.style_tags = Some("smooth|soulful".to_string());
+
+        repo.update(updated.clone()).await.expect("update");
+
+        let fetched = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        assert_eq!(fetched.genre_tags.as_deref(), Some("jazz|blues"));
+        assert_eq!(fetched.style_tags.as_deref(), Some("smooth|soulful"));
+    }
+
+    #[tokio::test]
+    async fn album_with_genre_and_style_tags() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let mut album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        album.genre_tags = Some("electronic|ambient|downtempo".to_string());
+        album.style_tags = Some("atmospheric|chill".to_string());
+        let album_id = album.id;
+
+        album_repo.create(album).await.expect("create album");
+
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch album")
+            .expect("album exists");
+
+        assert_eq!(
+            fetched.genre_tags.as_deref(),
+            Some("electronic|ambient|downtempo")
+        );
+        assert_eq!(fetched.style_tags.as_deref(), Some("atmospheric|chill"));
+    }
+
+    #[tokio::test]
+    async fn album_genre_style_update_persists() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create");
+
+        let mut updated = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        // Initially no tags
+        assert!(updated.genre_tags.is_none());
+        assert!(updated.style_tags.is_none());
+
+        // Add tags
+        updated.genre_tags = Some("metal|progressive".to_string());
+        updated.style_tags = Some("technical|complex".to_string());
+
+        album_repo.update(updated.clone()).await.expect("update");
+
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        assert_eq!(fetched.genre_tags.as_deref(), Some("metal|progressive"));
+        assert_eq!(fetched.style_tags.as_deref(), Some("technical|complex"));
+    }
 }
