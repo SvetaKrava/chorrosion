@@ -3363,7 +3363,9 @@ mod tests {
 
         assert_eq!(fetched.genre_tags.as_deref(), Some("metal|progressive"));
         assert_eq!(fetched.style_tags.as_deref(), Some("technical|complex"));
-=======
+    }
+
+    #[tokio::test]
     async fn artist_relationship_create_and_fetch() {
         let pool = setup_pool().await;
         let artist_repo = SqliteArtistRepository::new(pool.clone());
