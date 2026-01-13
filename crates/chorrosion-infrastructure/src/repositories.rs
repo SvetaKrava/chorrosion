@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use anyhow::Result;
 use chorrosion_domain::{
-    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, QualityProfile,
-    Track, TrackFile, TrackId,
+    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistStatus,
+    MetadataProfile, QualityProfile, Track, TrackFile, TrackId,
 };
 
 // ============================================================================
@@ -104,4 +104,41 @@ pub trait TrackFileRepository: Repository<TrackFile> {
 
     /// List track files without fingerprints (need processing)
     async fn list_without_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>>;
+}
+
+/// Artist relationship repository with specialized queries for artist connections
+#[async_trait::async_trait]
+pub trait ArtistRelationshipRepository: Repository<ArtistRelationship> {
+    /// Get all relationships where source_artist_id is the given artist
+    async fn get_by_source_artist(
+        &self,
+        source_artist_id: ArtistId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>>;
+
+    /// Get all relationships where related_artist_id is the given artist
+    async fn get_by_related_artist(
+        &self,
+        related_artist_id: ArtistId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>>;
+
+    /// Get relationships of a specific type for a source artist
+    async fn get_by_type_and_source(
+        &self,
+        source_artist_id: ArtistId,
+        relationship_type: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>>;
+
+    /// Check if a relationship exists between two artists
+    async fn relationship_exists(
+        &self,
+        source_artist_id: ArtistId,
+        related_artist_id: ArtistId,
+        relationship_type: &str,
+    ) -> Result<bool>;
 }

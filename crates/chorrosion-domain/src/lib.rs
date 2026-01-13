@@ -102,6 +102,31 @@ impl Default for ProfileId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ArtistRelationshipId(pub Uuid);
+
+impl ArtistRelationshipId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for ArtistRelationshipId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ArtistRelationshipId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl std::fmt::Display for ProfileId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -468,6 +493,36 @@ impl Album {
             style_tags: None,
             status: AlbumStatus::Wanted,
             monitored: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistRelationship {
+    pub id: ArtistRelationshipId,
+    pub source_artist_id: ArtistId,
+    pub related_artist_id: ArtistId,
+    pub relationship_type: String,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl ArtistRelationship {
+    pub fn new(
+        source_artist_id: ArtistId,
+        related_artist_id: ArtistId,
+        relationship_type: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: ArtistRelationshipId::new(),
+            source_artist_id,
+            related_artist_id,
+            relationship_type: relationship_type.into(),
+            description: None,
             created_at: now,
             updated_at: now,
         }
