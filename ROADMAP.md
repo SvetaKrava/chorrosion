@@ -86,11 +86,15 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Scheduled artist metadata updates ✓
   - [x] Album metadata updates ✓
   - [x] Rate limiting and caching ✓
-- [ ] Metadata mapping
-  - [ ] MusicBrainz ID storage
+- [ ] Metadata mapping (Issue #2, PR #92 - In Progress)
+  - [x] MusicBrainz ID storage (Artist/Album) ✓
+  - [x] Rich metadata fields (type, sort_name, country, etc.) ✓
+  - [x] Database schema with indices ✓
+  - [x] Domain model updates ✓
+  - [x] Repository layer persistence ✓
   - [ ] Genre and style mapping
   - [ ] Artist relationships
-  - [ ] Matching precedence: fingerprint > embedded tags > filename
+  - [ ] Matching precedence enforcement: fingerprint > embedded tags > filename
 
 ### 2.2 Additional Metadata Sources
 
