@@ -36,3 +36,6 @@ impl AppState {
         info!(target: "application", "application state initialized");
     }
 }
+
+#[cfg(test)]
+mod matching_precedence_tests;

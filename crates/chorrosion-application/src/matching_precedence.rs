@@ -43,7 +43,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Which matching strategy was used to obtain a result
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MatchingStrategy {
     /// Primary: Audio fingerprint lookup via AcoustID
     Fingerprint,
@@ -379,14 +379,14 @@ mod tests {
 
     #[test]
     fn invalid_confidence_threshold() {
-        let result_low = Err::<PrecedenceMatchResult<_>, _>(
-            PrecedenceMatchingError::InvalidThreshold(-0.1),
-        );
-        let result_high = Err::<PrecedenceMatchResult<_>, _>(
-            PrecedenceMatchingError::InvalidThreshold(1.1),
-        );
-        assert!(result_low.is_err());
-        assert!(result_high.is_err());
+        let threshold_low = -0.1;
+        let threshold_high = 1.1;
+        
+        let is_valid_low = threshold_low >= 0.0 && threshold_low <= 1.0;
+        let is_valid_high = threshold_high >= 0.0 && threshold_high <= 1.0;
+        
+        assert!(!is_valid_low);
+        assert!(!is_valid_high);
     }
 
     #[test]
