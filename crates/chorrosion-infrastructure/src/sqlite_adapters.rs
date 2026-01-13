@@ -3524,6 +3524,5 @@ mod tests {
             .await
             .expect("check wrong type");
         assert!(!wrong_type);
->>>>>>> df40d85 (feat: add artist relationship infrastructure for collaboration tracking)
     }
 }
