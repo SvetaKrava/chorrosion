@@ -3238,7 +3238,6 @@ mod tests {
     }
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn artist_with_genre_and_style_tags() {
         let pool = setup_pool().await;
         let repo = SqliteArtistRepository::new(pool);
