@@ -2827,4 +2827,141 @@ mod tests {
         let page2_ids: std::collections::HashSet<_> = page2.iter().map(|f| f.id).collect();
         assert!(page1_ids.is_disjoint(&page2_ids));
     }
+
+    #[tokio::test]
+    async fn artist_with_musicbrainz_metadata() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool);
+
+        let mut artist = chorrosion_domain::Artist::new("Test Artist");
+        artist.musicbrainz_artist_id = Some("d1234567-1234-1234-1234-123456789012".to_string());
+        artist.artist_type = Some("Person".to_string());
+        artist.sort_name = Some("Artist, Test".to_string());
+        artist.country = Some("US".to_string());
+        artist.disambiguation = Some("American musician".to_string());
+        let artist_id = artist.id;
+
+        repo.create(artist).await.expect("create artist");
+
+        let fetched = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch artist")
+            .expect("artist exists");
+
+        assert_eq!(
+            fetched.musicbrainz_artist_id.as_deref(),
+            Some("d1234567-1234-1234-1234-123456789012")
+        );
+        assert_eq!(fetched.artist_type.as_deref(), Some("Person"));
+        assert_eq!(fetched.sort_name.as_deref(), Some("Artist, Test"));
+        assert_eq!(fetched.country.as_deref(), Some("US"));
+        assert_eq!(fetched.disambiguation.as_deref(), Some("American musician"));
+    }
+
+    #[tokio::test]
+    async fn artist_metadata_update_persists() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        repo.create(artist).await.expect("create");
+
+        let mut updated = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        updated.musicbrainz_artist_id = Some("mbid-1234".to_string());
+        updated.country = Some("UK".to_string());
+
+        repo.update(updated.clone()).await.expect("update");
+
+        let fetched = repo
+            .get_by_id(artist_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        assert_eq!(fetched.musicbrainz_artist_id.as_deref(), Some("mbid-1234"));
+        assert_eq!(fetched.country.as_deref(), Some("UK"));
+    }
+
+    #[tokio::test]
+    async fn album_with_musicbrainz_metadata() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let mut album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        album.musicbrainz_release_group_id = Some("rg1234567-1234-1234-1234-123456789012".to_string());
+        album.musicbrainz_release_id = Some("rel1234567-1234-1234-1234-123456789012".to_string());
+        album.primary_type = Some("Album".to_string());
+        album.secondary_types = Some("Live".to_string());
+        album.first_release_date = Some("2020-01-15".to_string());
+        let album_id = album.id;
+
+        album_repo.create(album).await.expect("create album");
+
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch album")
+            .expect("album exists");
+
+        assert_eq!(
+            fetched.musicbrainz_release_group_id.as_deref(),
+            Some("rg1234567-1234-1234-1234-123456789012")
+        );
+        assert_eq!(
+            fetched.musicbrainz_release_id.as_deref(),
+            Some("rel1234567-1234-1234-1234-123456789012")
+        );
+        assert_eq!(fetched.primary_type.as_deref(), Some("Album"));
+        assert_eq!(fetched.secondary_types.as_deref(), Some("Live"));
+        assert_eq!(fetched.first_release_date.as_deref(), Some("2020-01-15"));
+    }
+
+    #[tokio::test]
+    async fn album_metadata_update_persists() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool);
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Test Album");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create");
+
+        let mut updated = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        updated.musicbrainz_release_group_id = Some("rg-1234".to_string());
+        updated.primary_type = Some("EP".to_string());
+        updated.first_release_date = Some("2021-06-20".to_string());
+
+        album_repo.update(updated.clone()).await.expect("update");
+
+        let fetched = album_repo
+            .get_by_id(album_id.to_string())
+            .await
+            .expect("fetch")
+            .expect("exists");
+
+        assert_eq!(fetched.musicbrainz_release_group_id.as_deref(), Some("rg-1234"));
+        assert_eq!(fetched.primary_type.as_deref(), Some("EP"));
+        assert_eq!(fetched.first_release_date.as_deref(), Some("2021-06-20"));
+    }
 }
