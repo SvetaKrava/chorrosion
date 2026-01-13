@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
-    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistStatus, MetadataProfile, ProfileId,
-    QualityProfile, Track, TrackFile, TrackFileId, TrackId,
+    Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
+    ArtistStatus, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile, TrackFileId,
+    TrackId,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -11,8 +12,8 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::repositories::{
-    AlbumRepository, ArtistRepository, MetadataProfileRepository, QualityProfileRepository,
-    Repository, TrackFileRepository, TrackRepository,
+    AlbumRepository, ArtistRelationshipRepository, ArtistRepository, MetadataProfileRepository,
+    QualityProfileRepository, Repository, TrackFileRepository, TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -376,6 +377,34 @@ fn row_to_track(row: &sqlx::sqlite::SqliteRow) -> Result<Track> {
         monitored,
         musicbrainz_recording_id,
         match_confidence: match_confidence.map(|s| s as f32),
+        created_at: parse_dt(created_at_s)?,
+        updated_at: parse_dt(updated_at_s)?,
+    })
+}
+
+fn row_to_artist_relationship(row: &sqlx::sqlite::SqliteRow) -> Result<ArtistRelationship> {
+    let id_str: String = row.try_get("id")?;
+    let id = ArtistRelationshipId::from_uuid(Uuid::parse_str(&id_str)?);
+
+    let source_artist_id_str: String = row.try_get("source_artist_id")?;
+    let source_artist_id =
+        ArtistId::from_uuid(Uuid::parse_str(&source_artist_id_str)?);
+
+    let related_artist_id_str: String = row.try_get("related_artist_id")?;
+    let related_artist_id =
+        ArtistId::from_uuid(Uuid::parse_str(&related_artist_id_str)?);
+
+    let relationship_type: String = row.try_get("relationship_type")?;
+    let description: Option<String> = row.try_get("description")?;
+    let created_at_s: String = row.try_get("created_at")?;
+    let updated_at_s: String = row.try_get("updated_at")?;
+
+    Ok(ArtistRelationship {
+        id,
+        source_artist_id,
+        related_artist_id,
+        relationship_type,
+        description,
         created_at: parse_dt(created_at_s)?,
         updated_at: parse_dt(updated_at_s)?,
     })
@@ -1404,6 +1433,229 @@ impl TrackFileRepository for SqliteTrackFileRepository {
             .await?;
 
         rows.iter().map(row_to_track_file).collect()
+    }
+}
+
+// ============================================================================
+// SQLx-backed ArtistRelationship Repository
+// ============================================================================
+
+/// SQLx-backed ArtistRelationship repository
+#[allow(dead_code)]
+pub struct SqliteArtistRelationshipRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteArtistRelationshipRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
+    async fn create(&self, entity: ArtistRelationship) -> Result<ArtistRelationship> {
+        debug!(target: "repository", relationship_id = %entity.id, "creating artist relationship");
+
+        let q = r#"
+            INSERT INTO artist_relationships (
+                id, source_artist_id, related_artist_id, relationship_type, description,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let id_str = entity.id.to_string();
+        let source_artist_id_str = entity.source_artist_id.to_string();
+        let related_artist_id_str = entity.related_artist_id.to_string();
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(id_str)
+            .bind(source_artist_id_str)
+            .bind(related_artist_id_str)
+            .bind(entity.relationship_type.clone())
+            .bind(entity.description.clone())
+            .bind(created_at)
+            .bind(updated_at)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<ArtistRelationship>> {
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching artist relationship by id");
+
+        let row = sqlx::query("SELECT * FROM artist_relationships WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(r) = row {
+            Ok(Some(row_to_artist_relationship(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<ArtistRelationship>> {
+        debug!(target: "repository", limit, offset, "listing artist relationships");
+
+        let rows = sqlx::query("SELECT * FROM artist_relationships ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_artist_relationship(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, entity: ArtistRelationship) -> Result<ArtistRelationship> {
+        debug!(target: "repository", relationship_id = %entity.id, "updating artist relationship");
+
+        let q = r#"
+            UPDATE artist_relationships
+            SET source_artist_id = ?, related_artist_id = ?, relationship_type = ?, description = ?, updated_at = ?
+            WHERE id = ?
+        "#;
+
+        let id_str = entity.id.to_string();
+        let source_artist_id_str = entity.source_artist_id.to_string();
+        let related_artist_id_str = entity.related_artist_id.to_string();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(q)
+            .bind(source_artist_id_str)
+            .bind(related_artist_id_str)
+            .bind(entity.relationship_type.clone())
+            .bind(entity.description.clone())
+            .bind(updated_at)
+            .bind(id_str)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(entity)
+    }
+
+    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting artist relationship");
+
+        sqlx::query("DELETE FROM artist_relationships WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ArtistRelationshipRepository for SqliteArtistRelationshipRepository {
+    async fn get_by_source_artist(
+        &self,
+        source_artist_id: ArtistId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>> {
+        debug!(target: "repository", %source_artist_id, limit, offset, "fetching relationships by source artist");
+
+        let q = "SELECT * FROM artist_relationships WHERE source_artist_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let source_id_str = source_artist_id.to_string();
+
+        let rows = sqlx::query(q)
+            .bind(source_id_str)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_artist_relationship(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn get_by_related_artist(
+        &self,
+        related_artist_id: ArtistId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>> {
+        debug!(target: "repository", %related_artist_id, limit, offset, "fetching relationships by related artist");
+
+        let q = "SELECT * FROM artist_relationships WHERE related_artist_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let related_id_str = related_artist_id.to_string();
+
+        let rows = sqlx::query(q)
+            .bind(related_id_str)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_artist_relationship(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn get_by_type_and_source(
+        &self,
+        source_artist_id: ArtistId,
+        relationship_type: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ArtistRelationship>> {
+        debug!(target: "repository", %source_artist_id, relationship_type, limit, offset, "fetching relationships by type and source");
+
+        let q = "SELECT * FROM artist_relationships WHERE source_artist_id = ? AND relationship_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        let source_id_str = source_artist_id.to_string();
+
+        let rows = sqlx::query(q)
+            .bind(source_id_str)
+            .bind(relationship_type)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_artist_relationship(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn relationship_exists(
+        &self,
+        source_artist_id: ArtistId,
+        related_artist_id: ArtistId,
+        relationship_type: &str,
+    ) -> Result<bool> {
+        debug!(target: "repository", %source_artist_id, %related_artist_id, relationship_type, "checking relationship existence");
+
+        let q = "SELECT COUNT(*) as count FROM artist_relationships WHERE source_artist_id = ? AND related_artist_id = ? AND relationship_type = ?";
+        let source_id_str = source_artist_id.to_string();
+        let related_id_str = related_artist_id.to_string();
+
+        let row = sqlx::query(q)
+            .bind(source_id_str)
+            .bind(related_id_str)
+            .bind(relationship_type)
+            .fetch_one(&self.pool)
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count > 0)
     }
 }
 
@@ -2986,6 +3238,7 @@ mod tests {
     }
 
     #[tokio::test]
+<<<<<<< HEAD
     async fn artist_with_genre_and_style_tags() {
         let pool = setup_pool().await;
         let repo = SqliteArtistRepository::new(pool);
@@ -3110,5 +3363,167 @@ mod tests {
 
         assert_eq!(fetched.genre_tags.as_deref(), Some("metal|progressive"));
         assert_eq!(fetched.style_tags.as_deref(), Some("technical|complex"));
+=======
+    async fn artist_relationship_create_and_fetch() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let rel_repo = SqliteArtistRelationshipRepository::new(pool);
+
+        let artist1 = chorrosion_domain::Artist::new("Artist 1");
+        let artist1_id = artist1.id;
+        artist_repo.create(artist1).await.expect("create artist1");
+
+        let artist2 = chorrosion_domain::Artist::new("Artist 2");
+        let artist2_id = artist2.id;
+        artist_repo.create(artist2).await.expect("create artist2");
+
+        let mut relationship = chorrosion_domain::ArtistRelationship::new(
+            artist1_id,
+            artist2_id,
+            "collaborator",
+        );
+        relationship.description = Some("Collaborated on multiple projects".to_string());
+        let rel_id = relationship.id;
+
+        rel_repo.create(relationship).await.expect("create relationship");
+
+        let fetched = rel_repo
+            .get_by_id(rel_id.to_string())
+            .await
+            .expect("fetch relationship")
+            .expect("relationship exists");
+
+        assert_eq!(fetched.source_artist_id, artist1_id);
+        assert_eq!(fetched.related_artist_id, artist2_id);
+        assert_eq!(fetched.relationship_type, "collaborator");
+        assert_eq!(
+            fetched.description.as_deref(),
+            Some("Collaborated on multiple projects")
+        );
+    }
+
+    #[tokio::test]
+    async fn artist_relationship_get_by_source_artist() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let rel_repo = SqliteArtistRelationshipRepository::new(pool);
+
+        let artist1 = chorrosion_domain::Artist::new("Artist 1");
+        let artist1_id = artist1.id;
+        artist_repo.create(artist1).await.expect("create artist1");
+
+        let artist2 = chorrosion_domain::Artist::new("Artist 2");
+        let artist2_id = artist2.id;
+        artist_repo.create(artist2).await.expect("create artist2");
+
+        let artist3 = chorrosion_domain::Artist::new("Artist 3");
+        let artist3_id = artist3.id;
+        artist_repo.create(artist3).await.expect("create artist3");
+
+        let rel1 =
+            chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "collaborator");
+        let rel2 = chorrosion_domain::ArtistRelationship::new(artist1_id, artist3_id, "member");
+
+        rel_repo.create(rel1).await.expect("create rel1");
+        rel_repo.create(rel2).await.expect("create rel2");
+
+        let relationships = rel_repo
+            .get_by_source_artist(artist1_id, 10, 0)
+            .await
+            .expect("get relationships");
+
+        assert_eq!(relationships.len(), 2);
+        assert!(relationships
+            .iter()
+            .any(|r| r.relationship_type == "collaborator"));
+        assert!(relationships.iter().any(|r| r.relationship_type == "member"));
+    }
+
+    #[tokio::test]
+    async fn artist_relationship_get_by_type_and_source() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let rel_repo = SqliteArtistRelationshipRepository::new(pool);
+
+        let artist1 = chorrosion_domain::Artist::new("Artist 1");
+        let artist1_id = artist1.id;
+        artist_repo.create(artist1).await.expect("create artist1");
+
+        let artist2 = chorrosion_domain::Artist::new("Artist 2");
+        let artist2_id = artist2.id;
+        artist_repo.create(artist2).await.expect("create artist2");
+
+        let artist3 = chorrosion_domain::Artist::new("Artist 3");
+        let artist3_id = artist3.id;
+        artist_repo.create(artist3).await.expect("create artist3");
+
+        let rel1 =
+            chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "collaborator");
+        let rel2 = chorrosion_domain::ArtistRelationship::new(artist1_id, artist3_id, "collaborator");
+        let rel3 = chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "member");
+
+        rel_repo.create(rel1).await.expect("create rel1");
+        rel_repo.create(rel2).await.expect("create rel2");
+        rel_repo.create(rel3).await.expect("create rel3");
+
+        let collaborators = rel_repo
+            .get_by_type_and_source(artist1_id, "collaborator", 10, 0)
+            .await
+            .expect("get collaborators");
+
+        assert_eq!(collaborators.len(), 2);
+        assert!(collaborators
+            .iter()
+            .all(|r| r.relationship_type == "collaborator"));
+
+        let members = rel_repo
+            .get_by_type_and_source(artist1_id, "member", 10, 0)
+            .await
+            .expect("get members");
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].relationship_type, "member");
+    }
+
+    #[tokio::test]
+    async fn artist_relationship_existence_check() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let rel_repo = SqliteArtistRelationshipRepository::new(pool);
+
+        let artist1 = chorrosion_domain::Artist::new("Artist 1");
+        let artist1_id = artist1.id;
+        artist_repo.create(artist1).await.expect("create artist1");
+
+        let artist2 = chorrosion_domain::Artist::new("Artist 2");
+        let artist2_id = artist2.id;
+        artist_repo.create(artist2).await.expect("create artist2");
+
+        let artist3 = chorrosion_domain::Artist::new("Artist 3");
+        let artist3_id = artist3.id;
+        artist_repo.create(artist3).await.expect("create artist3");
+
+        let rel =
+            chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "collaborator");
+        rel_repo.create(rel).await.expect("create relationship");
+
+        let exists = rel_repo
+            .relationship_exists(artist1_id, artist2_id, "collaborator")
+            .await
+            .expect("check exists");
+        assert!(exists);
+
+        let not_exists = rel_repo
+            .relationship_exists(artist1_id, artist3_id, "collaborator")
+            .await
+            .expect("check not exists");
+        assert!(!not_exists);
+
+        let wrong_type = rel_repo
+            .relationship_exists(artist1_id, artist2_id, "member")
+            .await
+            .expect("check wrong type");
+        assert!(!wrong_type);
+>>>>>>> df40d85 (feat: add artist relationship infrastructure for collaboration tracking)
     }
 }
