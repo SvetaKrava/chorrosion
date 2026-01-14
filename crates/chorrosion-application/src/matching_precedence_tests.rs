@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Integration tests for matching precedence enforcement.
+//! Unit tests for matching precedence types, errors, and display formatting.
 
-#[cfg(test)]
 mod integration_tests {
     use crate::matching_precedence::{
         MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingError,
@@ -36,23 +35,6 @@ mod integration_tests {
     fn precedence_error_all_strategies_failed() {
         let err = PrecedenceMatchingError::AllStrategiesFailed;
         assert_eq!(err.to_string(), "All matching strategies failed");
-    }
-
-    #[test]
-    fn precedence_error_no_metadata_available() {
-        let err = PrecedenceMatchingError::NoMetadataAvailable;
-        assert_eq!(err.to_string(), "No metadata available for matching");
-    }
-
-    #[test]
-    fn precedence_error_below_confidence_threshold() {
-        let err = PrecedenceMatchingError::BelowConfidenceThreshold {
-            score: 0.45,
-            threshold: 0.5,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("0.45"));
-        assert!(msg.contains("0.5"));
     }
 
     #[test]

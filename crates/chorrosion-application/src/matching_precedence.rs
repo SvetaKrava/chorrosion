@@ -87,12 +87,6 @@ pub enum PrecedenceMatchingError {
     #[error("All matching strategies failed")]
     AllStrategiesFailed,
 
-    #[error("No metadata available for matching")]
-    NoMetadataAvailable,
-
-    #[error("Match confidence {score} below threshold {threshold}")]
-    BelowConfidenceThreshold { score: f32, threshold: f32 },
-
     #[error("Invalid confidence threshold: {0}")]
     InvalidThreshold(f32),
 }
@@ -150,7 +144,6 @@ impl PrecedenceMatchingEngine {
     ///
     /// * `Ok(PrecedenceMatchResult)` - Successfully matched with strategy info
     /// * `Err(PrecedenceMatchingError::AllStrategiesFailed)` - All strategies failed
-    /// * `Err(PrecedenceMatchingError::BelowConfidenceThreshold)` - Best match below threshold
     pub async fn match_with_precedence(
         &self,
         track_file: &TrackFile,
@@ -262,9 +255,9 @@ impl PrecedenceMatchingEngine {
     async fn try_embedded_tags_match(
         &self,
         track_file: &TrackFile,
-        _min_confidence: f32,
-        _folder_artist: Option<&str>,
-        _folder_album: Option<&str>,
+        _min_confidence: f32, // TODO: Will be used for MusicBrainz confidence filtering
+        _folder_artist: Option<&str>, // TODO: Will be used for MusicBrainz search context
+        _folder_album: Option<&str>, // TODO: Will be used for MusicBrainz search context
     ) -> Option<PrecedenceMatchingResult<PrecedenceMatchResult>> {
         debug!(
             target: "precedence_matching",
@@ -315,7 +308,7 @@ impl PrecedenceMatchingEngine {
     async fn try_filename_heuristics_match(
         &self,
         track_file: &TrackFile,
-        _min_confidence: f32,
+        _min_confidence: f32, // TODO: Will be used for MusicBrainz confidence filtering
         folder_artist: Option<&str>,
         folder_album: Option<&str>,
     ) -> Option<PrecedenceMatchingResult<PrecedenceMatchResult>> {
