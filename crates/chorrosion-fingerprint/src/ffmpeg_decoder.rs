@@ -61,13 +61,33 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
             )
         })?;
 
-    // Create decoder for audio stream
-    let mut decoder = audio_stream
+    let audio_stream_index = audio_stream.index();
+
+    // Get codec parameters and create decoder
+    let codec_id = audio_stream.parameters().id();
+    let codec = ffmpeg_next::codec::decoder::find(codec_id)
+        .ok_or_else(|| {
+            FingerprintError::AudioProcessing(format!(
+                "Codec not found for codec ID: {:?}",
+                codec_id
+            ))
+        })?;
+
+    let mut decoder = ffmpeg_next::codec::context::Context::new_with_codec(codec)
         .decoder()
         .audio()
         .map_err(|e| {
             FingerprintError::AudioProcessing(format!(
                 "Failed to create audio decoder: {}",
+                e
+            ))
+        })?;
+
+    // Copy codec parameters to decoder
+    decoder.set_parameters(audio_stream.parameters())
+        .map_err(|e| {
+            FingerprintError::AudioProcessing(format!(
+                "Failed to set decoder parameters: {}",
                 e
             ))
         })?;
@@ -80,7 +100,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
     // Process all packets for this stream
     for (stream, packet) in context.packets() {
-        if stream.index() != audio_stream.index() {
+        if stream.index() != audio_stream_index {
             continue;
         }
 
