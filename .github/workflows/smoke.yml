@@ -31,7 +31,7 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install chromaprint:x64-windows
-          vcpkg install ffmpeg[avcodec,avformat,avfilter,swresample,swscale]:x64-windows
+          vcpkg install ffmpeg[avcodec,avdevice,avformat,avfilter,swresample,swscale]:x64-windows
           $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
           echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
           echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
@@ -53,7 +53,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ffmpeg \
-            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libswresample-dev libswscale-dev \
+            libavcodec-dev libavdevice-dev libavformat-dev libavutil-dev libavfilter-dev libswresample-dev libswscale-dev \
             libchromaprint-dev pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
