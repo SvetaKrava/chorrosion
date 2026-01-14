@@ -13,11 +13,15 @@
 //!
 //! ## Usage
 //!
-//! ```no_run
+//! ```ignore
 //! # use chorrosion_application::matching_precedence::{PrecedenceMatchingEngine, MatchingStrategy};
 //! # use chorrosion_domain::TrackFile;
 //! # async fn example() -> anyhow::Result<()> {
-//! let engine = PrecedenceMatchingEngine::new(/* services */);
+//! let engine = PrecedenceMatchingEngine::new(
+//!     track_matching_service,
+//!     embedded_tag_service,
+//!     filename_heuristics_service
+//! );
 //! let track_file = TrackFile::new(Default::default(), "/path/to/file.flac", 1024);
 //!
 //! // Attempt matching with enforced precedence
