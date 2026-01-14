@@ -44,47 +44,43 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
     ffmpeg_next::format::network::init();
 
     // Open input file
-    let mut context = ffmpeg_next::format::input(&path).map_err(|e| {
+    let context = ffmpeg_next::format::input(&path).map_err(|e| {
         FingerprintError::AudioProcessing(format!(
             "Failed to open file with FFmpeg: {}",
             e
         ))
     })?;
 
-    // Find audio stream and create decoder
-    let mut decoder = None;
-    let mut audio_stream_index = None;
+    // Find the first audio stream
+    let audio_stream = context
+        .streams()
+        .find(|stream| stream.parameters().medium() == ffmpeg_next::media::Type::Audio)
+        .ok_or_else(|| {
+            FingerprintError::AudioProcessing(
+                "No audio stream found in file".to_string(),
+            )
+        })?;
 
-    for (idx, stream) in context.streams().enumerate() {
-        if stream.parameters().medium() == ffmpeg_next::media::Type::Audio {
-            audio_stream_index = Some(idx);
-            // Create decoder for this stream
-            let dec = stream.codec().decoder().audio().map_err(|e| {
-                FingerprintError::AudioProcessing(format!(
-                    "Failed to create audio decoder: {}",
-                    e
-                ))
-            })?;
-            decoder = Some(dec);
-            debug!(stream_index = idx, "Found audio stream");
-            break;
-        }
-    }
+    // Create decoder for audio stream
+    let mut decoder = audio_stream
+        .decoder()
+        .audio()
+        .map_err(|e| {
+            FingerprintError::AudioProcessing(format!(
+                "Failed to create audio decoder: {}",
+                e
+            ))
+        })?;
 
-    let mut decoder = decoder.ok_or_else(|| {
-        FingerprintError::AudioProcessing(
-            "No audio stream found in file".to_string(),
-        )
-    })?;
-
-    let audio_stream_index = audio_stream_index.unwrap();
+    debug!("Found audio stream and created decoder");
 
     // Decode audio
     let mut samples = Vec::new();
     let max_samples = 120 * 44100; // 120 seconds at 44.1 kHz
 
+    // Process all packets for this stream
     for (stream, packet) in context.packets() {
-        if stream != audio_stream_index as isize {
+        if stream.index() != audio_stream.index() {
             continue;
         }
 
@@ -147,8 +143,6 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn ffmpeg_available() {
         // Verify FFmpeg can be initialized
