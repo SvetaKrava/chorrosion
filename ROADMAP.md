@@ -106,7 +106,13 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Query methods: by source/related artist, by type, existence check ✓
     - [x] 4 comprehensive integration tests ✓
     - [x] PR creation and merge ✓
-  - [ ] Matching precedence enforcement: fingerprint > embedded tags > filename
+  - [x] Matching precedence enforcement: fingerprint > embedded tags > filename (Issue #71, PR #97) ✓ COMPLETE
+    - [x] PrecedenceMatchingEngine orchestrator ✓
+    - [x] Strategy precedence ordering (fingerprint > tags > filename) ✓
+    - [x] Confidence thresholds and fallback logic ✓
+    - [x] Comprehensive test coverage (27 tests) ✓
+    - [x] Cross-platform compatibility verified ✓
+    - [x] PR created and merged ✓
 
 ### 2.2 Additional Metadata Sources
 
