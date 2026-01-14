@@ -493,7 +493,7 @@ mod tests {
         let gen = FingerprintGenerator::new();
         assert_eq!(std::mem::size_of_val(&gen), 0);
 
-        let gen2 = FingerprintGenerator::default();
+        let gen2 = FingerprintGenerator;
         assert_eq!(std::mem::size_of_val(&gen2), 0);
     }
 
