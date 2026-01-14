@@ -76,7 +76,7 @@ use crate::ffmpeg_decoder;
 
 /// Maximum duration to use for fingerprinting (in seconds).
 /// Chromaprint standard is 120 seconds for optimal recognition.
-const MAX_FINGERPRINT_DURATION_SECS: u32 = 120;
+pub const MAX_FINGERPRINT_DURATION_SECS: u32 = 120;
 
 /// Sample rate for audio processing (44.1 kHz is standard).
 const SAMPLE_RATE: u32 = 44100;
@@ -544,11 +544,11 @@ mod tests {
     async fn test_ffmpeg_decoding_integration() {
         // Example: test with OGG Vorbis file
         let gen = FingerprintGenerator::new();
-        let result = gen.extract_ffmpeg_samples("test_audio.ogg", "ogg").await;
+        let _result = gen.extract_ffmpeg_samples("test_audio.ogg", "ogg").await;
 
         // When implemented with test audio:
-        // assert!(result.is_ok());
-        // let audio = result.unwrap();
+        // assert!(_result.is_ok());
+        // let audio = _result.unwrap();
         // assert!(!audio.samples.is_empty());
         // assert!(audio.sample_rate > 0);
         // assert!(audio.duration_secs > 0);

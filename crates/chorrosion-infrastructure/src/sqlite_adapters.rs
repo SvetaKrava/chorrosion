@@ -307,7 +307,8 @@ fn row_to_album(row: &sqlx::sqlite::SqliteRow) -> Result<Album> {
     let artist_id = ArtistId::from_uuid(Uuid::parse_str(&artist_id_str)?);
 
     let foreign_album_id: Option<String> = row.try_get("foreign_album_id")?;
-    let musicbrainz_release_group_id: Option<String> = row.try_get("musicbrainz_release_group_id")?;
+    let musicbrainz_release_group_id: Option<String> =
+        row.try_get("musicbrainz_release_group_id")?;
     let musicbrainz_release_id: Option<String> = row.try_get("musicbrainz_release_id")?;
     let title: String = row.try_get("title")?;
     let release_date: Option<String> = row.try_get("release_date")?;
@@ -387,12 +388,10 @@ fn row_to_artist_relationship(row: &sqlx::sqlite::SqliteRow) -> Result<ArtistRel
     let id = ArtistRelationshipId::from_uuid(Uuid::parse_str(&id_str)?);
 
     let source_artist_id_str: String = row.try_get("source_artist_id")?;
-    let source_artist_id =
-        ArtistId::from_uuid(Uuid::parse_str(&source_artist_id_str)?);
+    let source_artist_id = ArtistId::from_uuid(Uuid::parse_str(&source_artist_id_str)?);
 
     let related_artist_id_str: String = row.try_get("related_artist_id")?;
-    let related_artist_id =
-        ArtistId::from_uuid(Uuid::parse_str(&related_artist_id_str)?);
+    let related_artist_id = ArtistId::from_uuid(Uuid::parse_str(&related_artist_id_str)?);
 
     let relationship_type: String = row.try_get("relationship_type")?;
     let description: Option<String> = row.try_get("description")?;
@@ -1503,11 +1502,13 @@ impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<ArtistRelationship>> {
         debug!(target: "repository", limit, offset, "listing artist relationships");
 
-        let rows = sqlx::query("SELECT * FROM artist_relationships ORDER BY created_at DESC LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(
+            "SELECT * FROM artist_relationships ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
@@ -3172,7 +3173,8 @@ mod tests {
         artist_repo.create(artist).await.expect("create artist");
 
         let mut album = chorrosion_domain::Album::new(artist_id, "Test Album");
-        album.musicbrainz_release_group_id = Some("rg1234567-1234-1234-1234-123456789012".to_string());
+        album.musicbrainz_release_group_id =
+            Some("rg1234567-1234-1234-1234-123456789012".to_string());
         album.musicbrainz_release_id = Some("rel1234567-1234-1234-1234-123456789012".to_string());
         album.primary_type = Some("Album".to_string());
         album.secondary_types = Some("Live".to_string());
@@ -3232,7 +3234,10 @@ mod tests {
             .expect("fetch")
             .expect("exists");
 
-        assert_eq!(fetched.musicbrainz_release_group_id.as_deref(), Some("rg-1234"));
+        assert_eq!(
+            fetched.musicbrainz_release_group_id.as_deref(),
+            Some("rg-1234")
+        );
         assert_eq!(fetched.primary_type.as_deref(), Some("EP"));
         assert_eq!(fetched.first_release_date.as_deref(), Some("2021-06-20"));
     }
@@ -3378,15 +3383,15 @@ mod tests {
         let artist2_id = artist2.id;
         artist_repo.create(artist2).await.expect("create artist2");
 
-        let mut relationship = chorrosion_domain::ArtistRelationship::new(
-            artist1_id,
-            artist2_id,
-            "collaborator",
-        );
+        let mut relationship =
+            chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "collaborator");
         relationship.description = Some("Collaborated on multiple projects".to_string());
         let rel_id = relationship.id;
 
-        rel_repo.create(relationship).await.expect("create relationship");
+        rel_repo
+            .create(relationship)
+            .await
+            .expect("create relationship");
 
         let fetched = rel_repo
             .get_by_id(rel_id.to_string())
@@ -3437,7 +3442,9 @@ mod tests {
         assert!(relationships
             .iter()
             .any(|r| r.relationship_type == "collaborator"));
-        assert!(relationships.iter().any(|r| r.relationship_type == "member"));
+        assert!(relationships
+            .iter()
+            .any(|r| r.relationship_type == "member"));
     }
 
     #[tokio::test]
@@ -3460,7 +3467,8 @@ mod tests {
 
         let rel1 =
             chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "collaborator");
-        let rel2 = chorrosion_domain::ArtistRelationship::new(artist1_id, artist3_id, "collaborator");
+        let rel2 =
+            chorrosion_domain::ArtistRelationship::new(artist1_id, artist3_id, "collaborator");
         let rel3 = chorrosion_domain::ArtistRelationship::new(artist1_id, artist2_id, "member");
 
         rel_repo.create(rel1).await.expect("create rel1");

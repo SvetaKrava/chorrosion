@@ -82,7 +82,8 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
     // Decode audio
     let mut samples = Vec::new();
-    let sample_rate = audio_stream.parameters().sample_rate().unwrap_or(44100);
+    // FFmpeg decodes at the source sample rate; use standard rate for max sample calculation
+    let sample_rate = 44100u32; // Standard audio sample rate
     let max_samples = (super::MAX_FINGERPRINT_DURATION_SECS as u64 * sample_rate as u64) as usize; // 120 seconds max
 
     // Process all packets for this stream
