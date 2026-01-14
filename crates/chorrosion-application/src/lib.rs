@@ -16,8 +16,8 @@ pub use filename_heuristics::{
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{
-    MatchingStrategy, PrecedenceMatchingEngine, PrecedenceMatchingError, PrecedenceMatchingResult,
-    PrecedenceMatchResult,
+    MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingEngine, PrecedenceMatchingError,
+    PrecedenceMatchingResult,
 };
 
 use tracing::info;

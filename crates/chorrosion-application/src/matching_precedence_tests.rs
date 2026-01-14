@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod integration_tests {
     use crate::matching_precedence::{
-        MatchingStrategy, PrecedenceMatchingError, PrecedenceMatchResult,
+        MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingError,
     };
 
     #[test]
@@ -98,14 +98,20 @@ mod integration_tests {
     fn precedence_strategy_type_equality() {
         // Test enum equality for different combinations
         assert_eq!(MatchingStrategy::Fingerprint, MatchingStrategy::Fingerprint);
-        assert_eq!(MatchingStrategy::EmbeddedTags, MatchingStrategy::EmbeddedTags);
+        assert_eq!(
+            MatchingStrategy::EmbeddedTags,
+            MatchingStrategy::EmbeddedTags
+        );
         assert_eq!(
             MatchingStrategy::FilenameHeuristics,
             MatchingStrategy::FilenameHeuristics
         );
 
         // Test enum inequality
-        assert_ne!(MatchingStrategy::Fingerprint, MatchingStrategy::EmbeddedTags);
+        assert_ne!(
+            MatchingStrategy::Fingerprint,
+            MatchingStrategy::EmbeddedTags
+        );
         assert_ne!(
             MatchingStrategy::Fingerprint,
             MatchingStrategy::FilenameHeuristics
@@ -146,7 +152,10 @@ mod integration_tests {
         // Each result clearly identifies its source
         assert_eq!(fingerprint_result.strategy, MatchingStrategy::Fingerprint);
         assert_eq!(tags_result.strategy, MatchingStrategy::EmbeddedTags);
-        assert_eq!(filename_result.strategy, MatchingStrategy::FilenameHeuristics);
+        assert_eq!(
+            filename_result.strategy,
+            MatchingStrategy::FilenameHeuristics
+        );
 
         // Different sources produce different IDs in this test
         assert_ne!(
@@ -196,11 +205,11 @@ mod integration_tests {
     #[test]
     fn confidence_thresholds_boundary_values() {
         let test_cases = vec![
-            (0.0, true),   // Valid: minimum
-            (0.3, true),   // Valid: common threshold
-            (0.5, true),   // Valid: midpoint
-            (0.8, true),   // Valid: typical fingerprint threshold
-            (1.0, true),   // Valid: maximum
+            (0.0, true),     // Valid: minimum
+            (0.3, true),     // Valid: common threshold
+            (0.5, true),     // Valid: midpoint
+            (0.8, true),     // Valid: typical fingerprint threshold
+            (1.0, true),     // Valid: maximum
             (-0.001, false), // Invalid: just below min
             (1.001, false),  // Invalid: just above max
         ];
@@ -238,7 +247,10 @@ mod integration_tests {
 
         let cloned = original.clone();
 
-        assert_eq!(original.musicbrainz_recording_id, cloned.musicbrainz_recording_id);
+        assert_eq!(
+            original.musicbrainz_recording_id,
+            cloned.musicbrainz_recording_id
+        );
         assert_eq!(original.confidence, cloned.confidence);
         assert_eq!(original.strategy, cloned.strategy);
     }

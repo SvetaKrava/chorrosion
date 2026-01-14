@@ -28,7 +28,7 @@
 //!     None  // folder_album
 //! ).await?;
 //!
-//! println!("Strategy: {:?}, MBID: {}, Confidence: {}", 
+//! println!("Strategy: {:?}, MBID: {}, Confidence: {}",
 //!          result.strategy, result.musicbrainz_recording_id, result.confidence);
 //! # Ok(())
 //! # }
@@ -168,10 +168,7 @@ impl PrecedenceMatchingEngine {
         );
 
         // Strategy 1: Fingerprint-based lookup (highest confidence)
-        if let Some(result) = self
-            .try_fingerprint_match(track_file, min_confidence)
-            .await
-        {
+        if let Some(result) = self.try_fingerprint_match(track_file, min_confidence).await {
             return result;
         }
 
@@ -183,12 +180,7 @@ impl PrecedenceMatchingEngine {
 
         // Strategy 2: Embedded tags (medium confidence)
         if let Some(result) = self
-            .try_embedded_tags_match(
-                track_file,
-                min_confidence,
-                folder_artist,
-                folder_album,
-            )
+            .try_embedded_tags_match(track_file, min_confidence, folder_artist, folder_album)
             .await
         {
             return result;
@@ -330,10 +322,11 @@ impl PrecedenceMatchingEngine {
         );
 
         // Parse filename to extract metadata
-        let parsed = match self
-            .filename_heuristics_service
-            .parse_filename(&track_file.path, folder_artist, folder_album)
-        {
+        let parsed = match self.filename_heuristics_service.parse_filename(
+            &track_file.path,
+            folder_artist,
+            folder_album,
+        ) {
             Ok(parsed) => parsed,
             Err(e) => {
                 debug!(
@@ -369,7 +362,10 @@ mod tests {
 
     #[test]
     fn matching_strategy_display() {
-        assert_eq!(MatchingStrategy::Fingerprint.to_string(), "Fingerprint (AcoustID)");
+        assert_eq!(
+            MatchingStrategy::Fingerprint.to_string(),
+            "Fingerprint (AcoustID)"
+        );
         assert_eq!(MatchingStrategy::EmbeddedTags.to_string(), "Embedded Tags");
         assert_eq!(
             MatchingStrategy::FilenameHeuristics.to_string(),
@@ -392,7 +388,10 @@ mod tests {
     #[test]
     fn matching_strategy_equality() {
         assert_eq!(MatchingStrategy::Fingerprint, MatchingStrategy::Fingerprint);
-        assert_ne!(MatchingStrategy::Fingerprint, MatchingStrategy::EmbeddedTags);
+        assert_ne!(
+            MatchingStrategy::Fingerprint,
+            MatchingStrategy::EmbeddedTags
+        );
     }
 
     #[test]
