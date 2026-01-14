@@ -24,8 +24,8 @@ use crate::{FingerprintError, Result};
 
 /// Decode audio from a file using FFmpeg.
 ///
-/// Extracts mono, 16-bit PCM samples at the file's native sample rate
-/// (or resamples to 44.1 kHz if needed for consistency).
+/// Extracts mono, 16-bit PCM samples at the file's native sample rate.
+/// The decoder preserves the source sample rate and does not perform resampling.
 ///
 /// # Arguments
 ///
@@ -45,10 +45,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
     // Open input file
     let mut context = ffmpeg_next::format::input(&path).map_err(|e| {
-        FingerprintError::AudioProcessing(format!(
-            "Failed to open file with FFmpeg: {}",
-            e
-        ))
+        FingerprintError::AudioProcessing(format!("Failed to open file with FFmpeg: {}", e))
     })?;
 
     // Find the first audio stream
@@ -56,47 +53,37 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
         .streams()
         .find(|stream| stream.parameters().medium() == ffmpeg_next::media::Type::Audio)
         .ok_or_else(|| {
-            FingerprintError::AudioProcessing(
-                "No audio stream found in file".to_string(),
-            )
+            FingerprintError::AudioProcessing("No audio stream found in file".to_string())
         })?;
 
     let audio_stream_index = audio_stream.index();
 
     // Get codec parameters and create decoder
     let codec_id = audio_stream.parameters().id();
-    let codec = ffmpeg_next::codec::decoder::find(codec_id)
-        .ok_or_else(|| {
-            FingerprintError::AudioProcessing(format!(
-                "Codec not found for codec ID: {:?}",
-                codec_id
-            ))
-        })?;
+    let codec = ffmpeg_next::codec::decoder::find(codec_id).ok_or_else(|| {
+        FingerprintError::AudioProcessing(format!("Codec not found for codec ID: {:?}", codec_id))
+    })?;
 
     let mut decoder = ffmpeg_next::codec::context::Context::new_with_codec(codec)
         .decoder()
         .audio()
         .map_err(|e| {
-            FingerprintError::AudioProcessing(format!(
-                "Failed to create audio decoder: {}",
-                e
-            ))
+            FingerprintError::AudioProcessing(format!("Failed to create audio decoder: {}", e))
         })?;
 
     // Copy codec parameters to decoder
-    decoder.set_parameters(audio_stream.parameters())
+    decoder
+        .set_parameters(audio_stream.parameters())
         .map_err(|e| {
-            FingerprintError::AudioProcessing(format!(
-                "Failed to set decoder parameters: {}",
-                e
-            ))
+            FingerprintError::AudioProcessing(format!("Failed to set decoder parameters: {}", e))
         })?;
 
     debug!("Found audio stream and created decoder");
 
     // Decode audio
     let mut samples = Vec::new();
-    let max_samples = 120 * 44100; // 120 seconds at 44.1 kHz
+    let sample_rate = audio_stream.parameters().sample_rate().unwrap_or(44100);
+    let max_samples = (super::MAX_FINGERPRINT_DURATION_SECS as u64 * sample_rate as u64) as usize; // 120 seconds max
 
     // Process all packets for this stream
     for (stream, packet) in context.packets() {
@@ -106,10 +93,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
         // Send packet to decoder
         decoder.send_packet(&packet).map_err(|e| {
-            FingerprintError::AudioProcessing(format!(
-                "Failed to send packet to decoder: {}",
-                e
-            ))
+            FingerprintError::AudioProcessing(format!("Failed to send packet to decoder: {}", e))
         })?;
 
         // Receive decoded frames
@@ -132,9 +116,9 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
 
     // Flush any remaining frames from the decoder
     decoder.send_eof().ok();
-    let mut decoded = ffmpeg_next::frame::Audio::empty();
-    while decoder.receive_frame(&mut decoded).is_ok() {
-        let plane = decoded.plane::<i16>(0);
+    let mut flush_frame = ffmpeg_next::frame::Audio::empty();
+    while decoder.receive_frame(&mut flush_frame).is_ok() {
+        let plane = flush_frame.plane::<i16>(0);
         samples.extend_from_slice(plane);
 
         if samples.len() >= max_samples {
@@ -148,10 +132,8 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
         ));
     }
 
-    // Truncate to max fingerprinting duration
-    if samples.len() > max_samples {
-        samples.truncate(max_samples);
-    }
+    // Note: max_samples is checked during decoding loops above;
+    // truncation happens inline to avoid recalculation
 
     debug!(
         sample_count = samples.len(),

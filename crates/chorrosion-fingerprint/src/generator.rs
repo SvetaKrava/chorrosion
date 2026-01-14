@@ -82,6 +82,17 @@ const MAX_FINGERPRINT_DURATION_SECS: u32 = 120;
 const SAMPLE_RATE: u32 = 44100;
 
 /// Audio samples: mono, 16-bit PCM at a given sample rate.
+///
+/// # Public API
+///
+/// This struct is part of the public API for the `ffmpeg_decoder` module integration.
+/// All fields are public to allow cross-module audio processing.
+///
+/// # Invariants
+///
+/// - `duration_secs` should equal `samples.len() / sample_rate` (approximately)
+/// - `sample_rate` should be a valid audio sample rate (typically 44100, 48000, etc.)
+/// - `samples` should contain mono, 16-bit PCM data
 pub struct AudioSamples {
     pub samples: Vec<i16>,
     pub sample_rate: u32,
@@ -193,10 +204,10 @@ impl FingerprintGenerator {
                             );
                             samples
                         }
-                        Err(_) => {
+                        Err(e) => {
                             return Err(FingerprintError::AudioProcessing(format!(
-                                "Unsupported audio format: {}",
-                                extension
+                                "Failed to decode {} using FFmpeg: {}",
+                                extension, e
                             )))
                         }
                     }
@@ -206,7 +217,7 @@ impl FingerprintGenerator {
                     return Err(FingerprintError::AudioProcessing(format!(
                         "Unsupported audio format: {} (enable 'ffmpeg-support' for additional formats)",
                         extension
-                    )))
+                    )));
                 }
             }
         };
@@ -241,7 +252,7 @@ impl FingerprintGenerator {
     ) -> Result<AudioSamples> {
         let samples = ffmpeg_decoder::decode_audio_ffmpeg(path).await?;
         let sample_count = samples.len();
-        
+
         Ok(AudioSamples {
             samples,
             sample_rate: 44100, // Default; FFmpeg decoder returns at source rate
@@ -514,5 +525,54 @@ mod tests {
         assert!(matches!(ogg_ext, "ogg" | "opus" | "oga"));
         assert!(matches!(opus_ext, "ogg" | "opus" | "oga"));
         assert!(matches!(wavpack_ext, "wv"));
+    }
+
+    /// Test FFmpeg decoder with a supported format.
+    ///
+    /// This test verifies that FFmpeg decoding succeeds and returns valid audio samples.
+    /// It requires an actual audio file to test against.
+    ///
+    /// # Note
+    ///
+    /// This is a template for integration testing. A real test would need:
+    /// - A sample audio file in an FFmpeg-supported format
+    /// - Verification that samples are extracted
+    /// - Verification that sample rate and duration are correct
+    #[cfg(feature = "ffmpeg-support")]
+    #[ignore = "requires test audio file"]
+    #[tokio::test]
+    async fn test_ffmpeg_decoding_integration() {
+        // Example: test with OGG Vorbis file
+        let gen = FingerprintGenerator::new();
+        let result = gen.extract_ffmpeg_samples("test_audio.ogg", "ogg").await;
+
+        // When implemented with test audio:
+        // assert!(result.is_ok());
+        // let audio = result.unwrap();
+        // assert!(!audio.samples.is_empty());
+        // assert!(audio.sample_rate > 0);
+        // assert!(audio.duration_secs > 0);
+    }
+
+    /// Test FFmpeg error handling for missing files.
+    ///
+    /// Verifies that decoding fails gracefully with proper error context
+    /// when the file does not exist.
+    #[cfg(feature = "ffmpeg-support")]
+    #[tokio::test]
+    async fn test_ffmpeg_missing_file_error() {
+        let gen = FingerprintGenerator::new();
+        let result = gen
+            .extract_ffmpeg_samples("nonexistent_file.ogg", "ogg")
+            .await;
+
+        // Should fail with AudioProcessing error containing context
+        assert!(result.is_err());
+        if let Err(FingerprintError::AudioProcessing(msg)) = result {
+            // Error message should contain context about the failure
+            assert!(!msg.is_empty());
+        } else {
+            panic!("Expected AudioProcessing error");
+        }
     }
 }
