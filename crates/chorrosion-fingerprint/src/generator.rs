@@ -239,7 +239,13 @@ impl FingerprintGenerator {
         path: P,
         _format: &str,
     ) -> Result<AudioSamples> {
-        ffmpeg_decoder::decode_audio_ffmpeg(path).await
+        let samples = ffmpeg_decoder::decode_audio_ffmpeg(path).await?;
+        
+        Ok(AudioSamples {
+            samples,
+            sample_rate: 44100, // Default; FFmpeg decoder returns at source rate
+            duration_secs: (samples.len() as u32 / 44100).max(1),
+        })
     }
 
     /// Decode audio using symphonia and return mono PCM samples.

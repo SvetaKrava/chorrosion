@@ -18,6 +18,7 @@
 
 use std::path::Path;
 
+use ffmpeg_next::software::resampling::Context as ResamplingContext;
 use tracing::{debug, instrument};
 
 use crate::{FingerprintError, Result};
@@ -35,7 +36,7 @@ use crate::{FingerprintError, Result};
 ///
 /// A vector of mono 16-bit PCM samples
 #[instrument(skip_all, fields(file = ?path.as_ref()))]
-pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::AudioSamples> {
+pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
     let path = path.as_ref();
 
     debug!("Initializing FFmpeg decoder");
@@ -54,21 +55,29 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::Audio
     // Find audio stream
     let audio_stream_index = context
         .streams()
-        .position(|stream| stream.codec().medium() == ffmpeg_next::media::Type::Audio)
+        .enumerate()
+        .find_map(|(i, stream)| {
+            if stream.codecpar().medium() == ffmpeg_next::media::Type::Audio {
+                Some(i)
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| {
             FingerprintError::AudioProcessing(
                 "No audio stream found in file".to_string(),
             )
         })?;
 
-    let stream = context.stream(audio_stream_index as u32).ok_or_else(|| {
+    let stream = context.stream(audio_stream_index).ok_or_else(|| {
         FingerprintError::AudioProcessing(
             "Failed to access audio stream".to_string(),
         )
     })?;
 
-    let codec_params = stream.codec();
-    let sample_rate = codec_params.sample_rate();
+    let codecpar = stream.codecpar();
+    let sample_rate = codecpar.sample_rate() as i32;
+    let channel_layout = codecpar.channel_layout();
 
     debug!(
         stream_index = audio_stream_index,
@@ -76,12 +85,27 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::Audio
         "Found audio stream"
     );
 
+    // Create audio decoder
+    let codec = ffmpeg_next::decoder::find(codecpar.id())
+        .ok_or_else(|| {
+            FingerprintError::AudioProcessing(
+                "Unsupported audio codec".to_string(),
+            )
+        })?;
+    let mut decoder = codecpar.decoder().audio()
+        .map_err(|e| {
+            FingerprintError::AudioProcessing(format!(
+                "Failed to create decoder: {}",
+                e
+            ))
+        })?;
+
     // Create audio resampler to convert to mono 16-bit PCM
-    let mut resampler = ffmpeg_next::software::resampling::context::Context::get(
-        codec_params.format(),
-        codec_params.channel_layout(),
+    let mut resampler = ResamplingContext::get(
+        decoder.format(),
+        channel_layout,
         sample_rate,
-        ffmpeg_next::format::Sample::I16,
+        ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::None),
         ffmpeg_next::util::channel_layout::ChannelLayout::MONO,
         sample_rate,
     )
@@ -94,69 +118,63 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::Audio
 
     // Decode and resample audio
     let mut samples = Vec::new();
-    let max_samples = (120 * sample_rate) as usize; // 120 seconds max
+    let max_samples = (120 * sample_rate as u32) as usize; // 120 seconds max
 
-    for (stream, packet) in context.packets() {
-        if stream.index() != audio_stream_index {
+    for (stream_idx, packet) in context.packets() {
+        if stream_idx != audio_stream_index {
             continue;
         }
 
-        // Decode packet
-        let mut decoded = ffmpeg_next::frame::Audio::empty();
-        match stream.codec().decode(&packet, &mut decoded) {
-            Ok(true) => {
-                // Resample decoded audio
-                resampler.run(&decoded, &mut|resampled| {
-                    // Convert resampled audio to i16 samples
-                    let plane = resampled.plane::<i16>(0);
-                    samples.extend_from_slice(plane);
-                }).map_err(|e| {
-                    FingerprintError::AudioProcessing(format!(
-                        "Resampling failed: {}",
-                        e
-                    ))
-                })?;
-
-                // Check if we have enough samples
-                if samples.len() >= max_samples {
-                    debug!("Maximum sample count reached, stopping decode");
-                    break;
-                }
-            }
-            Ok(false) => {
-                // Packet was buffered, continue
-                continue;
-            }
-            Err(e) => {
-                return Err(FingerprintError::AudioProcessing(format!(
-                    "Decoding failed: {}",
+        // Send packet to decoder
+        decoder.send_packet(&packet)
+            .map_err(|e| {
+                FingerprintError::AudioProcessing(format!(
+                    "Failed to send packet to decoder: {}",
                     e
-                )))
+                ))
+            })?;
+
+        // Receive decoded frames
+        let mut decoded = ffmpeg_next::frame::Audio::empty();
+        while decoder.receive_frame(&mut decoded).is_ok() {
+            // Resample decoded audio
+            let _ = resampler.run(&decoded, &mut |resampled: &ffmpeg_next::frame::Audio| {
+                // Convert resampled audio to i16 samples
+                let plane = resampled.plane::<i16>(0);
+                samples.extend_from_slice(plane);
+            });
+
+            // Check if we have enough samples
+            if samples.len() >= max_samples {
+                debug!("Maximum sample count reached, stopping decode");
+                break;
             }
+        }
+
+        if samples.len() >= max_samples {
+            break;
         }
     }
 
-    // Flush remaining frames from resampler
-    loop {
-        let mut decoded = ffmpeg_next::frame::Audio::empty();
-        match resampler.flush(&mut |resampled| {
+    // Flush any remaining frames from the decoder
+    decoder.send_eof().ok();
+    let mut decoded = ffmpeg_next::frame::Audio::empty();
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        let _ = resampler.run(&decoded, &mut |resampled: &ffmpeg_next::frame::Audio| {
             let plane = resampled.plane::<i16>(0);
             samples.extend_from_slice(plane);
-        }) {
-            Ok(true) => {
-                if samples.len() >= max_samples {
-                    break;
-                }
-            }
-            Ok(false) => break,
-            Err(e) => {
-                return Err(FingerprintError::AudioProcessing(format!(
-                    "Flush failed: {}",
-                    e
-                )))
-            }
+        });
+
+        if samples.len() >= max_samples {
+            break;
         }
     }
+
+    // Flush remaining samples from resampler
+    let _ = resampler.flush(&mut |resampled: &ffmpeg_next::frame::Audio| {
+        let plane = resampled.plane::<i16>(0);
+        samples.extend_from_slice(plane);
+    });
 
     if samples.is_empty() {
         return Err(FingerprintError::AudioProcessing(
@@ -170,7 +188,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::Audio
         samples.truncate(max_samples);
     }
 
-    let duration_secs = (samples.len() as u32 / sample_rate).max(1);
+    let duration_secs = (samples.len() as u32 / sample_rate as u32).max(1);
 
     debug!(
         sample_count = samples.len(),
@@ -178,11 +196,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<super::Audio
         "Successfully decoded audio with FFmpeg"
     );
 
-    Ok(super::AudioSamples {
-        samples,
-        sample_rate,
-        duration_secs,
-    })
+    Ok(samples)
 }
 
 #[cfg(test)]
