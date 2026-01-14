@@ -26,19 +26,20 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint (Windows)
+      - name: Install chromaprint and FFmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           vcpkg install chromaprint:x64-windows
+          vcpkg install ffmpeg[avcodec,avformat,avfilter,swresample,swscale]:x64-windows
           $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
           echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
           echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
 
-      - name: Install chromaprint (macOS)
+      - name: Install chromaprint and FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install chromaprint pkg-config
+          brew install chromaprint ffmpeg pkg-config
           prefix="$(brew --prefix chromaprint)"
           echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=${prefix}/lib" >> $GITHUB_ENV
@@ -46,11 +47,14 @@ jobs:
           pkg-config --cflags --libs libchromaprint
           ls -l ${prefix}/lib | grep chromaprint || true
 
-      - name: Install chromaprint (Ubuntu)
+      - name: Install chromaprint and FFmpeg (Ubuntu)
         if: runner.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libchromaprint-dev pkg-config
+          sudo apt-get install -y \
+            ffmpeg \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libswresample-dev libswscale-dev \
+            libchromaprint-dev pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
