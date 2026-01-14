@@ -44,7 +44,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
     ffmpeg_next::format::network::init();
 
     // Open input file
-    let context = ffmpeg_next::format::input(&path).map_err(|e| {
+    let mut context = ffmpeg_next::format::input(&path).map_err(|e| {
         FingerprintError::AudioProcessing(format!(
             "Failed to open file with FFmpeg: {}",
             e
