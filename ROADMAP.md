@@ -76,8 +76,10 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Confidence thresholds and tie-breakers ✓
     - [x] Database schema for fingerprint storage (Issue #66) ✓
     - [x] File import integration with fingerprint generation (Issue #67) ✓
-    - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓
-    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
+    - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓      - [x] Advanced format support via FFmpeg (Issue #89, PR #98) ✓ COMPLETE
+        - [x] Optional ffmpeg-support feature flag ✓
+        - [x] OGG Vorbis, Opus, WavPack, APE, DSF, M4A, AAC support ✓
+        - [x] Graceful fallback when FFmpeg unavailable ✓    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
   - [x] Fallback matching using embedded tags, then filename heuristics ✓ (Issue #69, PR #88)
     - [x] Embedded tags extraction interface (Issue #69) ✓
     - [x] Filename heuristics parsing with regex patterns (Issue #69) ✓
