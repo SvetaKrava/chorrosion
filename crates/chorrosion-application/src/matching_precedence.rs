@@ -381,10 +381,10 @@ mod tests {
     fn invalid_confidence_threshold() {
         let threshold_low = -0.1;
         let threshold_high = 1.1;
-        
-        let is_valid_low = threshold_low >= 0.0 && threshold_low <= 1.0;
-        let is_valid_high = threshold_high >= 0.0 && threshold_high <= 1.0;
-        
+
+        let is_valid_low = (0.0..=1.0).contains(&threshold_low);
+        let is_valid_high = (0.0..=1.0).contains(&threshold_high);
+
         assert!(!is_valid_low);
         assert!(!is_valid_high);
     }

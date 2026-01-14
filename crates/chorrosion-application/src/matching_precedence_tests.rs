@@ -10,7 +10,7 @@ mod integration_tests {
 
     #[test]
     fn matching_strategy_precedence_ordering() {
-        let strategies = vec![
+        let strategies = [
             MatchingStrategy::Fingerprint,
             MatchingStrategy::EmbeddedTags,
             MatchingStrategy::FilenameHeuristics,
@@ -90,7 +90,7 @@ mod integration_tests {
                 confidence: conf,
                 strategy: MatchingStrategy::Fingerprint,
             };
-            assert!(result.confidence >= 0.0 && result.confidence <= 1.0);
+            assert!((0.0..=1.0).contains(&result.confidence));
         }
     }
 
@@ -173,8 +173,8 @@ mod integration_tests {
         let _ = result.strategy;
 
         // Verify fields have correct types
-        assert!(result.musicbrainz_recording_id.len() > 0);
-        assert!(result.confidence >= 0.0 && result.confidence <= 1.0);
+        assert!(!result.musicbrainz_recording_id.is_empty());
+        assert!((0.0..=1.0).contains(&result.confidence));
     }
 
     #[test]
@@ -206,7 +206,7 @@ mod integration_tests {
         ];
 
         for (threshold, should_be_valid) in test_cases {
-            let is_valid = threshold >= 0.0 && threshold <= 1.0;
+            let is_valid = (0.0..=1.0).contains(&threshold);
             assert_eq!(
                 is_valid, should_be_valid,
                 "Threshold {} validation failed",
