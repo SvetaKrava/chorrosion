@@ -55,9 +55,6 @@
 //! - Feature flag: `ffmpeg-support`
 //! - Graceful fallback when FFmpeg not available
 
-#[cfg(feature = "ffmpeg-support")]
-pub mod ffmpeg_decoder;
-
 use std::fs::File;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::Path;
@@ -73,6 +70,9 @@ use symphonia::core::probe::Hint;
 use tracing::{debug, instrument};
 
 use crate::{Fingerprint, FingerprintError, Result};
+
+#[cfg(feature = "ffmpeg-support")]
+use crate::ffmpeg_decoder;
 
 /// Maximum duration to use for fingerprinting (in seconds).
 /// Chromaprint standard is 120 seconds for optimal recognition.
