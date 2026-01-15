@@ -264,6 +264,8 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ## Phase 6: User Interface Enhancement (Q3-Q4 2026)
 
+- Related issues: #9, #10, #11
+
 ### 6.1 API Completion
 
 - [ ] Complete all artist endpoints
@@ -347,6 +349,8 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ## Phase 8: Performance & Reliability (Ongoing)
 
+- Related issues: #13
+
 ### 8.1 Performance Optimization
 
 - [ ] Database query optimization
@@ -398,6 +402,8 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ---
 
 ## Phase 9: PostgreSQL Support (TBD)
+
+- Related issues: #12
 
 ### 9.1 Database Abstraction
 
