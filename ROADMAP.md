@@ -117,11 +117,11 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 2.2 Additional Metadata Sources
 
-- [ ] Last.fm integration for additional metadata
-- [ ] Discogs integration (optional)
-- [ ] Fanart.tv artwork integration (alternative art source) — see [design notes](DESIGN.md#artwork-fanarttv-integration)
+- [ ] Last.fm integration for additional metadata (Issue #101)
+- [ ] Discogs integration (optional) (Issue #102)
+- [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
 - [ ] Cover art fallback sources
-- [ ] Lyrics fetching (optional enhancement)
+- [ ] Lyrics fetching (optional enhancement) (Issue #104)
 
 ---
 
