@@ -223,6 +223,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ### 5.2 File Organization
 
 - [ ] File renaming implementation
+  - [ ] File Path Generation and Naming Logic (Issue #21)
   - [ ] Naming pattern engine
   - [ ] Token replacement (artist, album, track, etc.)
   - [ ] Safe file operations
