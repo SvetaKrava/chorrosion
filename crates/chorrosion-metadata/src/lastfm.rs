@@ -86,7 +86,7 @@ impl LastFmClient {
 }
 
 /// Struct representing artist metadata.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ArtistMetadata {
     pub name: String,
     pub bio: Option<String>,
@@ -94,7 +94,7 @@ pub struct ArtistMetadata {
 }
 
 /// Struct representing album metadata.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AlbumMetadata {
     pub title: String,
     pub artist: String,

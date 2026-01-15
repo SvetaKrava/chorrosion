@@ -1,0 +1,13 @@
+[package]
+name = "chorrosion-metadata"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+moka = "0.10"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
