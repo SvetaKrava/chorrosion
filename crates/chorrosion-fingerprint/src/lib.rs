@@ -12,6 +12,9 @@ pub mod error;
 pub mod fingerprint;
 pub mod generator;
 
+#[cfg(feature = "ffmpeg-support")]
+pub mod ffmpeg_decoder;
+
 pub use acoustid::{AcoustidClient, RecordingArtist, RecordingMatch, ReleaseInfo};
 pub use error::{FingerprintError, Result};
 pub use fingerprint::Fingerprint;

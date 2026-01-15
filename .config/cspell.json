@@ -62,6 +62,7 @@
     "pipefail",
     "Prowlarr",
     "reqwest",
+    "resampler",
     "Rescan",
     "rescanning",
     "retag",
@@ -81,7 +82,8 @@
     "trackfile",
     "trackno",
     "utoipa",
-    "Vorbis"
+    "Vorbis",
+    "wavpack"
   ],
   "flagWords": []
 }
