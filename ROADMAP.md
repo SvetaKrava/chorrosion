@@ -124,9 +124,14 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [ ] Rate limiting and caching
     - [ ] Integration tests
 - [ ] Discogs integration (optional) (Issue #102)
-- [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
-- [ ] Cover art fallback sources
-- [ ] Lyrics fetching (optional enhancement) (Issue #104)
+  - [ ] Implement Discogs API client
+    - [ ] Fetch artist metadata
+    - [ ] Fetch album metadata
+    - [ ] Authentication setup
+    - [ ] Integration tests
+  - [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
+  - [ ] Cover art fallback sources
+  - [ ] Lyrics fetching (optional enhancement) (Issue #104)
 
 ---
 
