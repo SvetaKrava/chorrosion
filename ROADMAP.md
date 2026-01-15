@@ -80,7 +80,6 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
       - [x] Optional ffmpeg-support feature flag ✓
       - [x] OGG Vorbis, Opus, WavPack, APE, DSF, M4A, AAC support ✓
       - [x] Graceful fallback when FFmpeg unavailable ✓    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
-  - [x] Fallback matching using embedded tags, then filename heuristics ✓ (Issue #69, PR #88)
     - [x] Embedded tags extraction interface (Issue #69) ✓
     - [x] Filename heuristics parsing with regex patterns (Issue #69) ✓
     - [x] Matching fallback chain documentation (Issue #69) ✓
