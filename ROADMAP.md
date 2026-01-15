@@ -349,7 +349,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ## Phase 8: Performance & Reliability (Ongoing)
 
-- Related issues: #13
+- Related issues: #13, #37, #38, #39, #40, #41, #42
 
 ### 8.1 Performance Optimization
 
