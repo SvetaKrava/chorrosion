@@ -3,11 +3,16 @@
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
+use moka::sync::Cache;
+use tokio::sync::Semaphore;
 
 /// Struct representing the Last.fm API client.
 pub struct LastFmClient {
     api_key: String,
     client: Client,
+    rate_limiter: Arc<Semaphore>,
+    cache: Cache<String, ArtistMetadata>,
 }
 
 impl LastFmClient {
@@ -16,11 +21,32 @@ impl LastFmClient {
         Self {
             api_key,
             client: Client::new(),
+            rate_limiter: Arc::new(Semaphore::new(1)),
+            cache: Cache::new(10_000),
+        }
+    }
+
+    /// Creates a new Last.fm API client with rate limiting and caching.
+    pub fn new_with_limits(api_key: String, max_requests_per_second: usize) -> Self {
+        let client = Client::new();
+        let rate_limiter = Arc::new(Semaphore::new(max_requests_per_second));
+        let cache = Cache::new(10_000); // Cache up to 10,000 entries
+
+        Self {
+            api_key,
+            client,
+            rate_limiter,
+            cache,
         }
     }
 
     /// Fetches metadata for an artist.
     pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, reqwest::Error> {
+        if let Some(cached) = self.cache.get(artist_name) {
+            return Ok(cached);
+        }
+
+        let _permit = self.rate_limiter.acquire().await.unwrap();
         let url = "https://ws.audioscrobbler.com/2.0/";
         let params = [
             ("method", "artist.getinfo"),
@@ -31,11 +57,18 @@ impl LastFmClient {
 
         let response = self.client.get(url).query(&params).send().await?;
         let metadata = response.json::<ArtistMetadata>().await?;
+        self.cache.insert(artist_name.to_string(), metadata.clone());
         Ok(metadata)
     }
 
     /// Fetches metadata for an album.
     pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, reqwest::Error> {
+        let cache_key = format!("{}:{}", artist_name, album_name);
+        if let Some(cached) = self.cache.get(&cache_key) {
+            return Ok(cached);
+        }
+
+        let _permit = self.rate_limiter.acquire().await.unwrap();
         let url = "https://ws.audioscrobbler.com/2.0/";
         let params = [
             ("method", "album.getinfo"),
@@ -47,6 +80,7 @@ impl LastFmClient {
 
         let response = self.client.get(url).query(&params).send().await?;
         let metadata = response.json::<AlbumMetadata>().await?;
+        self.cache.insert(cache_key, metadata.clone());
         Ok(metadata)
     }
 }
