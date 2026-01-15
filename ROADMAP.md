@@ -118,6 +118,11 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ### 2.2 Additional Metadata Sources
 
 - [ ] Last.fm integration for additional metadata (Issue #101)
+  - [ ] Implement Last.fm API client
+    - [ ] Fetch artist metadata
+    - [ ] Fetch album metadata
+    - [ ] Rate limiting and caching
+    - [ ] Integration tests
 - [ ] Discogs integration (optional) (Issue #102)
 - [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
 - [ ] Cover art fallback sources
