@@ -20,7 +20,7 @@ use std::path::Path;
 
 use tracing::{debug, instrument};
 
-use crate::{FingerprintError, Result};
+use crate::{generator::MAX_FINGERPRINT_DURATION_SECS, FingerprintError, Result};
 
 /// Decode audio from a file using FFmpeg.
 ///
@@ -84,7 +84,7 @@ pub async fn decode_audio_ffmpeg<P: AsRef<Path>>(path: P) -> Result<Vec<i16>> {
     let mut samples = Vec::new();
     // FFmpeg decodes at the source sample rate; use standard rate for max sample calculation
     let sample_rate = 44100u32; // Standard audio sample rate
-    let max_samples = (super::MAX_FINGERPRINT_DURATION_SECS as u64 * sample_rate as u64) as usize; // 120 seconds max
+    let max_samples = (MAX_FINGERPRINT_DURATION_SECS as u64 * sample_rate as u64) as usize; // 120 seconds max
 
     // Process all packets for this stream
     for (stream, packet) in context.packets() {
