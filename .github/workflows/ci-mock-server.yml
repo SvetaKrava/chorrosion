@@ -19,6 +19,9 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - name: Install chromaprint (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libchromaprint-dev
       - name: Build mock server
         run: cargo build --bin mock_server
       - name: Start mock server (background)
