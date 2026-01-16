@@ -1,10 +1,11 @@
 //! Last.fm API client implementation
 
+use moka::sync::Cache;
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
+use serde_json;
 use std::sync::Arc;
-use moka::sync::Cache;
+use thiserror::Error;
 use tokio::sync::Semaphore;
 
 /// Struct representing the Last.fm API client.
@@ -14,18 +15,23 @@ pub struct LastFmClient {
     rate_limiter: Arc<Semaphore>,
     cache_artist: Cache<String, ArtistMetadata>,
     cache_album: Cache<String, AlbumMetadata>,
+    base_url: String,
 }
 
 impl LastFmClient {
     /// Creates a new Last.fm API client.
-    pub fn new(api_key: String) -> Self {
-        Self {
+    pub fn new(api_key: String, base_url: Option<String>) -> Self {
+        let base_url = base_url.unwrap_or_else(|| "https://ws.audioscrobbler.com/2.0/".to_string());
+        let client = Self {
             api_key,
             client: Client::new(),
             rate_limiter: Arc::new(Semaphore::new(1)),
             cache_artist: Cache::new(10_000),
             cache_album: Cache::new(10_000),
-        }
+            base_url,
+        };
+        println!("Mock server base URL: {}", client.base_url);
+        client
     }
 
     /// Creates a new Last.fm API client with rate limiting and caching.
@@ -41,17 +47,18 @@ impl LastFmClient {
             rate_limiter,
             cache_artist,
             cache_album,
+            base_url: "https://ws.audioscrobbler.com/2.0/".to_string(),
         }
     }
 
     /// Fetches metadata for an artist.
-    pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, reqwest::Error> {
+    pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, LastFmError> {
         if let Some(cached) = self.cache_artist.get(artist_name) {
             return Ok(cached);
         }
 
         let _permit = self.rate_limiter.acquire().await.unwrap();
-        let url = "https://ws.audioscrobbler.com/2.0/";
+        let url = &self.base_url;
         let params = [
             ("method", "artist.getinfo"),
             ("artist", artist_name),
@@ -59,21 +66,27 @@ impl LastFmClient {
             ("format", "json"),
         ];
 
+        println!("Request URL: {}", url);
+        println!("Request Params: {:?}", params);
+        println!("Sending request to mock server: {}", url);
+
         let response = self.client.get(url).query(&params).send().await?;
-        let metadata = response.json::<ArtistMetadata>().await?;
+        let response_body = response.text().await?;
+        println!("Raw response: {:?}", response_body);
+        let metadata: ArtistMetadata = serde_json::from_str(&response_body)?;
         self.cache_artist.insert(artist_name.to_string(), metadata.clone());
         Ok(metadata)
     }
 
     /// Fetches metadata for an album.
-    pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, reqwest::Error> {
+    pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, LastFmError> {
         let cache_key = format!("{}:{}", artist_name, album_name);
         if let Some(cached) = self.cache_album.get(&cache_key) {
             return Ok(cached);
         }
 
         let _permit = self.rate_limiter.acquire().await.unwrap();
-        let url = "https://ws.audioscrobbler.com/2.0/";
+        let url = &self.base_url;
         let params = [
             ("method", "album.getinfo"),
             ("artist", artist_name),
@@ -82,8 +95,13 @@ impl LastFmClient {
             ("format", "json"),
         ];
 
+        println!("Request URL: {}", url);
+        println!("Request Params: {:?}", params);
+
         let response = self.client.get(url).query(&params).send().await?;
-        let metadata = response.json::<AlbumMetadata>().await?;
+        let response_body = response.text().await?;
+        println!("Raw response: {:?}", response_body);
+        let metadata: AlbumMetadata = serde_json::from_str(&response_body)?;
         self.cache_album.insert(cache_key, metadata.clone());
         Ok(metadata)
     }
@@ -103,4 +121,12 @@ pub struct AlbumMetadata {
     pub title: String,
     pub artist: String,
     pub tracks: Option<Vec<String>>,
+}
+
+#[derive(Debug, Error)]
+pub enum LastFmError {
+    #[error("HTTP error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("Deserialization error: {0}")]
+    Deserialization(#[from] serde_json::Error),
 }
