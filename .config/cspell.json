@@ -62,6 +62,7 @@
     "Newznab",
     "nocapture",
     "noconfirm",
+    "nohup",
     "pacman",
     "pipefail",
     "playcount",
