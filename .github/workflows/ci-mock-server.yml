@@ -1,0 +1,57 @@
+name: CI (with Mock Server)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-mock-server:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build mock server
+        run: cargo build --bin mock_server
+      - name: Start mock server (background)
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            start /b target\debug\mock_server.exe > mock_server.log 2>&1 &
+            echo $! > mock_server.pid
+          else
+            nohup target/debug/mock_server > mock_server.log 2>&1 &
+            echo $! > mock_server.pid
+          fi
+      - name: Wait for mock server to be ready
+        shell: bash
+        run: |
+          for i in {1..10}; do
+            if curl -s http://127.0.0.1:3030/2.0?method=artist.getinfo\&artist=Test > /dev/null; then
+              echo "Mock server is up!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Mock server did not start in time" >&2
+          cat mock_server.log || true
+          exit 1
+      - name: Run tests
+        run: cargo test --all -- --nocapture
+      - name: Stop mock server
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f mock_server.pid ]]; then
+            kill $(cat mock_server.pid) || true
+            rm mock_server.pid
+          fi
+          cat mock_server.log || true
