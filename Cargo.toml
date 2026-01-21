@@ -10,6 +10,7 @@ members = [
     "crates/chorrosion-scheduler",
     "crates/chorrosion-api",
     "crates/chorrosion-cli",
+    "crates/chorrosion-metadata",
 ]
 resolver = "2"
 
