@@ -68,6 +68,7 @@
     "playcount",
     "Prowlarr",
     "pytest",
+    "RADIOHEAD",
     "reqwest",
     "resampler",
     "Rescan",
@@ -92,7 +93,8 @@
     "trackno",
     "utoipa",
     "Vorbis",
-    "wavpack"
+    "wavpack",
+    "wiremock"
   ],
   "flagWords": []
 }
