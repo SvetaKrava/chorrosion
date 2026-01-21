@@ -80,6 +80,16 @@ SQLite tips:
 - Base: `/api/v1`
 - OpenAPI docs are generated with `utoipa` and exposed at `/docs`.
 
+## Testing with the Mock Server
+
+Integration tests for the `chorrosion-metadata` crate require a mock server running on `127.0.0.1:3030` **before** running tests. The test suite does not start or stop the server automatically.
+
+- Start the mock server: `cargo run --bin mock_server &`
+- Wait for it to be ready (see `crates/chorrosion-metadata/tests/README.md` for a helper).
+- Run tests: `cargo test -p chorrosion-metadata`
+
+See `crates/chorrosion-metadata/tests/README.md` for details and a helper function to wait for server readiness.
+
 ## License
 
 - License: GPL-3.0-or-later. See [LICENSE](LICENSE).
