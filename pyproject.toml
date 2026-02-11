@@ -15,3 +15,12 @@ dependencies = [
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "chorrosion-python"
+version = "0.1.0"
+description = "Python components for Chorrosion project"
+authors = [
+    {name = "Runyan, JD", email = "jason@runyan.net"}
+]
+package-mode = false
