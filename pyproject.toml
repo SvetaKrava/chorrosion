@@ -20,7 +20,5 @@ build-backend = "poetry.core.masonry.api"
 name = "chorrosion-python"
 version = "0.1.0"
 description = "Python components for Chorrosion project"
-authors = [
-    {name = "Runyan, JD", email = "jason@runyan.net"}
-]
+authors = ["Runyan, JD <jason@runyan.net>"]
 package-mode = false
