@@ -25,7 +25,7 @@ jobs:
       - name: Run mock-server tests (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
-        run: ./test-with-mock-server.sh
+        run: bash ./test-with-mock-server.sh
       - name: Run mock-server tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
