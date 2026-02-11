@@ -1,7 +1,6 @@
 //! Integration tests for the Last.fm API client
 
 use chorrosion_metadata::lastfm::LastFmClient;
-use tokio;
 // ...existing code...
 
 #[tokio::test]
