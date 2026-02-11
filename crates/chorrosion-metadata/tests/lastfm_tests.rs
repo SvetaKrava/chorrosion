@@ -1,9 +1,13 @@
 //! Integration tests for the Last.fm API client
+//!
+//! These tests require the mock server to be running on 127.0.0.1:3030.
+//! They are excluded from standard test runs and only executed by the ci-mock-server workflow.
 
 use chorrosion_metadata::lastfm::LastFmClient;
 // ...existing code...
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_artist_metadata() {
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
@@ -20,6 +24,7 @@ async fn test_fetch_artist_metadata() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_album_metadata() {
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
@@ -38,6 +43,7 @@ async fn test_fetch_album_metadata() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_artist_metadata_with_mock() {
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
@@ -50,6 +56,7 @@ async fn test_artist_metadata_with_mock() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_artist_metadata_with_query_params() {
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
@@ -66,6 +73,7 @@ async fn test_fetch_artist_metadata_with_query_params() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_album_metadata_with_query_params() {
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
