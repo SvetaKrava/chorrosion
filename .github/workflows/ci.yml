@@ -150,8 +150,10 @@ jobs:
 
       - name: Run Tests
         run: |
-          poetry run pytest
+          set +e
+          poetry run pytest --allow-no-tests
           status=$?
+          set -e
           if [ $status -ne 0 ] && [ $status -ne 5 ]; then
             exit $status
           fi
