@@ -53,11 +53,12 @@ jobs:
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
           echo "FFMPEG_DIR=$($ffmpegSharedDir.FullName)" >> $env:GITHUB_ENV
+          echo "INCLUDE=$vcpkgRoot\installed\x64-windows\include;$env:INCLUDE" >> $env:GITHUB_ENV
           echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
-          echo "$($ffmpegSharedDir.FullName)\bin" >> $env:GITHUB_PATH
-          echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
           echo "PKG_CONFIG=$vcpkgRoot\installed\x64-windows\tools\pkgconf\pkgconf.exe" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig" >> $env:GITHUB_ENV
+          echo "$($ffmpegSharedDir.FullName)\bin" >> $env:GITHUB_PATH
+          echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
 
       - name: Install chromaprint and FFmpeg (macOS)
         if: runner.os == 'macOS'
