@@ -32,8 +32,13 @@ jobs:
         run: |
           # Install LLVM and 7-Zip using winget (recommended)
           # If winget fails, use choco as fallback
-          winget install llvm.llvm -e
-          winget install 7zip.7zip -e
+          try {
+            winget install --id llvm.llvm -e --source winget --accept-source-agreements --accept-package-agreements
+            winget install --id 7zip.7zip -e --source winget --accept-source-agreements --accept-package-agreements
+          } catch {
+            choco install llvm -y
+            choco install 7zip -y
+          }
 
           $ffmpegRoot = "C:\ffmpeg"
           $ffmpegShared = "$ffmpegRoot\shared"
@@ -59,6 +64,10 @@ jobs:
           echo "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig" >> $env:GITHUB_ENV
           echo "$($ffmpegSharedDir.FullName)\bin" >> $env:GITHUB_PATH
           echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
+
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install chromaprint and FFmpeg (macOS)
         if: runner.os == 'macOS'
