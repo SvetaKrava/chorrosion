@@ -30,8 +30,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y
-          choco install 7zip -y
+          # Install LLVM and 7-Zip using winget (recommended)
+          # If winget fails, use choco as fallback
+          winget install llvm.llvm -e
+          winget install 7zip.7zip -e
 
           $ffmpegRoot = "C:\ffmpeg"
           $ffmpegShared = "$ffmpegRoot\shared"

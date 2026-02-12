@@ -30,8 +30,10 @@ If you enable the `ffmpeg-support` feature, use a Windows FFmpeg build that ship
 $ffmpegRoot = "C:\ffmpeg"
 New-Item -ItemType Directory -Force -Path $ffmpegRoot | Out-Null
 
-# If 7-Zip is not installed:
+# If 7-Zip is not installed, use one of:
 # winget install 7zip.7zip
+# OR
+# choco install 7zip -y
 
 $sharedUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
 
@@ -46,7 +48,16 @@ $env:PATH = "$($ffmpegSharedDir.FullName)\bin;$env:PATH"
 
 ### 3. Install LLVM (libclang)
 
-Bindgen requires libclang on Windows. Install LLVM and set `LIBCLANG_PATH`:
+Bindgen requires libclang on Windows. Install LLVM and set `LIBCLANG_PATH`.
+
+- Option A: winget (recommended)
+
+```powershell
+winget install llvm.llvm
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+```
+
+- Option B: Chocolatey
 
 ```powershell
 choco install llvm -y
