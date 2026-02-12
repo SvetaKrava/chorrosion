@@ -10,6 +10,10 @@ cargo test -p chorrosion-metadata --test lastfm_tests --no-run
 nohup target/debug/mock_server > mock_server.log 2>&1 &
 MOCK_SERVER_PID=$!
 
+# Set trap to clean up mock_server on any exit
+trap 'kill $MOCK_SERVER_PID 2>/dev/null || true; wait $MOCK_SERVER_PID 2>/dev/null || true' EXIT
+
+
 # 3. Wait for the mock server to be ready (poll the ping endpoint)
 MAX_WAIT=15
 READY=0

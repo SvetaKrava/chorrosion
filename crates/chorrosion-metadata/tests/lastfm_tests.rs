@@ -7,8 +7,12 @@ use chorrosion_metadata::lastfm::LastFmClient;
 // ...existing code...
 
 #[tokio::test]
-#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_artist_metadata() {
+    // Skip unless explicitly enabled via environment variable
+    if std::env::var("CHORROSION_MOCK_SERVER").is_err() {
+        return;
+    }
+    
     // Assume mock server is already running on 127.0.0.1:3030
     let client = LastFmClient::new(
         "test_api_key".to_string(),

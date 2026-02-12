@@ -37,11 +37,13 @@ if (-not $testBinary) {
     exit 1
 }
 
-& $testBinary.FullName
-$testExitCode = $LASTEXITCODE
-
-# 5. Stop the mock server
-Stop-Process -Id $mockServer.Id
+try {
+    & $testBinary.FullName
+    $testExitCode = $LASTEXITCODE
+} finally {
+    # 5. Stop the mock server (always runs, even on failure)
+    Stop-Process -Id $mockServer.Id
+}
 
 # 6. Exit with the test result's exit code
 exit $testExitCode

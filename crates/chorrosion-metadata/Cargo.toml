@@ -11,7 +11,25 @@ tokio = { version = "1", features = ["full"] }
 moka = "0.10"
 serde_json = "1.0"
 thiserror = "1.0"
+[package]
+name = "chorrosion-metadata"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+reqwest = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+moka = "0.10"
+serde_json = "1.0"
+thiserror = "1.0"
 warp = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"
+serde_json = "1.0"
 rand = "0.8"
 
 [dev-dependencies]

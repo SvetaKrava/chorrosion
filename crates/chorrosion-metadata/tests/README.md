@@ -26,9 +26,18 @@ Integration tests in this crate expect a mock server to be running on `127.0.0.1
 A helper function is provided in `tests/test_helpers.rs`:
 
 ```rust
-// In your test (async context):
-use chorrosion_metadata::test_helpers::wait_for_mock_server_ready;
-wait_for_mock_server_ready("http://127.0.0.1:3030/2.0?method=ping", 10).await;
+```rust
+// In your integration test file (e.g., tests/my_test.rs):
+mod test_helpers;
+
+use crate::test_helpers::wait_for_mock_server_ready;
+
+#[tokio::test]
+async fn my_test_uses_mock_server() {
+   wait_for_mock_server_ready("http://127.0.0.1:3030/2.0?method=ping", 10).await;
+   // ...rest of your test...
+}
+```
 ```
 
 This will poll the server for up to 10 seconds and panic if it is not ready.
