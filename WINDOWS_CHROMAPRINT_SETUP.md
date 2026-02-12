@@ -22,7 +22,38 @@ C:\util\vcpkg\vcpkg install chromaprint:x64-windows
 
 This installs chromaprint 1.6.0 with ffmpeg dependencies for audio decoding.
 
-### 3. Configure PATH for Runtime
+### 2.1 Optional: FFmpeg headers for ffmpeg-support
+
+If you enable the `ffmpeg-support` feature, use a Windows FFmpeg build that ships headers. The Gyan.dev release full shared archive includes `include` and `lib`:
+
+```powershell
+$ffmpegRoot = "C:\ffmpeg"
+New-Item -ItemType Directory -Force -Path $ffmpegRoot | Out-Null
+
+# If 7-Zip is not installed:
+# winget install 7zip.7zip
+
+$sharedUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+
+Invoke-WebRequest -Uri $sharedUrl -OutFile "$ffmpegRoot\ffmpeg-shared.7z"
+7z x "$ffmpegRoot\ffmpeg-shared.7z" -o"$ffmpegRoot\shared" -y
+
+$ffmpegSharedDir = Get-ChildItem -Path "$ffmpegRoot\shared" -Directory | Select-Object -First 1
+
+$env:FFMPEG_DIR = $ffmpegSharedDir.FullName
+$env:PATH = "$($ffmpegSharedDir.FullName)\bin;$env:PATH"
+```
+
+### 3. Install LLVM (libclang)
+
+Bindgen requires libclang on Windows. Install LLVM and set `LIBCLANG_PATH`:
+
+```powershell
+choco install llvm -y
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+```
+
+### 4. Configure PATH for Runtime
 
 When running tests or the application, the ffmpeg DLLs must be available:
 
@@ -50,6 +81,8 @@ This allows the MSVC linker to find `chromaprint.lib`.
 With PATH configured:
 
 ```powershell
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+$env:PKG_CONFIG = "C:\util\vcpkg\installed\x64-windows\tools\pkgconf\pkgconf.exe"
 $env:PATH="C:\util\vcpkg\installed\x64-windows\bin;$env:PATH"
 cargo build
 cargo test --workspace
@@ -66,6 +99,17 @@ cargo test --workspace
 
 - Ensure PATH includes `C:\util\vcpkg\installed\x64-windows\bin`
 - This directory contains ffmpeg DLLs required by chromaprint
+
+## Error: "Unable to find libclang" from bindgen
+
+- Ensure LLVM is installed and `LIBCLANG_PATH` points to the LLVM bin directory
+- Default path: `C:\Program Files\LLVM\bin`
+
+## Error: "'/usr/include/libavcodec/avfft.h' file not found" on Windows
+
+- Ensure `PKG_CONFIG` points to vcpkg's pkgconf: `C:\util\vcpkg\installed\x64-windows\tools\pkgconf\pkgconf.exe`
+- Ensure `PKG_CONFIG_PATH` is `C:\util\vcpkg\installed\x64-windows\lib\pkgconfig`
+- If `ffmpeg-support` is enabled, set `FFMPEG_DIR` to a Windows FFmpeg dev package with headers (see Optional section above)
 
 ## vcpkg install fails
 

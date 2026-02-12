@@ -7,7 +7,7 @@ use serde_json;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Semaphore;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 /// Struct representing the Last.fm API client.
 pub struct LastFmClient {
@@ -56,6 +56,7 @@ impl LastFmClient {
     }
 
     /// Fetches metadata for an artist.
+    #[instrument(skip(self), fields(artist = artist_name))]
     pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, LastFmError> {
         if let Some(cached) = self.cache_artist.get(artist_name) {
             return Ok(cached);
@@ -83,6 +84,7 @@ impl LastFmClient {
     }
 
     /// Fetches metadata for an album.
+    #[instrument(skip(self), fields(artist = artist_name, album = album_name))]
     pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, LastFmError> {
         let cache_key = format!("{}:{}", artist_name, album_name);
         if let Some(cached) = self.cache_album.get(&cache_key) {
@@ -133,60 +135,6 @@ pub enum LastFmError {
     Http(#[from] reqwest::Error),
     #[error("Deserialization error: {0}")]
     Deserialization(#[from] serde_json::Error),
-    // In the impl block, update the methods:
-
-    #[instrument(skip(self), fields(artist = artist_name))]
-    pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, LastFmError> {
-        if let Some(cached) = self.cache_artist.get(artist_name) {
-            debug!("cache hit");
-            return Ok(cached);
-        }
-
-        let _permit = self.rate_limiter.acquire().await.map_err(|_| LastFmError::RateLimiterClosed)?;
-        debug!(url = %self.base_url, "fetching artist metadata");
-
-        let params = [
-            ("method", "artist.getinfo"),
-            ("artist", artist_name),
-            ("api_key", &self.api_key),
-            ("format", "json"),
-        ];
-
-        let response = self.client.get(&self.base_url).query(&params).send().await?;
-        let response_body = response.text().await?;
-        debug!("artist metadata received");
-        
-        let metadata: ArtistMetadata = serde_json::from_str(&response_body)?;
-        self.cache_artist.insert(artist_name.to_string(), metadata.clone());
-        Ok(metadata)
-    }
-
-    #[instrument(skip(self), fields(artist = artist_name, album = album_name))]
-    pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, LastFmError> {
-        let cache_key = format!("{}:{}", artist_name, album_name);
-        if let Some(cached) = self.cache_album.get(&cache_key) {
-            debug!("cache hit");
-            return Ok(cached);
-        }
-
-        let _permit = self.rate_limiter.acquire().await.map_err(|_| LastFmError::RateLimiterClosed)?;
-        debug!(url = %self.base_url, "fetching album metadata");
-
-        let params = [
-            ("method", "album.getinfo"),
-            ("artist", artist_name),
-            ("album", album_name),
-            ("api_key", &self.api_key),
-            ("format", "json"),
-        ];
-
-        let response = self.client.get(&self.base_url).query(&params).send().await?;
-        let response_body = response.text().await?;
-        debug!("album metadata received");
-        
-        let metadata: AlbumMetadata = serde_json::from_str(&response_body)?;
-        self.cache_album.insert(cache_key, metadata.clone());
-        Ok(metadata)
-    }
+    #[error("Rate limiter closed")]
     RateLimiterClosed,
 }

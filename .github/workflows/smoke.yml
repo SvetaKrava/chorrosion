@@ -30,14 +30,31 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          choco install llvm -y
+          choco install 7zip -y
+
+          $ffmpegRoot = "C:\ffmpeg"
+          $ffmpegShared = "$ffmpegRoot\shared"
+          New-Item -ItemType Directory -Force -Path $ffmpegShared | Out-Null
+
+          $ffmpegSharedUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+          Invoke-WebRequest -Uri $ffmpegSharedUrl -OutFile "$ffmpegRoot\ffmpeg-shared.7z"
+          7z x "$ffmpegRoot\ffmpeg-shared.7z" -o"$ffmpegShared" -y | Out-Null
+
+          $ffmpegSharedDir = Get-ChildItem -Path $ffmpegShared -Directory | Select-Object -First 1
+          if (-not $ffmpegSharedDir) { throw "FFmpeg extraction failed" }
+
           vcpkg install chromaprint:x64-windows
           vcpkg install ffmpeg[avcodec,avdevice,avformat,avfilter,swresample,swscale]:x64-windows
           $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
-          echo "FFMPEG_DIR=$vcpkgRoot\installed\x64-windows" >> $env:GITHUB_ENV
+          echo "FFMPEG_DIR=$($ffmpegSharedDir.FullName)" >> $env:GITHUB_ENV
           echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
+          echo "$($ffmpegSharedDir.FullName)\bin" >> $env:GITHUB_PATH
           echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
+          echo "PKG_CONFIG=$vcpkgRoot\installed\x64-windows\tools\pkgconf\pkgconf.exe" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig" >> $env:GITHUB_ENV
 
       - name: Install chromaprint and FFmpeg (macOS)
