@@ -57,8 +57,6 @@ jobs:
           echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
           echo "PKG_CONFIG=$vcpkgRoot\installed\x64-windows\tools\pkgconf\pkgconf.exe" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig" >> $env:GITHUB_ENV
-          # Set up MSVC environment for bindgen to find system headers (errno.h, etc.)
-          & 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat' 2>&1 | Out-Null
           echo "$($ffmpegSharedDir.FullName)\bin" >> $env:GITHUB_PATH
           echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
 
@@ -93,13 +91,51 @@ jobs:
           cache-on-failure: true
 
       - name: Build
-        run: cargo build --workspace --all-targets --locked
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            # Run cargo through MSVC environment for Windows
+            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+            if (-not (Test-Path $vsPath)) {
+              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
+            }
+            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
+            $env:CC = "cl.exe"
+            $env:CXX = "cl.exe"
+            
+            # Invoke vcvars and build in one command
+            cmd /c "`"$vcvarsPath`" && cargo build --workspace --all-targets --locked"
+          } else {
+            cargo build --workspace --all-targets --locked
+          }
 
       - name: Clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+            if (-not (Test-Path $vsPath)) {
+              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
+            }
+            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
+            cmd /c "`"$vcvarsPath`" && cargo clippy --workspace --all-targets -- -D warnings"
+          } else {
+            cargo clippy --workspace --all-targets -- -D warnings
+          }
 
       - name: Tests
-        run: cargo test --workspace --all-features --all-targets
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+            if (-not (Test-Path $vsPath)) {
+              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
+            }
+            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
+            cmd /c "`"$vcvarsPath`" && cargo test --workspace --all-features --all-targets"
+          } else {
+            cargo test --workspace --all-features --all-targets
+          }
 
       - name: Run and check (Linux)
         if: runner.os == 'Linux'
