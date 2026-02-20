@@ -31,9 +31,12 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install chromaprint:x64-windows
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
-          echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
+          $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
+          $vcpkgRoot = Split-Path -Parent $vcpkgExe
+          $vcpkgInstalled = Join-Path $vcpkgRoot "installed\x64-windows"
+          echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          echo "LIB=$vcpkgInstalled\lib;$env:LIB" >> $env:GITHUB_ENV
+          echo "$vcpkgInstalled\bin" >> $env:GITHUB_PATH
 
       - name: Install chromaprint (macOS)
         if: runner.os == 'macos'
@@ -92,9 +95,12 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install chromaprint:x64-windows
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          echo "LIB=$vcpkgRoot\installed\x64-windows\lib;$env:LIB" >> $env:GITHUB_ENV
-          echo "$vcpkgRoot\installed\x64-windows\bin" >> $env:GITHUB_PATH
+          $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
+          $vcpkgRoot = Split-Path -Parent $vcpkgExe
+          $vcpkgInstalled = Join-Path $vcpkgRoot "installed\x64-windows"
+          echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          echo "LIB=$vcpkgInstalled\lib;$env:LIB" >> $env:GITHUB_ENV
+          echo "$vcpkgInstalled\bin" >> $env:GITHUB_PATH
 
       - name: Install chromaprint (macOS)
         if: runner.os == 'macos'
@@ -125,3 +131,35 @@ jobs:
 
       - name: Test chorrosion-infrastructure
         run: cargo test -p chorrosion-infrastructure --no-fail-fast -- --nocapture
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "POETRY_HOME=$HOME/.local/bin" >> $GITHUB_ENV
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Dependencies
+        run: poetry install
+
+      - name: Run Tests
+        run: |
+          set +e
+          poetry run pytest
+          status=$?
+          set -e
+          if [ $status -ne 0 ] && [ $status -ne 5 ]; then
+            exit $status
+          fi

@@ -10,10 +10,12 @@ assignees: []
 If this report contains personal or sensitive information (harassment, doxxing, legal, or other private matters), please DO NOT paste PII into this issue.
 
 Preferred reporting options:
+
 - Email the maintainers at: repo-maintainers@local
 - Create a private issue and mark it as sensitive; include only non-identifying context and ask maintainers to follow up by email.
 
 **Type of report** (choose one):
+
 - Harassment / abuse
 - Exposure of personal information
 - Security vulnerability

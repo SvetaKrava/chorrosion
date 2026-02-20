@@ -59,6 +59,14 @@ Purpose: Give AI agents the minimum, code-proven context to be productive fast. 
 ## Integration Points (planned but stubbed)
 - Indexers (Torznab/Newznab/Gazelle), download clients, and MusicBrainz integration are not wired yet; use trait-first designs in infrastructure and application layers when adding.
 
+## Windows Package Managers
+- **Primary:** `winget` (modern, pre-installed on Windows 11+, recommended for new dev setups).
+- **Alternative:** `choco` (Chocolatey, widely adopted, requires separate installation).
+- Always provide **both options** in documentation so developers can choose their preferred manager.
+- Examples:
+  - `winget install llvm.llvm` or `choco install llvm -y`
+  - `winget install 7zip.7zip` or `choco install 7zip -y`
+
 ## Cross-Platform Compatibility (Windows, Linux, macOS)
 **Critical:** All code must compile and run correctly on Windows, Linux, and macOS without platform-specific bugs.
 

@@ -2,7 +2,7 @@
 # Uses VCPKG_ROOT environment variable set by GitHub Actions
 # GitHub runners have vcpkg pre-installed at %VCPKG_INSTALLATION_ROOT%
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-L", "C:/vcpkg/installed/x64-windows/lib"]
+rustflags = ["-L", "C:/util/vcpkg/installed/x64-windows/lib"]
 
 # macOS configuration for chromaprint
 # Homebrew installs to /opt/homebrew (Apple Silicon) or /usr/local (Intel)
