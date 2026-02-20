@@ -19,18 +19,35 @@ async fn main() {
                 Some("artist.getinfo") => {
                     let artist = params.get("artist").unwrap_or(&default_artist);
                     warp::reply::json(&json!({
-                        "name": artist,
-                        "bio": "Test artist bio",
-                        "tags": ["rock", "indie"]
+                        "artist": {
+                            "name": artist,
+                            "bio": {
+                                "summary": "Test artist bio"
+                            },
+                            "tags": {
+                                "tag": [
+                                    { "name": "rock" },
+                                    { "name": "indie" }
+                                ]
+                            }
+                        }
                     }))
                 }
                 Some("album.getinfo") => {
                     let artist = params.get("artist").unwrap_or(&default_artist);
                     let album = params.get("album").unwrap_or(&default_album);
                     warp::reply::json(&json!({
-                        "title": album,
-                        "artist": artist,
-                        "tracks": ["Track 1", "Track 2", "Track 3"]
+                        "album": {
+                            "name": album,
+                            "artist": artist,
+                            "tracks": {
+                                "track": [
+                                    { "name": "Track 1" },
+                                    { "name": "Track 2" },
+                                    { "name": "Track 3" }
+                                ]
+                            }
+                        }
                     }))
                 }
                 Some(_) => warp::reply::json(&json!({ "error": "Unknown method" })),

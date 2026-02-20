@@ -1,19 +1,23 @@
 //! Integration tests for the Last.fm API client
 //!
 //! These tests require the mock server to be running on 127.0.0.1:3030.
-//! They are excluded from standard test runs and only executed by the ci-mock-server workflow.
+//! All integration tests wait for server readiness before executing.
 
 use chorrosion_metadata::lastfm::LastFmClient;
-// ...existing code...
+
+mod test_helpers;
+
+use test_helpers::wait_for_mock_server_ready;
 
 #[tokio::test]
 async fn test_fetch_artist_metadata() {
-    // Skip unless explicitly enabled via environment variable
-    if std::env::var("CHORROSION_MOCK_SERVER").is_err() {
-        return;
-    }
-    
-    // Assume mock server is already running on 127.0.0.1:3030
+    // Wait for mock server to be ready
+    wait_for_mock_server_ready(
+        "http://127.0.0.1:3030/2.0/?method=artist.getinfo&artist=Ready&api_key=test&format=json",
+        10,
+    )
+    .await;
+
     let client = LastFmClient::new(
         "test_api_key".to_string(),
         Some("http://127.0.0.1:3030/2.0/".to_string()),
@@ -23,14 +27,23 @@ async fn test_fetch_artist_metadata() {
     assert!(result.is_ok());
     if let Ok(metadata) = result {
         assert_eq!(metadata.name, "Test Artist");
-        // Optionally check other fields if mock server returns them
+        assert_eq!(metadata.bio.as_deref(), Some("Test artist bio"));
+        assert_eq!(
+            metadata.tags.as_deref(),
+            Some(&["rock".to_string(), "indie".to_string()][..])
+        );
     }
 }
 
 #[tokio::test]
-#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_album_metadata() {
-    // Assume mock server is already running on 127.0.0.1:3030
+    // Wait for mock server to be ready
+    wait_for_mock_server_ready(
+        "http://127.0.0.1:3030/2.0/?method=album.getinfo&artist=Test&album=Album&api_key=test&format=json",
+        10,
+    )
+    .await;
+
     let client = LastFmClient::new(
         "test_api_key".to_string(),
         Some("http://127.0.0.1:3030/2.0/".to_string()),
@@ -42,27 +55,42 @@ async fn test_fetch_album_metadata() {
     if let Ok(metadata) = result {
         assert_eq!(metadata.title, "Test Album");
         assert_eq!(metadata.artist, "Test Artist");
-        // Optionally check other fields if mock server returns them
+        assert_eq!(
+            metadata.tracks.as_deref(),
+            Some(
+                &["Track 1".to_string(), "Track 2".to_string(), "Track 3".to_string()][..]
+            )
+        );
     }
 }
 
 #[tokio::test]
-#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_artist_metadata_with_mock() {
-    // Assume mock server is already running on 127.0.0.1:3030
+    // Wait for mock server to be ready
+    wait_for_mock_server_ready(
+        "http://127.0.0.1:3030/2.0/?method=artist.getinfo&artist=Ready&api_key=test&format=json",
+        10,
+    )
+    .await;
+
     let client = LastFmClient::new(
         "test_api_key".to_string(),
         Some("http://127.0.0.1:3030/2.0/".to_string()),
     );
     let artist_metadata = client.fetch_artist_metadata("Test Artist").await.unwrap();
     assert_eq!(artist_metadata.name, "Test Artist");
-    // Optionally check other fields if mock server returns them
+    assert_eq!(artist_metadata.bio.as_deref(), Some("Test artist bio"));
 }
 
 #[tokio::test]
-#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_artist_metadata_with_query_params() {
-    // Assume mock server is already running on 127.0.0.1:3030
+    // Wait for mock server to be ready
+    wait_for_mock_server_ready(
+        "http://127.0.0.1:3030/2.0/?method=artist.getinfo&artist=Ready&api_key=test&format=json",
+        10,
+    )
+    .await;
+
     let client = LastFmClient::new(
         "test_api_key".to_string(),
         Some("http://127.0.0.1:3030/2.0/".to_string()),
@@ -72,14 +100,19 @@ async fn test_fetch_artist_metadata_with_query_params() {
     assert!(result.is_ok());
     if let Ok(metadata) = result {
         assert_eq!(metadata.name, "Test Artist");
-        // Optionally check other fields if mock server returns them
+        assert_eq!(metadata.bio.as_deref(), Some("Test artist bio"));
     }
 }
 
 #[tokio::test]
-#[ignore = "requires mock server on 127.0.0.1:3030"]
 async fn test_fetch_album_metadata_with_query_params() {
-    // Assume mock server is already running on 127.0.0.1:3030
+    // Wait for mock server to be ready
+    wait_for_mock_server_ready(
+        "http://127.0.0.1:3030/2.0/?method=album.getinfo&artist=Test&album=Album&api_key=test&format=json",
+        10,
+    )
+    .await;
+
     let client = LastFmClient::new(
         "test_api_key".to_string(),
         Some("http://127.0.0.1:3030/2.0/".to_string()),
@@ -91,6 +124,11 @@ async fn test_fetch_album_metadata_with_query_params() {
     if let Ok(metadata) = result {
         assert_eq!(metadata.title, "Test Album");
         assert_eq!(metadata.artist, "Test Artist");
-        // Optionally check other fields if mock server returns them
+        assert_eq!(
+            metadata.tracks.as_deref(),
+            Some(
+                &["Track 1".to_string(), "Track 2".to_string(), "Track 3".to_string()][..]
+            )
+        );
     }
 }
