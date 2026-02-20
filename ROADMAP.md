@@ -67,7 +67,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
         - [x] FLAC/MP3 format detection and routing
         - [x] AudioSamples container with 120s duration limiting
         - [x] Comprehensive error handling and test coverage
-      - [x] Phase 2: Symphonia-based audio decoding (Issue #65.2) ✓
+      - [x] Phase 2: Symphonia-based audio decoding (Issue #65) ✓
         - [x] Implement FLAC audio sample extraction ✓
         - [x] Implement MP3 audio sample extraction ✓
         - [x] Chromaprint fingerprint generation ✓
@@ -76,13 +76,15 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Confidence thresholds and tie-breakers ✓
     - [x] Database schema for fingerprint storage (Issue #66) ✓
     - [x] File import integration with fingerprint generation (Issue #67) ✓
-    - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓      - [x] Advanced format support via FFmpeg (Issue #89, PR #98) ✓ COMPLETE
+    - [x] Primary matching engine: fingerprint lookup + MBID linking (Issue #68) ✓
+      - [x] Advanced format support via FFmpeg (Issue #89, PR #98) ✓ COMPLETE
       - [x] Optional ffmpeg-support feature flag ✓
       - [x] OGG Vorbis, Opus, WavPack, APE, DSF, M4A, AAC support ✓
-      - [x] Graceful fallback when FFmpeg unavailable ✓    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
-    - [x] Embedded tags extraction interface (Issue #69) ✓
-    - [x] Filename heuristics parsing with regex patterns (Issue #69) ✓
-    - [x] Matching fallback chain documentation (Issue #69) ✓
+      - [x] Graceful fallback when FFmpeg unavailable ✓
+    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
+    - [x] Embedded tags extraction interface ✓
+    - [x] Filename heuristics parsing with regex patterns ✓
+    - [x] Matching fallback chain documentation ✓
 - [x] Metadata refresh jobs ✓ (Issue #27)
   - [x] Scheduled artist metadata updates ✓
   - [x] Album metadata updates ✓
@@ -107,7 +109,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Query methods: by source/related artist, by type, existence check ✓
     - [x] 4 comprehensive integration tests ✓
     - [x] PR creation and merge ✓
-  - [x] Matching precedence enforcement: fingerprint > embedded tags > filename (Issue #71, PR #97) ✓ COMPLETE
+  - [x] Matching precedence enforcement: fingerprint > embedded tags > filename (PR #97) ✓ COMPLETE
     - [x] PrecedenceMatchingEngine orchestrator ✓
     - [x] Strategy precedence ordering (fingerprint > tags > filename) ✓
     - [x] Confidence thresholds and fallback logic ✓
@@ -118,13 +120,13 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ### 2.2 Additional Metadata Sources
 
 - [ ] Last.fm integration for additional metadata (Issue #101)
-  - [ ] Implement Last.fm API client
+  - [ ] Implement Last.fm API client (Issue #106)
     - [ ] Fetch artist metadata
     - [ ] Fetch album metadata
     - [ ] Rate limiting and caching
     - [ ] Integration tests
 - [ ] Discogs integration (optional) (Issue #102)
-  - [ ] Implement Discogs API client
+  - [ ] Implement Discogs API client (Issue #107)
     - [ ] Fetch artist metadata
     - [ ] Fetch album metadata
     - [ ] Authentication setup
@@ -224,8 +226,8 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Query AcoustID with fingerprint ✓
     - [x] Link to MusicBrainz recording ✓
     - [ ] Link to artist/album via recording
-  - [ ] Fallback: Embedded tag matching (Issue #28)
-  - [ ] Fallback: Filename heuristics (Phase TBD)
+  - [x] Fallback: Embedded tag matching (Issue #28) ✓
+  - [x] Fallback: Filename heuristics (Issue #28) ✓
   - [ ] Fuzzy matching for poor metadata
 - [ ] Import decision logic
 - [ ] Manual import UI support
@@ -269,7 +271,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [ ] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh
   - [ ] Read-only tag mode that never modifies source files
   - [ ] Fallback behavior for unsupported file types
-  - [ ] **Store computed fingerprint in file tags** (Issue #65 integration)
+  - [ ] **Store computed fingerprint in file tags** (Phase 5.4 follow-up)
 
 ---
 
@@ -510,6 +512,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-01-15  
+**Last Updated:** 2026-02-20  
 **Current Phase:** Phase 2: Metadata Integration  
-**Next Milestone:** Complete Track repository (Issue #17)
+**Next Milestone:** Last.fm integration kickoff (Issue #101, Issue #106)
