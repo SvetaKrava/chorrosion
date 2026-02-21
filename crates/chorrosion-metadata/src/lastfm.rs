@@ -31,7 +31,7 @@ impl LastFmClient {
             cache_album: Cache::new(10_000),
             base_url,
         };
-        debug!(base_url = %client.base_url, "Initialized Last.fm client");
+        debug!(target: "lastfm", base_url = %client.base_url, "Initialized Last.fm client");
         client
     }
 
@@ -71,7 +71,7 @@ impl LastFmClient {
             ("format", "json"),
         ];
 
-        debug!(url = %url, "Fetching artist metadata");
+        debug!(target: "lastfm", url = %url, "Fetching artist metadata");
 
         let response = self.client.get(url).query(&params).send().await?;
         let status = response.status();
@@ -100,7 +100,7 @@ impl LastFmClient {
             ("format", "json"),
         ];
 
-        debug!(url = %url, "Fetching album metadata");
+        debug!(target: "lastfm", url = %url, "Fetching album metadata");
 
         let response = self.client.get(url).query(&params).send().await?;
         let status = response.status();
