@@ -39,7 +39,7 @@ if (-not $testBinary) {
 }
 
 try {
-    & $testBinary.FullName
+    & $testBinary.FullName --include-ignored
     $testExitCode = $LASTEXITCODE
 } finally {
     # 5. Stop the mock server (always runs, even on failure)

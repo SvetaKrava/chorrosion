@@ -38,7 +38,7 @@ if [ -z "$TEST_BINARY" ]; then
     exit 1
 fi
 
-"$TEST_BINARY"
+"$TEST_BINARY" --include-ignored
 TEST_RESULT=$?
 
 # 5. Stop the mock server

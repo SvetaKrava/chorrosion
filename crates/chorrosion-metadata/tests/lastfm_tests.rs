@@ -10,6 +10,7 @@ mod test_helpers;
 use test_helpers::wait_for_mock_server_ready;
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030 (run via test-with-mock-server.sh)"]
 async fn test_fetch_artist_metadata() {
     // Wait for mock server to be ready
     wait_for_mock_server_ready(
@@ -36,6 +37,7 @@ async fn test_fetch_artist_metadata() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030 (run via test-with-mock-server.sh)"]
 async fn test_fetch_album_metadata() {
     // Wait for mock server to be ready
     wait_for_mock_server_ready(
@@ -65,6 +67,7 @@ async fn test_fetch_album_metadata() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030 (run via test-with-mock-server.sh)"]
 async fn test_artist_metadata_with_mock() {
     // Wait for mock server to be ready
     wait_for_mock_server_ready(
@@ -83,6 +86,7 @@ async fn test_artist_metadata_with_mock() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030 (run via test-with-mock-server.sh)"]
 async fn test_fetch_artist_metadata_with_query_params() {
     // Wait for mock server to be ready
     wait_for_mock_server_ready(
@@ -105,6 +109,7 @@ async fn test_fetch_artist_metadata_with_query_params() {
 }
 
 #[tokio::test]
+#[ignore = "requires mock server on 127.0.0.1:3030 (run via test-with-mock-server.sh)"]
 async fn test_fetch_album_metadata_with_query_params() {
     // Wait for mock server to be ready
     wait_for_mock_server_ready(
