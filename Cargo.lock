@@ -518,6 +518,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chorrosion-config",
+ "chorrosion-metadata",
  "chrono",
  "tokio",
  "tracing",
