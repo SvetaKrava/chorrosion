@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
+use chorrosion_config::{LastFmAlbumSeed, LastFmConfig};
+use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -160,6 +162,135 @@ impl Default for MetadataRefreshCache {
         Self::new()
     }
 }
+
+/// Last.fm metadata refresh job - enriches artist/album metadata using configured seeds.
+pub struct LastFmMetadataRefreshJob {
+    client: LastFmClient,
+    artists: Vec<String>,
+    albums: Vec<LastFmAlbumSeed>,
+}
+
+impl LastFmMetadataRefreshJob {
+    pub fn from_config(config: &LastFmConfig) -> Option<Self> {
+        let api_key = config.api_key.as_deref()?.trim();
+        if api_key.is_empty() {
+            return None;
+        }
+
+        let artists = config
+            .seed_artists
+            .iter()
+            .map(|artist| artist.trim())
+            .filter(|artist| !artist.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+
+        let albums = config
+            .seed_albums
+            .iter()
+            .filter(|seed| !seed.artist.trim().is_empty() && !seed.album.trim().is_empty())
+            .map(|seed| LastFmAlbumSeed {
+                artist: seed.artist.trim().to_string(),
+                album: seed.album.trim().to_string(),
+            })
+            .collect();
+
+        let client = LastFmClient::new_with_limits_and_base_url(
+            api_key.to_string(),
+            config.max_concurrent_requests.max(1),
+            config.base_url.clone(),
+        );
+
+        Some(Self {
+            client,
+            artists,
+            albums,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Job for LastFmMetadataRefreshJob {
+    fn job_type(&self) -> &'static str {
+        "lastfm_metadata_refresh"
+    }
+
+    fn name(&self) -> String {
+        "Last.fm Metadata Refresh".to_string()
+    }
+
+    async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        let artist_count = self.artists.len();
+        let album_count = self.albums.len();
+        info!(
+            target: "jobs",
+            job_id = %ctx.job_id,
+            artists = artist_count,
+            albums = album_count,
+            "executing Last.fm metadata refresh job"
+        );
+
+        if artist_count == 0 && album_count == 0 {
+            debug!(target: "jobs", job_id = %ctx.job_id, "no Last.fm seeds configured, skipping refresh");
+            return Ok(JobResult::Success);
+        }
+
+        let mut failures = 0usize;
+
+        for artist in &self.artists {
+            if let Err(error) = self.client.fetch_artist_metadata(artist).await {
+                failures += 1;
+                warn!(
+                    target: "jobs",
+                    job_id = %ctx.job_id,
+                    artist = %artist,
+                    error = %error,
+                    "failed to refresh artist metadata from Last.fm"
+                );
+            }
+        }
+
+        for seed in &self.albums {
+            if let Err(error) = self
+                .client
+                .fetch_album_metadata(&seed.artist, &seed.album)
+                .await
+            {
+                failures += 1;
+                warn!(
+                    target: "jobs",
+                    job_id = %ctx.job_id,
+                    artist = %seed.artist,
+                    album = %seed.album,
+                    error = %error,
+                    "failed to refresh album metadata from Last.fm"
+                );
+            }
+        }
+
+        if failures > 0 {
+            return Ok(JobResult::Failure {
+                error: format!(
+                    "Last.fm metadata refresh completed with {} failed requests",
+                    failures
+                ),
+                retry: true,
+            });
+        }
+
+        info!(target: "jobs", job_id = %ctx.job_id, "Last.fm metadata refresh completed successfully");
+        Ok(JobResult::Success)
+    }
+
+    fn max_retries(&self) -> u32 {
+        2
+    }
+
+    fn retry_delay_seconds(&self) -> u64 {
+        120
+    }
+}
+
 pub struct RssSyncJob;
 
 impl RssSyncJob {
@@ -538,6 +669,102 @@ impl Job for HousekeepingJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_lastfm_job_not_created_without_api_key() {
+        let config = LastFmConfig::default();
+        let job = LastFmMetadataRefreshJob::from_config(&config);
+        assert!(job.is_none());
+    }
+
+    #[test]
+    fn test_lastfm_job_created_with_api_key() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            base_url: Some("http://127.0.0.1:3030/2.0".to_string()),
+            max_concurrent_requests: 2,
+            seed_artists: vec!["  Daft Punk  ".to_string()],
+            seed_albums: vec![LastFmAlbumSeed {
+                artist: "Nirvana".to_string(),
+                album: "Nevermind".to_string(),
+            }],
+        };
+
+        let job = LastFmMetadataRefreshJob::from_config(&config);
+        assert!(job.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_lastfm_job_executes_without_seeds() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            base_url: Some("http://127.0.0.1:3030/2.0".to_string()),
+            max_concurrent_requests: 1,
+            seed_artists: Vec::new(),
+            seed_albums: Vec::new(),
+        };
+        let job = LastFmMetadataRefreshJob::from_config(&config)
+            .expect("job should be created when API key is present");
+        let result = job.execute(JobContext::new("lastfm-empty-seeds")).await;
+        assert!(matches!(result, Ok(JobResult::Success)));
+    }
+
+    #[test]
+    fn test_lastfm_job_not_created_with_empty_api_key() {
+        let config = LastFmConfig {
+            api_key: Some(String::new()),
+            ..LastFmConfig::default()
+        };
+        assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_lastfm_job_not_created_with_whitespace_api_key() {
+        let config = LastFmConfig {
+            api_key: Some("   ".to_string()),
+            ..LastFmConfig::default()
+        };
+        assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_lastfm_job_filters_whitespace_only_artist_seeds() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            seed_artists: vec!["   ".to_string(), "".to_string(), "Radiohead".to_string()],
+            ..LastFmConfig::default()
+        };
+        let job = LastFmMetadataRefreshJob::from_config(&config)
+            .expect("job should be created when API key is present");
+        assert_eq!(job.artists, vec!["Radiohead".to_string()]);
+    }
+
+    #[test]
+    fn test_lastfm_job_filters_album_seeds_with_empty_fields() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            seed_albums: vec![
+                LastFmAlbumSeed {
+                    artist: "".to_string(),
+                    album: "OK Computer".to_string(),
+                },
+                LastFmAlbumSeed {
+                    artist: "Radiohead".to_string(),
+                    album: "   ".to_string(),
+                },
+                LastFmAlbumSeed {
+                    artist: "Radiohead".to_string(),
+                    album: "OK Computer".to_string(),
+                },
+            ],
+            ..LastFmConfig::default()
+        };
+        let job = LastFmMetadataRefreshJob::from_config(&config)
+            .expect("job should be created when API key is present");
+        assert_eq!(job.albums.len(), 1);
+        assert_eq!(job.albums[0].artist, "Radiohead");
+        assert_eq!(job.albums[0].album, "OK Computer");
+    }
 
     #[test]
     fn test_metadata_refresh_cache_new_artist() {
