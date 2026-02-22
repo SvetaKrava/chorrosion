@@ -10,7 +10,10 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use jobs::{BacklogSearchJob, HousekeepingJob, RefreshAlbumJob, RefreshArtistJob, RssSyncJob};
+use jobs::{
+    BacklogSearchJob, HousekeepingJob, LastFmMetadataRefreshJob, RefreshAlbumJob, RefreshArtistJob,
+    RssSyncJob,
+};
 
 #[allow(dead_code)]
 pub struct Scheduler {
@@ -68,6 +71,21 @@ impl Scheduler {
                 Schedule::Interval(24 * 60 * 60),
             )
             .await;
+
+        if let Some(lastfm_job) =
+            LastFmMetadataRefreshJob::from_config(&self.config.metadata.lastfm)
+        {
+            self.registry
+                .register(
+                    "lastfm-metadata-refresh",
+                    lastfm_job,
+                    Schedule::Interval(6 * 60 * 60),
+                )
+                .await;
+            info!(target: "scheduler", "Last.fm metadata refresh job registered");
+        } else {
+            info!(target: "scheduler", "Last.fm metadata refresh job skipped (no API key configured)");
+        }
 
         info!(target: "scheduler", "all jobs registered");
     }

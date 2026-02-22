@@ -22,15 +22,7 @@ pub struct LastFmClient {
 impl LastFmClient {
     /// Creates a new Last.fm API client.
     pub fn new(api_key: String, base_url: Option<String>) -> Self {
-        let base_url = base_url.unwrap_or_else(|| "https://ws.audioscrobbler.com/2.0/".to_string());
-        let client = Self {
-            api_key,
-            client: Client::new(),
-            rate_limiter: Arc::new(Semaphore::new(1)),
-            cache_artist: Cache::new(10_000),
-            cache_album: Cache::new(10_000),
-            base_url,
-        };
+        let client = Self::new_with_limits_and_base_url(api_key, 1, base_url);
         debug!(target: "lastfm", base_url = %client.base_url, "Initialized Last.fm client");
         client
     }
@@ -40,8 +32,17 @@ impl LastFmClient {
     /// `max_concurrent_requests` controls the maximum number of simultaneous in-flight
     /// HTTP requests this client will perform.
     pub fn new_with_limits(api_key: String, max_concurrent_requests: usize) -> Self {
+        Self::new_with_limits_and_base_url(api_key, max_concurrent_requests, None)
+    }
+
+    /// Creates a new Last.fm API client with concurrency limiting, caching, and optional base URL.
+    pub fn new_with_limits_and_base_url(
+        api_key: String,
+        max_concurrent_requests: usize,
+        base_url: Option<String>,
+    ) -> Self {
         let client = Client::new();
-        let rate_limiter = Arc::new(Semaphore::new(max_concurrent_requests));
+        let rate_limiter = Arc::new(Semaphore::new(max_concurrent_requests.max(1)));
         let cache_artist = Cache::new(10_000); // Cache up to 10,000 entries
         let cache_album = Cache::new(10_000); // Cache up to 10,000 entries
 
@@ -51,18 +52,25 @@ impl LastFmClient {
             rate_limiter,
             cache_artist,
             cache_album,
-            base_url: "https://ws.audioscrobbler.com/2.0/".to_string(),
+            base_url: base_url.unwrap_or_else(|| "https://ws.audioscrobbler.com/2.0/".to_string()),
         }
     }
 
     /// Fetches metadata for an artist.
     #[instrument(skip(self), fields(artist = artist_name))]
-    pub async fn fetch_artist_metadata(&self, artist_name: &str) -> Result<ArtistMetadata, LastFmError> {
+    pub async fn fetch_artist_metadata(
+        &self,
+        artist_name: &str,
+    ) -> Result<ArtistMetadata, LastFmError> {
         if let Some(cached) = self.cache_artist.get(artist_name) {
             return Ok(cached);
         }
 
-        let _permit = self.rate_limiter.acquire().await.map_err(|_| LastFmError::RateLimiterClosed)?;
+        let _permit = self
+            .rate_limiter
+            .acquire()
+            .await
+            .map_err(|_| LastFmError::RateLimiterClosed)?;
         let url = &self.base_url;
         let params = [
             ("method", "artist.getinfo"),
@@ -78,19 +86,28 @@ impl LastFmClient {
         let response_body = response.text().await?;
         let value = parse_lastfm_body(status, &response_body)?;
         let metadata = parse_artist_metadata(value)?;
-        self.cache_artist.insert(artist_name.to_string(), metadata.clone());
+        self.cache_artist
+            .insert(artist_name.to_string(), metadata.clone());
         Ok(metadata)
     }
 
     /// Fetches metadata for an album.
     #[instrument(skip(self), fields(artist = artist_name, album = album_name))]
-    pub async fn fetch_album_metadata(&self, artist_name: &str, album_name: &str) -> Result<AlbumMetadata, LastFmError> {
+    pub async fn fetch_album_metadata(
+        &self,
+        artist_name: &str,
+        album_name: &str,
+    ) -> Result<AlbumMetadata, LastFmError> {
         let cache_key = format!("{}:{}", artist_name, album_name);
         if let Some(cached) = self.cache_album.get(&cache_key) {
             return Ok(cached);
         }
 
-        let _permit = self.rate_limiter.acquire().await.map_err(|_| LastFmError::RateLimiterClosed)?;
+        let _permit = self
+            .rate_limiter
+            .acquire()
+            .await
+            .map_err(|_| LastFmError::RateLimiterClosed)?;
         let url = &self.base_url;
         let params = [
             ("method", "album.getinfo"),
