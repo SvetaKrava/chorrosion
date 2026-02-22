@@ -713,7 +713,7 @@ mod tests {
     fn test_lastfm_job_not_created_with_empty_api_key() {
         let config = LastFmConfig {
             api_key: Some(String::new()),
-            ..Default::default()
+            ..LastFmConfig::default()
         };
         assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
     }
@@ -722,7 +722,7 @@ mod tests {
     fn test_lastfm_job_not_created_with_whitespace_api_key() {
         let config = LastFmConfig {
             api_key: Some("   ".to_string()),
-            ..Default::default()
+            ..LastFmConfig::default()
         };
         assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
     }
@@ -732,7 +732,7 @@ mod tests {
         let config = LastFmConfig {
             api_key: Some("test-api-key".to_string()),
             seed_artists: vec!["   ".to_string(), "".to_string(), "Radiohead".to_string()],
-            ..Default::default()
+            ..LastFmConfig::default()
         };
         let job = LastFmMetadataRefreshJob::from_config(&config)
             .expect("job should be created when API key is present");
@@ -757,7 +757,7 @@ mod tests {
                     album: "OK Computer".to_string(),
                 },
             ],
-            ..Default::default()
+            ..LastFmConfig::default()
         };
         let job = LastFmMetadataRefreshJob::from_config(&config)
             .expect("job should be created when API key is present");
