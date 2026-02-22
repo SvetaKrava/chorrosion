@@ -8,14 +8,15 @@ cargo test -p chorrosion-metadata --test lastfm_tests --no-run
 # 2. Start mock_server in the background and get its process object
 $mockServer = Start-Process -NoNewWindow -PassThru -FilePath "target\debug\mock_server.exe"
 
-# 3. Wait for the mock server to be ready (poll the ping endpoint)
+# 3. Wait for the mock server to be ready (poll the artist.getinfo endpoint)
 $maxWait = 15
 $ready = $false
 for ($i = 0; $i -lt $maxWait; $i++) {
     try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:3030/2.0?method=ping" -UseBasicParsing -TimeoutSec 1
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:3030/2.0?method=artist.getinfo&artist=Ready&api_key=test&format=json" -UseBasicParsing -TimeoutSec 1
         if ($resp.StatusCode -eq 200) {
             $ready = $true
+            Write-Host "Mock server is ready."
             break
         }
     } catch {}
@@ -38,7 +39,7 @@ if (-not $testBinary) {
 }
 
 try {
-    & $testBinary.FullName
+    & $testBinary.FullName --include-ignored
     $testExitCode = $LASTEXITCODE
 } finally {
     # 5. Stop the mock server (always runs, even on failure)
