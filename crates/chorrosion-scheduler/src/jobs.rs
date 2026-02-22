@@ -710,6 +710,63 @@ mod tests {
     }
 
     #[test]
+    fn test_lastfm_job_not_created_with_empty_api_key() {
+        let config = LastFmConfig {
+            api_key: Some(String::new()),
+            ..Default::default()
+        };
+        assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_lastfm_job_not_created_with_whitespace_api_key() {
+        let config = LastFmConfig {
+            api_key: Some("   ".to_string()),
+            ..Default::default()
+        };
+        assert!(LastFmMetadataRefreshJob::from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_lastfm_job_filters_whitespace_only_artist_seeds() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            seed_artists: vec!["   ".to_string(), "".to_string(), "Radiohead".to_string()],
+            ..Default::default()
+        };
+        let job = LastFmMetadataRefreshJob::from_config(&config)
+            .expect("job should be created when API key is present");
+        assert_eq!(job.artists, vec!["Radiohead".to_string()]);
+    }
+
+    #[test]
+    fn test_lastfm_job_filters_album_seeds_with_empty_fields() {
+        let config = LastFmConfig {
+            api_key: Some("test-api-key".to_string()),
+            seed_albums: vec![
+                LastFmAlbumSeed {
+                    artist: "".to_string(),
+                    album: "OK Computer".to_string(),
+                },
+                LastFmAlbumSeed {
+                    artist: "Radiohead".to_string(),
+                    album: "   ".to_string(),
+                },
+                LastFmAlbumSeed {
+                    artist: "Radiohead".to_string(),
+                    album: "OK Computer".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        let job = LastFmMetadataRefreshJob::from_config(&config)
+            .expect("job should be created when API key is present");
+        assert_eq!(job.albums.len(), 1);
+        assert_eq!(job.albums[0].artist, "Radiohead");
+        assert_eq!(job.albums[0].album, "OK Computer");
+    }
+
+    #[test]
     fn test_metadata_refresh_cache_new_artist() {
         let cache = MetadataRefreshCache::new();
         let artist_id = Uuid::new_v4();
