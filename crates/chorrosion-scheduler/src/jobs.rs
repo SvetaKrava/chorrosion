@@ -912,7 +912,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discogs_job_executes_with_empty_sanitized_seeds() {
+    async fn test_discogs_job_not_created_with_empty_sanitized_seeds() {
         let config = DiscogsConfig {
             token: Some("discogs-token".to_string()),
             base_url: Some("http://127.0.0.1:3030".to_string()),
