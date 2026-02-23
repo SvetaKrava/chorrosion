@@ -126,12 +126,13 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Rate limiting and caching ✓
     - [x] Integration tests ✓
   - [x] Scheduler-driven metadata refresh (PR #114) ✓
-- [ ] Discogs integration (optional) (Issue #102)
-  - [ ] Implement Discogs API client (Issue #107)
-    - [ ] Fetch artist metadata
-    - [ ] Fetch album metadata
-    - [ ] Authentication setup
-    - [ ] Integration tests
+- [x] Discogs integration (optional) (Issue #102, PR #119) ✓ COMPLETE
+  - [x] Implement Discogs API client (Issue #107, PR #117) ✓
+    - [x] Fetch artist metadata ✓
+    - [x] Fetch album metadata ✓
+    - [x] Authentication setup ✓
+    - [x] Integration tests ✓
+  - [x] Scheduler-driven metadata refresh (PR #119) ✓
   - [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
   - [ ] Cover art fallback sources
   - [ ] Lyrics fetching (optional enhancement) (Issue #104)
@@ -515,4 +516,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-02-23  
 **Current Phase:** Phase 2: Metadata Integration  
-**Next Milestone:** Discogs integration kickoff (Issue #102, Issue #107)
+**Next Milestone:** Fanart.tv artwork integration kickoff (Issue #103)
