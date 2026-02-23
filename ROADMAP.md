@@ -119,12 +119,13 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 2.2 Additional Metadata Sources
 
-- [ ] Last.fm integration for additional metadata (Issue #101)
-  - [ ] Implement Last.fm API client (Issue #106)
-    - [ ] Fetch artist metadata
-    - [ ] Fetch album metadata
-    - [ ] Rate limiting and caching
-    - [ ] Integration tests
+- [x] Last.fm integration for additional metadata (Issue #101, PR #114) ✓ COMPLETE
+  - [x] Implement Last.fm API client (Issue #106, PR #111) ✓
+    - [x] Fetch artist metadata ✓
+    - [x] Fetch album metadata ✓
+    - [x] Rate limiting and caching ✓
+    - [x] Integration tests ✓
+  - [x] Scheduler-driven metadata refresh (PR #114) ✓
 - [ ] Discogs integration (optional) (Issue #102)
   - [ ] Implement Discogs API client (Issue #107)
     - [ ] Fetch artist metadata
@@ -512,6 +513,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-02-20  
+**Last Updated:** 2026-02-23  
 **Current Phase:** Phase 2: Metadata Integration  
-**Next Milestone:** Last.fm integration kickoff (Issue #101, Issue #106)
+**Next Milestone:** Discogs integration kickoff (Issue #102, Issue #107)
