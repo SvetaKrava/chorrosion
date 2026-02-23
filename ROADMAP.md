@@ -133,7 +133,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
     - [x] Authentication setup ✓
     - [x] Integration tests ✓
   - [x] Scheduler-driven metadata refresh (PR #119) ✓
-  - [ ] Fanart.tv artwork integration (alternative art source) (Issue #103)
+- [x] Fanart.tv artwork integration (alternative art source) (Issue #103, PR #122) ✓ COMPLETE
   - [ ] Cover art fallback sources
   - [ ] Lyrics fetching (optional enhancement) (Issue #104)
 
@@ -516,4 +516,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-02-23  
 **Current Phase:** Phase 2: Metadata Integration  
-**Next Milestone:** Fanart.tv artwork integration kickoff (Issue #103)
+**Next Milestone:** Lyrics fetching kickoff (Issue #104)
