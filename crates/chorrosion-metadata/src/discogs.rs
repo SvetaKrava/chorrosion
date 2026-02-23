@@ -1,8 +1,7 @@
 //! Discogs API client implementation
 
 use moka::sync::Cache;
-use reqwest::Client;
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{self, Value};
 use std::sync::Arc;
