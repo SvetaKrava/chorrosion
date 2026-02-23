@@ -159,3 +159,87 @@ async fn test_fetch_artist_metadata_handles_http_error() {
         other => panic!("expected HttpStatus error, got: {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn test_fetch_artist_metadata_empty_search_results() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/database/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": []
+        })))
+        .mount(&server)
+        .await;
+
+    let client = DiscogsClient::new(None, Some(server.uri()));
+    let result = client.fetch_artist_metadata("Unknown Artist").await;
+
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        DiscogsError::MissingField("results[0]")
+    ));
+}
+
+#[tokio::test]
+async fn test_fetch_artist_metadata_missing_id_in_result() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/database/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{ "title": "Some Artist" }]
+        })))
+        .mount(&server)
+        .await;
+
+    let client = DiscogsClient::new(None, Some(server.uri()));
+    let result = client.fetch_artist_metadata("Some Artist").await;
+
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        DiscogsError::MissingField("results[0].id")
+    ));
+}
+
+#[tokio::test]
+async fn test_fetch_artist_metadata_discogs_api_error_message() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/database/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "Invalid consumer token."
+        })))
+        .mount(&server)
+        .await;
+
+    let client = DiscogsClient::new(Some("bad-token".to_string()), Some(server.uri()));
+    let result = client.fetch_artist_metadata("Any Artist").await;
+
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), DiscogsError::Api { .. }));
+}
+
+#[tokio::test]
+async fn test_fetch_artist_metadata_deserialization_error() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/database/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{ invalid json"))
+        .mount(&server)
+        .await;
+
+    let client = DiscogsClient::new(None, Some(server.uri()));
+    let result = client.fetch_artist_metadata("Any Artist").await;
+
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        DiscogsError::Deserialization(_)
+    ));
+}
+
