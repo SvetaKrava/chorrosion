@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
-use chorrosion_config::{LastFmAlbumSeed, LastFmConfig};
+use chorrosion_config::{DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig};
+use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -279,6 +280,128 @@ impl Job for LastFmMetadataRefreshJob {
         }
 
         info!(target: "jobs", job_id = %ctx.job_id, "Last.fm metadata refresh completed successfully");
+        Ok(JobResult::Success)
+    }
+
+    fn max_retries(&self) -> u32 {
+        2
+    }
+
+    fn retry_delay_seconds(&self) -> u64 {
+        120
+    }
+}
+
+/// Discogs metadata refresh job - enriches artist/album metadata using configured seeds.
+pub struct DiscogsMetadataRefreshJob {
+    client: DiscogsClient,
+    artists: Vec<String>,
+    albums: Vec<DiscogsAlbumSeed>,
+}
+
+impl DiscogsMetadataRefreshJob {
+    pub fn from_config(config: &DiscogsConfig) -> Option<Self> {
+        let artists: Vec<String> = config
+            .seed_artists
+            .iter()
+            .map(|artist| artist.trim())
+            .filter(|artist| !artist.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+
+        let albums: Vec<DiscogsAlbumSeed> = config
+            .seed_albums
+            .iter()
+            .filter(|seed| !seed.artist.trim().is_empty() && !seed.album.trim().is_empty())
+            .map(|seed| DiscogsAlbumSeed {
+                artist: seed.artist.trim().to_string(),
+                album: seed.album.trim().to_string(),
+            })
+            .collect();
+
+        if artists.is_empty() && albums.is_empty() {
+            return None;
+        }
+
+        let client = DiscogsClient::new_with_limits_and_base_url(
+            config.token.clone(),
+            config.max_concurrent_requests.max(1),
+            config.base_url.clone(),
+        );
+
+        Some(Self {
+            client,
+            artists,
+            albums,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Job for DiscogsMetadataRefreshJob {
+    fn job_type(&self) -> &'static str {
+        "discogs_metadata_refresh"
+    }
+
+    fn name(&self) -> String {
+        "Discogs Metadata Refresh".to_string()
+    }
+
+    async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        let artist_count = self.artists.len();
+        let album_count = self.albums.len();
+        info!(
+            target: "jobs",
+            job_id = %ctx.job_id,
+            artists = artist_count,
+            albums = album_count,
+            "executing Discogs metadata refresh job"
+        );
+
+        let mut failures = 0usize;
+
+        for artist in &self.artists {
+            if let Err(error) = self.client.fetch_artist_metadata(artist).await {
+                failures += 1;
+                warn!(
+                    target: "jobs",
+                    job_id = %ctx.job_id,
+                    artist = %artist,
+                    error = %error,
+                    "failed to refresh artist metadata from Discogs"
+                );
+            }
+        }
+
+        for seed in &self.albums {
+            if let Err(error) = self
+                .client
+                .fetch_album_metadata(&seed.artist, &seed.album)
+                .await
+            {
+                failures += 1;
+                warn!(
+                    target: "jobs",
+                    job_id = %ctx.job_id,
+                    artist = %seed.artist,
+                    album = %seed.album,
+                    error = %error,
+                    "failed to refresh album metadata from Discogs"
+                );
+            }
+        }
+
+        if failures > 0 {
+            return Ok(JobResult::Failure {
+                error: format!(
+                    "Discogs metadata refresh completed with {} failed requests",
+                    failures
+                ),
+                retry: true,
+            });
+        }
+
+        info!(target: "jobs", job_id = %ctx.job_id, "Discogs metadata refresh completed successfully");
         Ok(JobResult::Success)
     }
 
@@ -764,6 +887,45 @@ mod tests {
         assert_eq!(job.albums.len(), 1);
         assert_eq!(job.albums[0].artist, "Radiohead");
         assert_eq!(job.albums[0].album, "OK Computer");
+    }
+
+    #[test]
+    fn test_discogs_job_not_created_without_seeds() {
+        let config = DiscogsConfig::default();
+        assert!(DiscogsMetadataRefreshJob::from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_discogs_job_created_with_artist_seed() {
+        let config = DiscogsConfig {
+            token: Some("discogs-token".to_string()),
+            base_url: Some("http://127.0.0.1:3030".to_string()),
+            max_concurrent_requests: 2,
+            seed_artists: vec!["  Massive Attack  ".to_string()],
+            seed_albums: Vec::new(),
+        };
+
+        let job = DiscogsMetadataRefreshJob::from_config(&config);
+        assert!(job.is_some());
+        let job = job.expect("job should be created when seeds are present");
+        assert_eq!(job.artists, vec!["Massive Attack".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_discogs_job_executes_with_empty_sanitized_seeds() {
+        let config = DiscogsConfig {
+            token: Some("discogs-token".to_string()),
+            base_url: Some("http://127.0.0.1:3030".to_string()),
+            max_concurrent_requests: 1,
+            seed_artists: vec!["   ".to_string()],
+            seed_albums: vec![DiscogsAlbumSeed {
+                artist: "".to_string(),
+                album: "".to_string(),
+            }],
+        };
+
+        let job = DiscogsMetadataRefreshJob::from_config(&config);
+        assert!(job.is_none());
     }
 
     #[test]

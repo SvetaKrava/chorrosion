@@ -11,8 +11,8 @@ use tokio::task::JoinHandle;
 use tracing::info;
 
 use jobs::{
-    BacklogSearchJob, HousekeepingJob, LastFmMetadataRefreshJob, RefreshAlbumJob, RefreshArtistJob,
-    RssSyncJob,
+    BacklogSearchJob, DiscogsMetadataRefreshJob, HousekeepingJob, LastFmMetadataRefreshJob,
+    RefreshAlbumJob, RefreshArtistJob, RssSyncJob,
 };
 
 #[allow(dead_code)]
@@ -85,6 +85,21 @@ impl Scheduler {
             info!(target: "scheduler", "Last.fm metadata refresh job registered");
         } else {
             info!(target: "scheduler", "Last.fm metadata refresh job skipped (no API key configured)");
+        }
+
+        if let Some(discogs_job) =
+            DiscogsMetadataRefreshJob::from_config(&self.config.metadata.discogs)
+        {
+            self.registry
+                .register(
+                    "discogs-metadata-refresh",
+                    discogs_job,
+                    Schedule::Interval(6 * 60 * 60 + 30 * 60),
+                )
+                .await;
+            info!(target: "scheduler", "Discogs metadata refresh job registered");
+        } else {
+            info!(target: "scheduler", "Discogs metadata refresh job skipped (no seeds configured)");
         }
 
         info!(target: "scheduler", "all jobs registered");

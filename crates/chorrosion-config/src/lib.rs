@@ -72,6 +72,12 @@ pub struct LastFmAlbumSeed {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscogsAlbumSeed {
+    pub artist: String,
+    pub album: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastFmConfig {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
@@ -92,9 +98,31 @@ impl Default for LastFmConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscogsConfig {
+    pub token: Option<String>,
+    pub base_url: Option<String>,
+    pub max_concurrent_requests: usize,
+    pub seed_artists: Vec<String>,
+    pub seed_albums: Vec<DiscogsAlbumSeed>,
+}
+
+impl Default for DiscogsConfig {
+    fn default() -> Self {
+        Self {
+            token: None,
+            base_url: None,
+            max_concurrent_requests: 1,
+            seed_artists: Vec::new(),
+            seed_albums: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetadataConfig {
     pub lastfm: LastFmConfig,
+    pub discogs: DiscogsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
