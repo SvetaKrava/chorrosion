@@ -78,6 +78,12 @@ pub struct DiscogsAlbumSeed {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsTrackSeed {
+    pub artist: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastFmConfig {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
@@ -119,10 +125,28 @@ impl Default for DiscogsConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsConfig {
+    pub base_url: Option<String>,
+    pub max_concurrent_requests: usize,
+    pub seed_tracks: Vec<LyricsTrackSeed>,
+}
+
+impl Default for LyricsConfig {
+    fn default() -> Self {
+        Self {
+            base_url: None,
+            max_concurrent_requests: 1,
+            seed_tracks: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetadataConfig {
     pub lastfm: LastFmConfig,
     pub discogs: DiscogsConfig,
+    pub lyrics: LyricsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
