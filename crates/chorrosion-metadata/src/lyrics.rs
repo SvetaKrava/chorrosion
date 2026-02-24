@@ -15,14 +15,24 @@ pub struct LyricsClient {
 }
 
 impl LyricsClient {
-    pub fn new(base_url: Option<String>) -> Self {
-        Self::new_with_limits_and_base_url(1, base_url)
+    /// Creates a `LyricsClient` using the default lyrics.ovh base URL and
+    /// a default concurrency limit of 1 request at a time.
+    pub fn new() -> Self {
+        Self::new_with_limits_and_base_url(1, None)
     }
 
+    /// Creates a `LyricsClient` with a custom base URL and a default
+    /// concurrency limit of 1 request at a time.
+    pub fn new_with_base_url(base_url: String) -> Self {
+        Self::new_with_limits_and_base_url(1, Some(base_url))
+    }
+
+    /// Creates a `LyricsClient` with a custom concurrency limit and the default base URL.
     pub fn new_with_limits(max_concurrent_requests: usize) -> Self {
         Self::new_with_limits_and_base_url(max_concurrent_requests, None)
     }
 
+    /// Creates a `LyricsClient` with a custom concurrency limit and optional base URL.
     pub fn new_with_limits_and_base_url(
         max_concurrent_requests: usize,
         base_url: Option<String>,
@@ -30,7 +40,7 @@ impl LyricsClient {
         Self {
             client: Client::new(),
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
-            cache: Cache::new(10_000),
+            cache: Cache::new(1_000),
             base_url: base_url
                 .unwrap_or_else(|| "https://api.lyrics.ovh".to_string())
                 .trim_end_matches('/')
@@ -56,7 +66,7 @@ impl LyricsClient {
             .map_err(|_| LyricsError::RateLimiterClosed)?;
 
         let mut url = Url::parse(&self.base_url)
-            .map_err(|source| LyricsError::InvalidBaseUrl(source.to_string()))?;
+            .map_err(|_| LyricsError::InvalidBaseUrl(self.base_url.clone()))?;
         {
             let mut segments = url
                 .path_segments_mut()
@@ -83,6 +93,12 @@ impl LyricsClient {
         };
         self.cache.insert(cache_key, metadata.clone());
         Ok(metadata)
+    }
+}
+
+impl Default for LyricsClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
