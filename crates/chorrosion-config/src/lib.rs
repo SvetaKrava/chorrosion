@@ -142,11 +142,35 @@ impl Default for LyricsConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverArtConfig {
+    pub fanart_api_key: Option<String>,
+    pub fanart_client_key: Option<String>,
+    pub fanart_base_url: Option<String>,
+    pub cover_art_archive_base_url: Option<String>,
+    pub max_concurrent_requests: usize,
+    pub provider_order: Vec<String>,
+}
+
+impl Default for CoverArtConfig {
+    fn default() -> Self {
+        Self {
+            fanart_api_key: None,
+            fanart_client_key: None,
+            fanart_base_url: None,
+            cover_art_archive_base_url: None,
+            max_concurrent_requests: 1,
+            provider_order: vec!["fanarttv".to_string(), "coverartarchive".to_string()],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetadataConfig {
     pub lastfm: LastFmConfig,
     pub discogs: DiscogsConfig,
     pub lyrics: LyricsConfig,
+    pub cover_art: CoverArtConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
