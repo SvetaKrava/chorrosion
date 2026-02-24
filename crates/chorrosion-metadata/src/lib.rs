@@ -3,3 +3,4 @@
 pub mod discogs;
 pub mod fanarttv;
 pub mod lastfm;
+pub mod lyrics;
