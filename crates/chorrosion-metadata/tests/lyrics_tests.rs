@@ -16,7 +16,7 @@ async fn test_fetch_lyrics_success() {
         .mount(&server)
         .await;
 
-    let client = LyricsClient::new(Some(server.uri()));
+    let client = LyricsClient::new_with_base_url(server.uri());
     let result = client
         .fetch_lyrics("Nirvana", "Smells Like Teen Spirit")
         .await;
@@ -41,7 +41,7 @@ async fn test_fetch_lyrics_caches_result() {
         .mount(&server)
         .await;
 
-    let client = LyricsClient::new(Some(server.uri()));
+    let client = LyricsClient::new_with_base_url(server.uri());
 
     let first = client.fetch_lyrics("Daft Punk", "One More Time").await;
     let second = client.fetch_lyrics("Daft Punk", "One More Time").await;
@@ -62,7 +62,7 @@ async fn test_fetch_lyrics_handles_http_error() {
         .mount(&server)
         .await;
 
-    let client = LyricsClient::new(Some(server.uri()));
+    let client = LyricsClient::new_with_base_url(server.uri());
     let result = client.fetch_lyrics("Test Artist", "Test Song").await;
 
     assert!(result.is_err());
@@ -87,7 +87,7 @@ async fn test_fetch_lyrics_handles_api_error() {
         .mount(&server)
         .await;
 
-    let client = LyricsClient::new(Some(server.uri()));
+    let client = LyricsClient::new_with_base_url(server.uri());
     let result = client.fetch_lyrics("Unknown Artist", "Unknown Song").await;
 
     assert!(result.is_err());
@@ -104,12 +104,54 @@ async fn test_fetch_lyrics_handles_invalid_json() {
         .mount(&server)
         .await;
 
-    let client = LyricsClient::new(Some(server.uri()));
+    let client = LyricsClient::new_with_base_url(server.uri());
     let result = client.fetch_lyrics("Invalid", "Json").await;
 
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
         LyricsError::Deserialization(_)
+    ));
+}
+
+#[tokio::test]
+async fn test_fetch_lyrics_missing_lyrics_field() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/Empty%20Artist/Empty%20Song"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+
+    let client = LyricsClient::new_with_base_url(server.uri());
+    let result = client.fetch_lyrics("Empty Artist", "Empty Song").await;
+
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        LyricsError::MissingField("lyrics")
+    ));
+}
+
+#[tokio::test]
+async fn test_fetch_lyrics_blank_lyrics_field() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/Blank%20Artist/Blank%20Song"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "lyrics": "   "
+        })))
+        .mount(&server)
+        .await;
+
+    let client = LyricsClient::new_with_base_url(server.uri());
+    let result = client.fetch_lyrics("Blank Artist", "Blank Song").await;
+
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        LyricsError::MissingField("lyrics")
     ));
 }
