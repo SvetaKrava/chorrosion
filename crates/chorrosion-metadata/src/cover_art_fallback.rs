@@ -193,6 +193,12 @@ impl CoverArtArchiveClient {
 
         let response = self.client.get(url).send().await?;
         let status = response.status();
+
+        if status == StatusCode::NOT_FOUND {
+            debug!(target: "cover-art", "Cover Art Archive returned 404, no artwork for this release group");
+            return Ok(None);
+        }
+
         let body = response.text().await?;
         let value = parse_cover_art_archive_body(status, &body)?;
 
