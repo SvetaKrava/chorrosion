@@ -4,6 +4,7 @@ pub mod embedded_tags;
 pub mod events;
 pub mod filename_heuristics;
 pub mod import;
+pub mod indexers;
 pub mod matching;
 pub mod matching_precedence;
 
@@ -14,6 +15,10 @@ pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
 };
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
+pub use indexers::{
+    parse_rss_feed, IndexerCapabilities, IndexerClient, IndexerConfig, IndexerError,
+    IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult, IndexerTestResult,
+};
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{
     MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingEngine, PrecedenceMatchingError,
