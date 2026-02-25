@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use quick_xml::de::from_str;
@@ -22,13 +23,18 @@ impl IndexerProtocol {
             Self::Custom => "custom",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Self {
-        match value.trim().to_lowercase().as_str() {
-            "newznab" => Self::Newznab,
-            "torznab" => Self::Torznab,
-            "gazelle" => Self::Gazelle,
-            _ => Self::Custom,
+impl std::str::FromStr for IndexerProtocol {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "newznab" => Ok(Self::Newznab),
+            "torznab" => Ok(Self::Torznab),
+            "gazelle" => Ok(Self::Gazelle),
+            "custom" => Ok(Self::Custom),
+            other => Err(format!("unknown indexer protocol: '{other}'")),
         }
     }
 }
