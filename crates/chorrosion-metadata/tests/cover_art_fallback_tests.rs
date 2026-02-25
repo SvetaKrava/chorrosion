@@ -138,6 +138,33 @@ async fn test_fetch_album_cover_result_is_cached() {
 }
 
 #[tokio::test]
+async fn test_fetch_album_cover_treats_404_as_no_artwork() {
+    let cover_art_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/release-group/rg-404"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+        .expect(1)
+        .mount(&cover_art_server)
+        .await;
+
+    let client = CoverArtFallbackClient::new_with_order_and_limits(
+        None,
+        Some(cover_art_server.uri()),
+        vec![CoverArtProvider::CoverArtArchive],
+        1,
+    );
+
+    let result = client.fetch_album_cover("rg-404").await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        CoverArtFallbackError::NoArtworkFound => {}
+        other => panic!("expected NoArtworkFound error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn test_fetch_album_cover_returns_error_when_all_providers_fail() {
     let fanart_server = MockServer::start().await;
     let cover_art_server = MockServer::start().await;
