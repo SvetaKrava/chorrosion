@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use quick_xml::de::from_str;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
 use tracing::debug;
 
@@ -122,17 +123,68 @@ pub trait IndexerClient: Send + Sync {
     async fn test_connection(&self) -> Result<IndexerTestResult, IndexerError>;
 }
 
+/// Builds a shared `reqwest::Client` configured with the chorrosion user-agent and a 30-second
+/// timeout. Falls back to a default `Client` if the builder fails.
+fn build_indexer_http_client() -> Client {
+    Client::builder()
+        .user_agent(concat!(
+            "chorrosion/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/SvetaKrava/chorrosion)"
+        ))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|error| {
+            debug!(
+                ?error,
+                "Failed to build indexer HTTP client with custom settings, falling back to default"
+            );
+            Client::new()
+        })
+}
+
 pub struct NewznabClient {
     config: IndexerConfig,
     client: Client,
 }
 
 impl NewznabClient {
+    /// Creates a new `NewznabClient` with default concurrency settings.
     pub fn new(config: IndexerConfig) -> Self {
-        Self {
-            config,
-            client: Client::new(),
-        }
+        let client = build_indexer_http_client();
+        debug!(target: "indexers", base_url = %config.base_url, "Initialized NewznabClient");
+        Self { config, client }
+    }
+
+    /// Creates a new `NewznabClient` with an explicit concurrency limit.
+    ///
+    /// The `max_concurrent_requests` parameter is accepted for API compatibility;
+    /// full semaphore-based concurrency limiting is planned for a future iteration.
+    pub fn new_with_limits(config: IndexerConfig, max_concurrent_requests: usize) -> Self {
+        debug!(
+            target: "indexers",
+            max_concurrent_requests,
+            "Initializing NewznabClient with concurrency limits (currently using default client configuration)"
+        );
+        Self::new(config)
+    }
+
+    /// Creates a new `NewznabClient` with an explicit concurrency limit and a custom base URL.
+    ///
+    /// The `base_url` overrides `config.base_url` so requests are directed to the given endpoint.
+    pub fn new_with_limits_and_base_url(
+        mut config: IndexerConfig,
+        max_concurrent_requests: usize,
+        base_url: &Url,
+    ) -> Self {
+        config.base_url = base_url.to_string();
+        debug!(
+            target: "indexers",
+            max_concurrent_requests,
+            %base_url,
+            "Initializing NewznabClient with concurrency limits and custom base URL"
+        );
+        Self::new(config)
     }
 }
 
@@ -142,11 +194,42 @@ pub struct TorznabClient {
 }
 
 impl TorznabClient {
+    /// Creates a new `TorznabClient` with default concurrency settings.
     pub fn new(config: IndexerConfig) -> Self {
-        Self {
-            config,
-            client: Client::new(),
-        }
+        let client = build_indexer_http_client();
+        debug!(target: "indexers", base_url = %config.base_url, "Initialized TorznabClient");
+        Self { config, client }
+    }
+
+    /// Creates a new `TorznabClient` with an explicit concurrency limit.
+    ///
+    /// The `max_concurrent_requests` parameter is accepted for API compatibility;
+    /// full semaphore-based concurrency limiting is planned for a future iteration.
+    pub fn new_with_limits(config: IndexerConfig, max_concurrent_requests: usize) -> Self {
+        debug!(
+            target: "indexers",
+            max_concurrent_requests,
+            "Initializing TorznabClient with concurrency limits (currently using default client configuration)"
+        );
+        Self::new(config)
+    }
+
+    /// Creates a new `TorznabClient` with an explicit concurrency limit and a custom base URL.
+    ///
+    /// The `base_url` overrides `config.base_url` so requests are directed to the given endpoint.
+    pub fn new_with_limits_and_base_url(
+        mut config: IndexerConfig,
+        max_concurrent_requests: usize,
+        base_url: &Url,
+    ) -> Self {
+        config.base_url = base_url.to_string();
+        debug!(
+            target: "indexers",
+            max_concurrent_requests,
+            %base_url,
+            "Initializing TorznabClient with concurrency limits and custom base URL"
+        );
+        Self::new(config)
     }
 }
 
@@ -256,7 +339,11 @@ async fn detect_capabilities(
     }
 
     if supported_categories.is_empty() {
-        supported_categories = vec!["music".to_string(), "audio/flac".to_string()];
+        supported_categories = vec![
+            "music".to_string(),
+            "audio/flac".to_string(),
+            "audio/mp3".to_string(),
+        ];
     }
 
     Ok(IndexerCapabilities {
@@ -315,8 +402,13 @@ async fn execute_api_request(
 ) -> Result<String, IndexerError> {
     let mut url = Url::parse(&config.base_url)
         .map_err(|error| IndexerError::Request(format!("invalid base url: {error}")))?;
-    if !url.path().ends_with("/api") {
-        url.set_path("/api");
+    let normalized_path = url.path().trim_end_matches('/').to_string();
+    if !normalized_path.ends_with("/api") {
+        if normalized_path.is_empty() {
+            url.set_path("/api");
+        } else {
+            url.set_path(&format!("{normalized_path}/api"));
+        }
     }
 
     let mut query_pairs: Vec<(&str, String)> = vec![("t", request_type.to_string())];
@@ -336,7 +428,7 @@ async fn execute_api_request(
         }
     }
 
-    debug!(target: "indexers", url = %url, protocol = %config.protocol.as_str(), "requesting indexer endpoint");
+    debug!(target: "indexers", base_url = %config.base_url, protocol = %config.protocol.as_str(), "requesting indexer endpoint");
 
     let response = client
         .get(url)
