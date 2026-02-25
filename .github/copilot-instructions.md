@@ -125,6 +125,7 @@ Notes for agents
 - **PR creation checklist:**
   - Run `cargo fmt` before pushing to maintain consistent formatting
   - Run `cargo test --workspace` and `cargo clippy -- -D warnings` locally
+  - Create/edit PR bodies using multiline input (`gh pr create --body-file <file>` or equivalent) so Markdown renders correctly; do **not** pass escaped `\n` text
   - Link related issues using closing keywords in PR body (e.g., `Closes #28`)
   - Add cross-references to related PRs when relevant (e.g., `Builds on #80`)
   - Assign the appropriate milestone (Phase 1, Phase 2, etc.) to track progress
@@ -139,4 +140,4 @@ Notes for agents
 - Add GitHub cross-references between related issues and PRs for traceability.
 - When starting new work, verify ROADMAP reflects current status before creating PRs.
 
-Last Updated: 2026-01-10
+Last Updated: 2026-02-25
