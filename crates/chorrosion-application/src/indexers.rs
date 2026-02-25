@@ -123,6 +123,26 @@ pub trait IndexerClient: Send + Sync {
     async fn test_connection(&self) -> Result<IndexerTestResult, IndexerError>;
 }
 
+/// Builds a shared `reqwest::Client` configured with the chorrosion user-agent and a 30-second
+/// timeout. Falls back to a default `Client` if the builder fails.
+fn build_indexer_http_client() -> Client {
+    Client::builder()
+        .user_agent(concat!(
+            "chorrosion/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/SvetaKrava/chorrosion)"
+        ))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|error| {
+            debug!(
+                ?error,
+                "Failed to build indexer HTTP client with custom settings, falling back to default"
+            );
+            Client::new()
+        })
+}
+
 pub struct NewznabClient {
     config: IndexerConfig,
     client: Client,
@@ -131,7 +151,7 @@ pub struct NewznabClient {
 impl NewznabClient {
     /// Creates a new `NewznabClient` with default concurrency settings.
     pub fn new(config: IndexerConfig) -> Self {
-        let client = Self::build_http_client();
+        let client = build_indexer_http_client();
         debug!(target: "indexers", base_url = %config.base_url, "Initialized NewznabClient");
         Self { config, client }
     }
@@ -149,15 +169,15 @@ impl NewznabClient {
         Self::new(config)
     }
 
-    /// Creates a new `NewznabClient` with an explicit concurrency limit and base URL.
+    /// Creates a new `NewznabClient` with an explicit concurrency limit and a custom base URL.
     ///
-    /// The `max_concurrent_requests` and `base_url` parameters are logged; the underlying
-    /// HTTP client is initialized via `NewznabClient::new`.
+    /// The `base_url` overrides `config.base_url` so requests are directed to the given endpoint.
     pub fn new_with_limits_and_base_url(
-        config: IndexerConfig,
+        mut config: IndexerConfig,
         max_concurrent_requests: usize,
         base_url: &Url,
     ) -> Self {
+        config.base_url = base_url.to_string();
         debug!(
             target: "indexers",
             max_concurrent_requests,
@@ -165,24 +185,6 @@ impl NewznabClient {
             "Initializing NewznabClient with concurrency limits and custom base URL"
         );
         Self::new(config)
-    }
-
-    fn build_http_client() -> Client {
-        Client::builder()
-            .user_agent(concat!(
-                "chorrosion/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/SvetaKrava/chorrosion)"
-            ))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|error| {
-                debug!(
-                    ?error,
-                    "Failed to build NewznabClient HTTP client with custom settings, falling back to default"
-                );
-                Client::new()
-            })
     }
 }
 
@@ -194,7 +196,7 @@ pub struct TorznabClient {
 impl TorznabClient {
     /// Creates a new `TorznabClient` with default concurrency settings.
     pub fn new(config: IndexerConfig) -> Self {
-        let client = Self::build_http_client();
+        let client = build_indexer_http_client();
         debug!(target: "indexers", base_url = %config.base_url, "Initialized TorznabClient");
         Self { config, client }
     }
@@ -212,15 +214,15 @@ impl TorznabClient {
         Self::new(config)
     }
 
-    /// Creates a new `TorznabClient` with an explicit concurrency limit and base URL.
+    /// Creates a new `TorznabClient` with an explicit concurrency limit and a custom base URL.
     ///
-    /// The `max_concurrent_requests` and `base_url` parameters are logged; the underlying
-    /// HTTP client is initialized via `TorznabClient::new`.
+    /// The `base_url` overrides `config.base_url` so requests are directed to the given endpoint.
     pub fn new_with_limits_and_base_url(
-        config: IndexerConfig,
+        mut config: IndexerConfig,
         max_concurrent_requests: usize,
         base_url: &Url,
     ) -> Self {
+        config.base_url = base_url.to_string();
         debug!(
             target: "indexers",
             max_concurrent_requests,
@@ -228,24 +230,6 @@ impl TorznabClient {
             "Initializing TorznabClient with concurrency limits and custom base URL"
         );
         Self::new(config)
-    }
-
-    fn build_http_client() -> Client {
-        Client::builder()
-            .user_agent(concat!(
-                "chorrosion/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/SvetaKrava/chorrosion)"
-            ))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|error| {
-                debug!(
-                    ?error,
-                    "Failed to build TorznabClient HTTP client with custom settings, falling back to default"
-                );
-                Client::new()
-            })
     }
 }
 
@@ -418,17 +402,12 @@ async fn execute_api_request(
 ) -> Result<String, IndexerError> {
     let mut url = Url::parse(&config.base_url)
         .map_err(|error| IndexerError::Request(format!("invalid base url: {error}")))?;
-    let current_path = url.path().to_string();
-    if !current_path.ends_with("/api") {
-        if current_path.is_empty() || current_path == "/" {
+    let normalized_path = url.path().trim_end_matches('/').to_string();
+    if !normalized_path.ends_with("/api") {
+        if normalized_path.is_empty() {
             url.set_path("/api");
         } else {
-            let new_path = if current_path.ends_with('/') {
-                format!("{current_path}api")
-            } else {
-                format!("{current_path}/api")
-            };
-            url.set_path(&new_path);
+            url.set_path(&format!("{normalized_path}/api"));
         }
     }
 
