@@ -143,10 +143,10 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 3.1 Indexer Framework
 
-- [ ] Indexer configuration model
-- [ ] Indexer trait definition
-- [ ] Indexer capability detection
-- [ ] Indexer testing endpoints
+- [x] Indexer configuration model (Issue #29, PR #133) ✓ COMPLETE
+- [x] Indexer trait definition (Issue #29, PR #133) ✓
+- [x] Indexer capability detection (Issue #29, PR #133) ✓
+- [x] Indexer testing endpoints (Issue #29, PR #133) ✓
 
 ### 3.2 Protocol Implementations
 
@@ -516,4 +516,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-02-25  
 **Current Phase:** Phase 3: Indexer Integration  
-**Next Milestone:** Indexer framework and protocol trait kickoff (Issue #29)
+**Next Milestone:** Newznab and Torznab protocol clients kickoff (Issue #30)
