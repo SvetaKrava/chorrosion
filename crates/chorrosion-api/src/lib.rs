@@ -2,12 +2,20 @@
 pub mod handlers;
 pub mod middleware;
 
-use axum::{middleware as axum_middleware, routing::get, Json, Router};
+use axum::{
+    middleware as axum_middleware,
+    routing::{get, post},
+    Json, Router,
+};
 use chorrosion_application::AppState;
 use handlers::artists::{
     create_artist, delete_artist, get_artist, list_artists, update_artist, ArtistResponse,
     CreateArtistRequest, ErrorResponse, UpdateArtistRequest, __path_create_artist,
     __path_delete_artist, __path_get_artist, __path_list_artists, __path_update_artist,
+};
+use handlers::indexers::{
+    test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
+    TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
 };
 use middleware::auth::auth_middleware;
 use serde::Serialize;
@@ -46,6 +54,7 @@ async fn health() -> Json<HealthResponse> {
         create_artist,
         update_artist,
         delete_artist,
+        test_indexer_endpoint,
     ),
     components(
         schemas(
@@ -54,11 +63,16 @@ async fn health() -> Json<HealthResponse> {
             CreateArtistRequest,
             UpdateArtistRequest,
             ErrorResponse,
+            TestIndexerRequest,
+            TestIndexerResponse,
+            IndexerCapabilitiesResponse,
+            IndexerTestErrorResponse,
         )
     ),
     tags(
         (name = "system", description = "System health and status endpoints"),
-        (name = "artists", description = "Artist management endpoints")
+        (name = "artists", description = "Artist management endpoints"),
+        (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
     info(
         title = "Chorrosion API",
@@ -77,6 +91,7 @@ pub fn router(state: AppState) -> Router {
             "/artists/:id",
             get(get_artist).put(update_artist).delete(delete_artist),
         )
+        .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 
     let openapi = ApiDoc::openapi();

@@ -14,8 +14,10 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+async-trait = { workspace = true }
 regex = "1"
 lazy_static = "1.4"
+quick-xml = { version = "0.37", features = ["serialize"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
