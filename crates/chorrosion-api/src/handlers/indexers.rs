@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{http::StatusCode, response::IntoResponse, Json};
-use chorrosion_application::{IndexerCapabilities, IndexerProtocol, IndexerTestResult};
+use chorrosion_application::{IndexerCapabilities, IndexerProtocol};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -71,30 +72,34 @@ pub async fn test_indexer_endpoint(Json(request): Json<TestIndexerRequest>) -> i
         return (
             StatusCode::BAD_REQUEST,
             Json(IndexerTestErrorResponse {
-                error: "Indexer base_url must start with http:// or https://".to_string(),
+                error: "Indexer base_url must be a valid http or https URL with a host"
+                    .to_string(),
             }),
         )
             .into_response();
     }
 
-    let protocol = IndexerProtocol::from_str(&request.protocol);
-    let capabilities = capabilities_for_protocol(&protocol);
-
-    let test_result = IndexerTestResult {
-        success: true,
-        message: format!(
-            "Indexer '{}' configuration validated for protocol {}",
-            request.name,
-            protocol.as_str()
-        ),
-        capabilities: Some(capabilities.clone()),
+    let protocol: IndexerProtocol = match request.protocol.parse() {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(IndexerTestErrorResponse { error: e }),
+            )
+                .into_response()
+        }
     };
+    let capabilities = capabilities_for_protocol(&protocol);
 
     (
         StatusCode::OK,
         Json(TestIndexerResponse {
-            success: test_result.success,
-            message: test_result.message,
+            success: true,
+            message: format!(
+                "Indexer '{}' configuration validated for protocol {}",
+                request.name,
+                protocol.as_str()
+            ),
             protocol: protocol.as_str().to_string(),
             capabilities: capabilities.into(),
         }),
@@ -103,8 +108,10 @@ pub async fn test_indexer_endpoint(Json(request): Json<TestIndexerRequest>) -> i
 }
 
 fn is_valid_base_url(base_url: &str) -> bool {
-    let value = base_url.trim().to_lowercase();
-    value.starts_with("http://") || value.starts_with("https://")
+    match url::Url::parse(base_url.trim()) {
+        Ok(parsed) => matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some(),
+        Err(_) => false,
+    }
 }
 
 fn capabilities_for_protocol(protocol: &IndexerProtocol) -> IndexerCapabilities {

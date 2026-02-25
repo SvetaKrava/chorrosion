@@ -11,5 +11,6 @@ chorrosion-domain = { path = "../chorrosion-domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+url = "2.5"
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
