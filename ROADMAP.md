@@ -169,7 +169,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Bitrate parsing ✓
   - [x] Release group detection ✓
 - [x] Release filtering and ranking (Issue #31, PR #139) ✓ COMPLETE
-- [ ] Duplicate detection (Issue #141)
+- [x] Duplicate detection (Issue #141, PR #143) ✓ COMPLETE
 
 ---
 
@@ -515,5 +515,5 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ---
 
 **Last Updated:** 2026-02-26  
-**Current Phase:** Phase 3: Indexer Integration  
-**Next Milestone:** Duplicate detection kickoff (Issue #141)
+**Current Phase:** Phase 4: Search & Download  
+**Next Milestone:** Manual and automatic search implementation kickoff (Issue #33)
