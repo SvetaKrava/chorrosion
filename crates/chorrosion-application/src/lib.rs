@@ -7,6 +7,7 @@ pub mod import;
 pub mod indexers;
 pub mod matching;
 pub mod matching_precedence;
+pub mod release_parsing;
 
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
@@ -24,6 +25,10 @@ pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingServ
 pub use matching_precedence::{
     MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingEngine, PrecedenceMatchingError,
     PrecedenceMatchingResult,
+};
+pub use release_parsing::{
+    filter_releases, parse_release_title, rank_releases, AudioQuality, ParsedReleaseTitle,
+    ReleaseFilterOptions,
 };
 
 use tracing::info;
