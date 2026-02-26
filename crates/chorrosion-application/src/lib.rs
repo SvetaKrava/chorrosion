@@ -16,8 +16,9 @@ pub use filename_heuristics::{
 };
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
 pub use indexers::{
-    parse_rss_feed, IndexerCapabilities, IndexerClient, IndexerConfig, IndexerError,
-    IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult, IndexerTestResult,
+    parse_rss_feed, parse_search_results, IndexerCapabilities, IndexerClient, IndexerConfig,
+    IndexerError, IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult,
+    IndexerTestResult, NewznabClient, TorznabClient,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{
