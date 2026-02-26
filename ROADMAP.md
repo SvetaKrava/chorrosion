@@ -150,26 +150,26 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 3.2 Protocol Implementations
 
-- [ ] Newznab protocol client
-  - [ ] Search capabilities
-  - [ ] RSS feed parsing
-  - [ ] Category mapping
-- [ ] Torznab protocol client
-  - [ ] Torrent-specific handling
-  - [ ] Magnet link support
+- [x] Newznab protocol client (Issue #30, PR #136) ✓ COMPLETE
+  - [x] Search capabilities ✓
+  - [x] RSS feed parsing ✓
+  - [x] Category mapping ✓
+- [x] Torznab protocol client (Issue #30, PR #136) ✓ COMPLETE
+  - [x] Torrent-specific handling ✓
+  - [x] Magnet link support ✓
 - [ ] Gazelle protocol client (optional)
   - [ ] API authentication
   - [ ] Music-specific search
 
 ### 3.3 Release Parsing
 
-- [ ] Release title parser
-  - [ ] Artist/album extraction
-  - [ ] Quality detection (MP3, FLAC, etc.)
-  - [ ] Bitrate parsing
-  - [ ] Release group detection
-- [ ] Release filtering and ranking
-- [ ] Duplicate detection
+- [x] Release title parser (Issue #31, PR #139) ✓ COMPLETE
+  - [x] Artist/album extraction ✓
+  - [x] Quality detection (MP3, FLAC, etc.) ✓
+  - [x] Bitrate parsing ✓
+  - [x] Release group detection ✓
+- [x] Release filtering and ranking (Issue #31, PR #139) ✓ COMPLETE
+- [ ] Duplicate detection (Issue #141)
 
 ---
 
@@ -514,6 +514,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-02-25  
+**Last Updated:** 2026-02-26  
 **Current Phase:** Phase 3: Indexer Integration  
-**Next Milestone:** Newznab and Torznab protocol clients kickoff (Issue #30)
+**Next Milestone:** Duplicate detection kickoff (Issue #141)
