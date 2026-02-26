@@ -8,6 +8,7 @@ pub mod indexers;
 pub mod matching;
 pub mod matching_precedence;
 pub mod release_parsing;
+pub mod search_automation;
 
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
@@ -29,6 +30,10 @@ pub use matching_precedence::{
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title,
     rank_releases, AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
+};
+pub use search_automation::{
+    automatic_search_missing_albums, detect_missing_albums, manual_search,
+    AlbumSearchTarget, AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
 };
 
 use tracing::info;
