@@ -2,6 +2,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -83,6 +84,64 @@ pub fn rank_releases(
 ) -> Vec<ParsedReleaseTitle> {
     releases.sort_by_key(|release| std::cmp::Reverse(score_release(release, options)));
     releases
+}
+
+pub fn deduplicate_releases(releases: &[ParsedReleaseTitle]) -> Vec<ParsedReleaseTitle> {
+    let mut best_by_key: HashMap<String, ParsedReleaseTitle> = HashMap::new();
+
+    for release in releases {
+        let key = duplicate_key(release);
+        match best_by_key.get(&key) {
+            Some(existing) => {
+                let existing_score = score_release(existing, &ReleaseFilterOptions::default());
+                let candidate_score = score_release(release, &ReleaseFilterOptions::default());
+                if candidate_score > existing_score {
+                    best_by_key.insert(key, release.clone());
+                }
+            }
+            None => {
+                best_by_key.insert(key, release.clone());
+            }
+        }
+    }
+
+    let mut deduped: Vec<ParsedReleaseTitle> = best_by_key.into_values().collect();
+    deduped.sort_by_key(|release| release.original_title.to_lowercase());
+    deduped
+}
+
+pub fn find_duplicate_keys(releases: &[ParsedReleaseTitle]) -> Vec<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for release in releases {
+        let key = duplicate_key(release);
+        *counts.entry(key).or_insert(0) += 1;
+    }
+
+    let mut duplicates: Vec<String> = counts
+        .into_iter()
+        .filter_map(|(key, count)| (count > 1).then_some(key))
+        .collect();
+    duplicates.sort();
+    duplicates
+}
+
+fn duplicate_key(release: &ParsedReleaseTitle) -> String {
+    format!(
+        "{}|{}|{}",
+        release
+            .artist
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase(),
+        release
+            .album
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase(),
+        release.quality_key(),
+    )
 }
 
 fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -> i32 {
@@ -221,11 +280,23 @@ fn clean_component(value: &str) -> Option<String> {
     }
 }
 
+impl ParsedReleaseTitle {
+    fn quality_key(&self) -> &'static str {
+        match self.quality {
+            AudioQuality::Flac => "flac",
+            AudioQuality::Mp3 => "mp3",
+            AudioQuality::Aac => "aac",
+            AudioQuality::Alac => "alac",
+            AudioQuality::Unknown => "unknown",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        filter_releases, parse_release_title, rank_releases, AudioQuality, ParsedReleaseTitle,
-        ReleaseFilterOptions,
+        deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title,
+        rank_releases, AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
     };
 
     #[test]
@@ -338,5 +409,40 @@ mod tests {
 
         let ranked = rank_releases(releases, &ReleaseFilterOptions::default());
         assert_eq!(ranked[0].quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn duplicate_key_detection_finds_matching_artist_album_quality() {
+        let releases = vec![
+            parse_release_title("Artist - Album 320kbps MP3-GRP1"),
+            parse_release_title("Artist - Album 192kbps MP3-GRP2"),
+            parse_release_title("Artist - Album [FLAC]-GRP3"),
+        ];
+
+        let keys = find_duplicate_keys(&releases);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0], "artist|album|mp3");
+    }
+
+    #[test]
+    fn deduplicate_keeps_best_scored_release_per_key() {
+        let releases = vec![
+            parse_release_title("Artist - Album 192kbps MP3-GRP1"),
+            parse_release_title("Artist - Album 320kbps MP3-GRP2"),
+            parse_release_title("Artist - Album [FLAC]-GRP3"),
+            parse_release_title("Artist - Album [FLAC]-GRP4"),
+        ];
+
+        let deduped = deduplicate_releases(&releases);
+
+        assert_eq!(deduped.len(), 2);
+        assert!(deduped
+            .iter()
+            .any(|release| release.quality == AudioQuality::Mp3 && release.bitrate_kbps == Some(320)));
+        assert!(deduped
+            .iter()
+            .filter(|release| release.quality == AudioQuality::Flac)
+            .count()
+            == 1);
     }
 }
