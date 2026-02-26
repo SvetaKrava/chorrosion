@@ -27,9 +27,10 @@ use crate::release_parsing::{
 
 /// Parameters for a manually initiated search against an indexer.
 ///
-/// At least one of `artist`, `album`, or `query` should typically be provided
-/// to produce useful results. When `query` is set and non-empty, it takes
-/// precedence over the structured `artist`/`album` fields.
+/// At least one of `artist`, `album`, or `query` must be provided as a
+/// non-empty (non-whitespace) value; otherwise the request will be rejected.
+/// When `query` is set and non-empty, it takes precedence over the structured
+/// `artist`/`album` fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManualSearchRequest {
     /// Optional artist name to constrain the search (e.g. `"Radiohead"`).
@@ -156,7 +157,7 @@ pub async fn automatic_search_missing_albums<I: IndexerClient>(
 
     let mut decisions = Vec::with_capacity(missing_targets.len());
     for target in missing_targets {
-        let query = format!("{} {}", target.artist, target.album);
+        let query = format!("{} {}", &target.artist, &target.album);
         debug!(
             target: "search_automation",
             artist = %target.artist,
@@ -253,10 +254,12 @@ fn rank_results(
 
     // Build a title→result map for O(1) lookup when pairing ranked titles back
     // to their original IndexerSearchResult (avoids O(n*m) nested scan).
-    let result_map: HashMap<String, IndexerSearchResult> = raw_results
-        .into_iter()
-        .map(|r| (r.title.clone(), r))
-        .collect();
+    // Use first-win semantics: if multiple results share the same title, keep
+    // the first one encountered rather than overwriting with later entries.
+    let mut result_map: HashMap<String, IndexerSearchResult> = HashMap::new();
+    for r in raw_results {
+        result_map.entry(r.title.clone()).or_insert(r);
+    }
 
     let filtered = filter_releases(&parsed_titles, options);
     let deduped = deduplicate_releases(&filtered);
