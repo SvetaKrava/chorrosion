@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,7 @@ pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
     let (artist, album) = extract_artist_album(&normalized);
 
     ParsedReleaseTitle {
-        original_title: normalized,
+        original_title: title.to_string(),
         artist,
         album,
         quality,
@@ -60,8 +61,12 @@ pub fn filter_releases(
             }
 
             if let Some(min_bitrate) = options.min_bitrate_kbps {
-                match release.bitrate_kbps {
-                    Some(bitrate) if bitrate >= min_bitrate => {}
+                match (&release.quality, release.bitrate_kbps) {
+                    // Treat lossless formats as always satisfying the bitrate requirement,
+                    // even when `detect_bitrate_kbps` returns None.
+                    (&AudioQuality::Flac | &AudioQuality::Alac, _) => {}
+                    // For other formats, enforce the minimum bitrate if we have a value.
+                    (_, Some(bitrate)) if bitrate >= min_bitrate => {}
                     _ => return false,
                 }
             }
@@ -173,9 +178,20 @@ fn extract_artist_album(title: &str) -> (Option<String>, Option<String>) {
     };
 
     let artist = clean_component(artist_raw);
-    let album = clean_component(album_raw);
+    let album = clean_component(&strip_quality_bitrate_tokens(album_raw));
 
     (artist, album)
+}
+
+fn strip_quality_bitrate_tokens(value: &str) -> String {
+    lazy_static! {
+        static ref QUALITY_TOKEN_REGEX: Regex = Regex::new(
+            r"(?i)\b(flac|alac|mp3|aac|m4a|v0|v2)\b|\b\d{2,4}\s?(?:kbps|k)\b"
+        )
+        .expect("valid quality token regex");
+    }
+
+    normalize_whitespace(QUALITY_TOKEN_REGEX.replace_all(value, "").trim())
 }
 
 fn strip_bracketed_chunks(value: &str) -> String {
@@ -228,7 +244,7 @@ mod tests {
         let parsed = parse_release_title("Nirvana - Nevermind 320kbps MP3-GroupX");
 
         assert_eq!(parsed.artist.as_deref(), Some("Nirvana"));
-        assert_eq!(parsed.album.as_deref(), Some("Nevermind 320kbps MP3"));
+        assert_eq!(parsed.album.as_deref(), Some("Nevermind"));
         assert_eq!(parsed.quality, AudioQuality::Mp3);
         assert_eq!(parsed.bitrate_kbps, Some(320));
         assert_eq!(parsed.release_group.as_deref(), Some("GroupX"));
@@ -251,6 +267,35 @@ mod tests {
         let filtered = filter_releases(&releases, &options);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].bitrate_kbps, Some(320));
+    }
+
+    #[test]
+    fn lossless_always_passes_min_bitrate_filter() {
+        let releases = vec![
+            parse_release_title("Artist - Album [FLAC]-AAA"),
+            parse_release_title("Artist - Album [ALAC]-BBB"),
+            parse_release_title("Artist - Album 128kbps MP3-CCC"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: Some(256),
+            preferred_release_groups: vec![],
+        };
+
+        let filtered = filter_releases(&releases, &options);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|r| matches!(
+            r.quality,
+            AudioQuality::Flac | AudioQuality::Alac
+        )));
+    }
+
+    #[test]
+    fn original_title_stores_raw_input() {
+        let raw = "  Daft Punk  -  Discovery  [FLAC]-GRP  ";
+        let parsed = parse_release_title(raw);
+        assert_eq!(parsed.original_title, raw);
     }
 
     #[test]
