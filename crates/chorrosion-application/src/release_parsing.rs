@@ -64,7 +64,7 @@ pub fn filter_releases(
                 match (&release.quality, release.bitrate_kbps) {
                     // Treat lossless formats as always satisfying the bitrate requirement,
                     // even when `detect_bitrate_kbps` returns None.
-                    (AudioQuality::Flac | AudioQuality::Alac, _) => {}
+                    (&AudioQuality::Flac | &AudioQuality::Alac, _) => {}
                     // For other formats, enforce the minimum bitrate if we have a value.
                     (_, Some(bitrate)) if bitrate >= min_bitrate => {}
                     _ => return false,
