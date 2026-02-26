@@ -27,8 +27,8 @@ pub use matching_precedence::{
     PrecedenceMatchingResult,
 };
 pub use release_parsing::{
-    filter_releases, parse_release_title, rank_releases, AudioQuality, ParsedReleaseTitle,
-    ReleaseFilterOptions,
+    deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title,
+    rank_releases, AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
 };
 
 use tracing::info;
