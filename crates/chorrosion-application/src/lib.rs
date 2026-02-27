@@ -14,6 +14,10 @@ pub mod search_automation;
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
 };
+pub use download_clients::{
+    AddTorrentRequest, DownloadClient, DownloadClientError, DownloadItem, DownloadState,
+    QBittorrentClient,
+};
 pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
 };
