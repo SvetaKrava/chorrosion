@@ -160,22 +160,23 @@ jobs:
 
           if [ "$health_ok" != true ]; then
             echo "Health check failed after 30 seconds"
-            kill "$SERVER_PID"
+            kill "$SERVER_PID" || true
             wait "$SERVER_PID" || true
             exit 1
           fi
 
-          # Verify OpenAPI JSON served
-          if ! curl -fsS http://127.0.0.1:5150/api-doc/openapi.json | head -c 1 | grep -q '{'; then
+          # Verify OpenAPI JSON served (store in variable to avoid SIGPIPE from head -c 1)
+          openapi_response=$(curl -fsS http://127.0.0.1:5150/api-doc/openapi.json)
+          if ! printf '%s' "$openapi_response" | head -c 1 | grep -q '{'; then
             echo "OpenAPI JSON check failed"
-            kill "$SERVER_PID"
+            kill "$SERVER_PID" || true
             wait "$SERVER_PID" || true
             exit 1
           fi
 
           # Stop server
-          kill $SERVER_PID
-          wait $SERVER_PID || true
+          kill "$SERVER_PID" || true
+          wait "$SERVER_PID" || true
 
       - name: Run and check (Windows)
         if: runner.os == 'Windows'
