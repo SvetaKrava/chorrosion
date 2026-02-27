@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use async_trait::async_trait;
 use reqwest::{Client, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
 use thiserror::Error;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadState {
@@ -52,6 +55,25 @@ pub trait DownloadClient: Send + Sync {
     async fn prioritize_download(&self, hash: &str) -> Result<(), DownloadClientError>;
 }
 
+fn build_download_client_http_client() -> Client {
+    Client::builder()
+        .user_agent(concat!(
+            "chorrosion/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/SvetaKrava/chorrosion)"
+        ))
+        .timeout(Duration::from_secs(30))
+        .cookie_store(true)
+        .build()
+        .unwrap_or_else(|error| {
+            warn!(
+                ?error,
+                "Failed to build download client HTTP client with cookie store; session-based authentication may not work"
+            );
+            Client::new()
+        })
+}
+
 pub struct QBittorrentClient {
     client: Client,
     base_url: String,
@@ -61,16 +83,21 @@ pub struct QBittorrentClient {
 
 impl QBittorrentClient {
     pub fn new(base_url: String, username: Option<String>, password: Option<String>) -> Self {
+        let client = build_download_client_http_client();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        debug!(target: "download_clients", %base_url, "Initialized QBittorrentClient");
         Self {
-            client: Client::new(),
-            base_url: base_url.trim_end_matches('/').to_string(),
+            client,
+            base_url,
             username,
             password,
         }
     }
 
     fn endpoint(&self, path: &str) -> Result<Url, DownloadClientError> {
-        Url::parse(&format!("{}{}", self.base_url, path))
+        let base = Url::parse(&self.base_url)
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
+        base.join(path)
             .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
     }
 
@@ -223,7 +250,7 @@ impl DownloadClient for QBittorrentClient {
                 progress_percent: (torrent.progress * 100.0).round().clamp(0.0, 100.0) as u8,
                 category: torrent
                     .category
-                    .and_then(|v| (!v.trim().is_empty()).then_some(v)),
+                    .filter(|v| !v.trim().is_empty()),
                 state: map_qbittorrent_state(&torrent.state),
             })
             .collect())
@@ -257,7 +284,7 @@ fn map_qbittorrent_state(state: &str) -> DownloadState {
         DownloadState::Paused
     } else if state.contains("uploading") || state.contains("completed") {
         DownloadState::Completed
-    } else if state.contains("downloading") || state.contains("meta") {
+    } else if state.contains("downloading") || state.contains("meta") || state.contains("forceddl") {
         DownloadState::Downloading
     } else if state.contains("queued") {
         DownloadState::Queued
@@ -358,5 +385,164 @@ mod tests {
         let result = client.prioritize_download("abc123").await;
 
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn set_category_posts_hash_and_category() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v2/torrents/setCategory"))
+            .and(body_string_contains("hashes=abc123"))
+            .and(body_string_contains("category=music"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = QBittorrentClient::new(server.uri(), None, None);
+        let result = client.set_category("abc123", "music").await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn authentication_succeeds_with_valid_credentials() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v2/auth/login"))
+            .and(body_string_contains("username=admin"))
+            .and(body_string_contains("password=secret"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("Ok."))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/app/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("4.6.7"))
+            .mount(&server)
+            .await;
+
+        let client = QBittorrentClient::new(
+            server.uri(),
+            Some("admin".to_string()),
+            Some("secret".to_string()),
+        );
+        let result = client.test_connection().await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn authentication_fails_with_wrong_credentials() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v2/auth/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("Fails."))
+            .mount(&server)
+            .await;
+
+        let client = QBittorrentClient::new(
+            server.uri(),
+            Some("admin".to_string()),
+            Some("wrong".to_string()),
+        );
+        let result = client.test_connection().await;
+
+        assert!(matches!(
+            result,
+            Err(super::DownloadClientError::Authentication)
+        ));
+    }
+
+    #[tokio::test]
+    async fn authentication_fails_on_http_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v2/auth/login"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("Forbidden"))
+            .mount(&server)
+            .await;
+
+        let client = QBittorrentClient::new(
+            server.uri(),
+            Some("admin".to_string()),
+            Some("secret".to_string()),
+        );
+        let result = client.test_connection().await;
+
+        assert!(matches!(
+            result,
+            Err(super::DownloadClientError::HttpStatus { status: 403, .. })
+        ));
+    }
+
+    #[test]
+    fn state_mapping_error_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(map_qbittorrent_state("error"), DownloadState::Error);
+        assert_eq!(
+            map_qbittorrent_state("missingFiles"),
+            DownloadState::Error
+        );
+    }
+
+    #[test]
+    fn state_mapping_paused_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(map_qbittorrent_state("pausedDL"), DownloadState::Paused);
+        assert_eq!(map_qbittorrent_state("stalledDL"), DownloadState::Paused);
+        assert_eq!(map_qbittorrent_state("pausedUP"), DownloadState::Paused);
+    }
+
+    #[test]
+    fn state_mapping_completed_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(map_qbittorrent_state("uploading"), DownloadState::Completed);
+    }
+
+    #[test]
+    fn state_mapping_downloading_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(
+            map_qbittorrent_state("downloading"),
+            DownloadState::Downloading
+        );
+        assert_eq!(
+            map_qbittorrent_state("forcedDL"),
+            DownloadState::Downloading
+        );
+    }
+
+    #[test]
+    fn state_mapping_queued_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(map_qbittorrent_state("queuedDL"), DownloadState::Queued);
+        assert_eq!(map_qbittorrent_state("queuedUP"), DownloadState::Queued);
+    }
+
+    #[test]
+    fn state_mapping_unknown_state() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(
+            map_qbittorrent_state("forcedUP"),
+            DownloadState::Unknown
+        );
+        assert_eq!(
+            map_qbittorrent_state("checkingUP"),
+            DownloadState::Unknown
+        );
+        assert_eq!(
+            map_qbittorrent_state("something_unexpected"),
+            DownloadState::Unknown
+        );
     }
 }
