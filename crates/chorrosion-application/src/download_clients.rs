@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadState {
@@ -66,7 +66,7 @@ fn build_download_client_http_client() -> Client {
         .cookie_store(true)
         .build()
         .unwrap_or_else(|error| {
-            tracing::warn!(
+            warn!(
                 ?error,
                 "Failed to build download client HTTP client with cookie store; session-based authentication may not work"
             );
@@ -504,6 +504,16 @@ mod tests {
         use super::map_qbittorrent_state;
 
         assert_eq!(map_qbittorrent_state("uploading"), DownloadState::Completed);
+    }
+
+    #[test]
+    fn state_mapping_downloading_states() {
+        use super::map_qbittorrent_state;
+
+        assert_eq!(
+            map_qbittorrent_state("downloading"),
+            DownloadState::Downloading
+        );
         assert_eq!(
             map_qbittorrent_state("forcedDL"),
             DownloadState::Downloading
