@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 pub mod embedded_tags;
+pub mod download_clients;
 pub mod events;
 pub mod filename_heuristics;
 pub mod import;
