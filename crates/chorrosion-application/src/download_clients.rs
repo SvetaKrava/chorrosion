@@ -284,7 +284,7 @@ fn map_qbittorrent_state(state: &str) -> DownloadState {
         DownloadState::Paused
     } else if state.contains("uploading") || state.contains("completed") {
         DownloadState::Completed
-    } else if state.contains("downloading") || state.contains("meta") {
+    } else if state.contains("downloading") || state.contains("meta") || state.contains("forceddl") {
         DownloadState::Downloading
     } else if state.contains("queued") {
         DownloadState::Queued
