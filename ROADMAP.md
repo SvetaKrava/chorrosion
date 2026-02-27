@@ -177,14 +177,14 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 4.1 Search Functionality
 
-- [ ] Manual search implementation
-  - [ ] Artist search
-  - [ ] Album search
+- [x] Manual search implementation (Issue #33, PR #145) ✓ PARTIALLY COMPLETE
+  - [x] Artist search ✓
+  - [x] Album search ✓
   - [ ] Interactive search UI support
-- [ ] Automatic search
-  - [ ] Missing album detection
-  - [ ] Search triggering logic
-  - [ ] Best release selection algorithm
+- [x] Automatic search (Issue #33, PR #145) ✓ COMPLETE
+  - [x] Missing album detection ✓
+  - [x] Search triggering logic ✓
+  - [x] Best release selection algorithm ✓
 - [ ] RSS sync enhancement
   - [ ] Parse RSS feeds from indexers
   - [ ] Match releases to wanted albums
@@ -514,6 +514,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-02-26  
+**Last Updated:** 2026-02-27  
 **Current Phase:** Phase 4: Search & Download  
-**Next Milestone:** Manual and automatic search implementation kickoff (Issue #33)
+**Next Milestone:** Download client trait and qBittorrent integration kickoff (Issue #32)
