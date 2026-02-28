@@ -172,7 +172,8 @@ jobs:
             wait "$SERVER_PID" || true
             exit 1
           fi
-          if ! printf '%s' "$openapi_response" | head -c 1 | grep -q '{'; then
+          first_char=${openapi_response:0:1}
+          if [ "$first_char" != "{" ]; then
             echo "OpenAPI JSON check failed"
             kill "$SERVER_PID" || true
             wait "$SERVER_PID" || true
