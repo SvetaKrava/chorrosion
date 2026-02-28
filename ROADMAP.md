@@ -192,16 +192,16 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 4.2 Download Client Integration
 
-- [ ] Download client trait definition
-- [ ] qBittorrent client
-  - [ ] Add torrent support
-  - [ ] Category management
-  - [ ] Status monitoring
+- [x] Download client trait definition (Issue #32, PR #148) ✓ COMPLETE
+- [x] qBittorrent client (Issue #32, PR #148) ✓ COMPLETE
+  - [x] Add torrent support ✓
+  - [x] Category management ✓
+  - [x] Status monitoring ✓
 - [ ] Transmission client
 - [ ] Deluge client
 - [ ] SABnzbd client (Usenet)
 - [ ] NZBGet client (Usenet)
-- [ ] Download queue management
+- [x] Download queue management (Issue #32, PR #148) ✓
 
 ### 4.3 Download Monitoring
 
@@ -514,6 +514,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-02-27  
+**Last Updated:** 2026-02-28  
 **Current Phase:** Phase 4: Search & Download  
-**Next Milestone:** Download client trait and qBittorrent integration kickoff (Issue #32)
+**Next Milestone:** File Import System with Matching Algorithm (Issue #34)
