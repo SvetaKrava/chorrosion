@@ -166,7 +166,12 @@ jobs:
           fi
 
           # Verify OpenAPI JSON served (store in variable to avoid SIGPIPE from head -c 1)
-          openapi_response=$(curl -fsS http://127.0.0.1:5150/api-doc/openapi.json)
+          if ! openapi_response=$(curl -fsS http://127.0.0.1:5150/api-doc/openapi.json); then
+            echo "Failed to fetch OpenAPI JSON"
+            kill "$SERVER_PID" || true
+            wait "$SERVER_PID" || true
+            exit 1
+          fi
           if ! printf '%s' "$openapi_response" | head -c 1 | grep -q '{'; then
             echo "OpenAPI JSON check failed"
             kill "$SERVER_PID" || true
