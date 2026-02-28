@@ -5,6 +5,7 @@ pub mod download_clients;
 pub mod events;
 pub mod filename_heuristics;
 pub mod import;
+pub mod import_matching;
 pub mod indexers;
 pub mod matching;
 pub mod matching_precedence;
@@ -22,6 +23,11 @@ pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
 };
 pub use import::{FileImportService, ImportError, ImportResult, ImportedFile};
+pub use import_matching::{
+    evaluate_import_match, parse_track_metadata, scan_audio_files, CatalogAlbum, CatalogAlbumMatch,
+    ImportDecision, ImportEvaluation, ImportMatchingError, MatchStrategy, MetadataSource,
+    ParsedTrackMetadata, RawTrackMetadata, ScannedAudioFile,
+};
 pub use indexers::{
     parse_rss_feed, parse_search_results, IndexerCapabilities, IndexerClient, IndexerConfig,
     IndexerError, IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult,
