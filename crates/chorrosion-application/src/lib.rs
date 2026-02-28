@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 pub mod embedded_tags;
+pub mod download_clients;
 pub mod events;
 pub mod filename_heuristics;
 pub mod import;
@@ -12,6 +13,10 @@ pub mod search_automation;
 
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
+};
+pub use download_clients::{
+    AddTorrentRequest, DownloadClient, DownloadClientError, DownloadItem, DownloadState,
+    QBittorrentClient,
 };
 pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
