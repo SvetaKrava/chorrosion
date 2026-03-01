@@ -2,10 +2,17 @@
 
 use crate::filename_heuristics::FilenameHeuristicsService;
 use chorrosion_domain::{AlbumId, ArtistId};
+use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing::warn;
+
+lazy_static! {
+    static ref BITRATE_REGEX: Regex =
+        Regex::new(r"(?i)\b(?P<bitrate>\d{3})\s?kbps\b").expect("bitrate regex is valid");
+}
 
 #[derive(Debug, Error)]
 pub enum ImportMatchingError {
@@ -187,6 +194,19 @@ pub fn evaluate_import_match(
     fuzzy_threshold: f32,
     auto_import_threshold: f32,
 ) -> ImportEvaluation {
+    let fuzzy_threshold = if !(0.0..=1.0).contains(&fuzzy_threshold) {
+        warn!(target: "application", fuzzy_threshold, "fuzzy_threshold out of [0.0, 1.0] range, clamping");
+        fuzzy_threshold.clamp(0.0, 1.0)
+    } else {
+        fuzzy_threshold
+    };
+    let auto_import_threshold = if !(0.0..=1.0).contains(&auto_import_threshold) {
+        warn!(target: "application", auto_import_threshold, "auto_import_threshold out of [0.0, 1.0] range, clamping");
+        auto_import_threshold.clamp(0.0, 1.0)
+    } else {
+        auto_import_threshold
+    };
+
     if catalog.is_empty() {
         return ImportEvaluation {
             best_match: None,
@@ -260,7 +280,15 @@ fn visit_directory(
         let entry = entry.map_err(|err| ImportMatchingError::Io(err.to_string()))?;
         let path = entry.path();
 
-        if path.is_dir() {
+        let file_type = entry
+            .file_type()
+            .map_err(|err| ImportMatchingError::Io(err.to_string()))?;
+
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
             visit_directory(&path, scanned)?;
             continue;
         }
@@ -294,8 +322,7 @@ fn is_audio_extension(extension: &str) -> bool {
 
 fn extract_bitrate_from_filename(path: &Path) -> Option<u32> {
     let stem = path.file_stem()?.to_str()?;
-    let regex = Regex::new(r"(?i)\b(?P<bitrate>\d{3})\s?kbps\b").ok()?;
-    regex
+    BITRATE_REGEX
         .captures(stem)
         .and_then(|captures| captures.name("bitrate"))
         .and_then(|value| value.as_str().parse::<u32>().ok())
@@ -365,22 +392,11 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn create_temp_dir(prefix: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be valid")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{unique}"));
-        fs::create_dir_all(&path).expect("temp dir should be created");
-        path
-    }
 
     #[test]
     fn scan_audio_files_recursively_filters_supported_extensions() {
-        let root = create_temp_dir("chorrosion-scan");
-        let album_dir = root.join("artist").join("album");
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let album_dir = root.path().join("artist").join("album");
         fs::create_dir_all(&album_dir).expect("nested dir should be created");
 
         let audio = album_dir.join("01 - Track.mp3");
@@ -388,19 +404,17 @@ mod tests {
         fs::write(&audio, b"audio-data").expect("audio file should exist");
         fs::write(&image, b"image-data").expect("image file should exist");
 
-        let scanned = scan_audio_files(&root).expect("scan should succeed");
+        let scanned = scan_audio_files(root.path()).expect("scan should succeed");
 
         assert_eq!(scanned.len(), 1);
         assert_eq!(scanned[0].path, audio);
         assert_eq!(scanned[0].extension, "mp3");
-
-        fs::remove_dir_all(root).expect("temp dir should be removed");
     }
 
     #[test]
     fn parse_track_metadata_prefers_embedded_tags() {
-        let root = create_temp_dir("chorrosion-embedded");
-        let file = root.join("any.mp3");
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let file = root.path().join("any.mp3");
         fs::write(&file, b"audio-data").expect("file should exist");
 
         let parsed = parse_track_metadata(&RawTrackMetadata {
@@ -417,14 +431,15 @@ mod tests {
         assert_eq!(parsed.album, "Amber");
         assert_eq!(parsed.title, "Foil");
         assert_eq!(parsed.source, MetadataSource::EmbeddedTags);
-
-        fs::remove_dir_all(root).expect("temp dir should be removed");
     }
 
     #[test]
     fn parse_track_metadata_falls_back_to_filename_heuristics() {
-        let root = create_temp_dir("chorrosion-filename");
-        let album_dir = root.join("Boards of Canada").join("Music Has the Right to Children");
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let album_dir = root
+            .path()
+            .join("Boards of Canada")
+            .join("Music Has the Right to Children");
         fs::create_dir_all(&album_dir).expect("nested dir should exist");
 
         let file = album_dir.join("Boards of Canada - 01 - Wildlife Analysis 320kbps.mp3");
@@ -444,8 +459,6 @@ mod tests {
         assert_eq!(parsed.album, "Music Has the Right to Children");
         assert_eq!(parsed.source, MetadataSource::FilenameHeuristics);
         assert_eq!(parsed.bitrate_kbps, Some(320));
-
-        fs::remove_dir_all(root).expect("temp dir should be removed");
     }
 
     #[test]
