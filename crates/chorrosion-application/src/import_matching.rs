@@ -194,18 +194,8 @@ pub fn evaluate_import_match(
     fuzzy_threshold: f32,
     auto_import_threshold: f32,
 ) -> ImportEvaluation {
-    let fuzzy_threshold = if !(0.0..=1.0).contains(&fuzzy_threshold) {
-        warn!(target: "application", fuzzy_threshold, "fuzzy_threshold out of [0.0, 1.0] range, clamping");
-        fuzzy_threshold.clamp(0.0, 1.0)
-    } else {
-        fuzzy_threshold
-    };
-    let auto_import_threshold = if !(0.0..=1.0).contains(&auto_import_threshold) {
-        warn!(target: "application", auto_import_threshold, "auto_import_threshold out of [0.0, 1.0] range, clamping");
-        auto_import_threshold.clamp(0.0, 1.0)
-    } else {
-        auto_import_threshold
-    };
+    let fuzzy_threshold = clamp_threshold("fuzzy_threshold", fuzzy_threshold, 0.0);
+    let auto_import_threshold = clamp_threshold("auto_import_threshold", auto_import_threshold, 1.0);
 
     if catalog.is_empty() {
         return ImportEvaluation {
@@ -233,6 +223,19 @@ pub fn evaluate_import_match(
     };
 
     ImportEvaluation { best_match, decision }
+}
+
+fn clamp_threshold(name: &str, value: f32, non_finite_default: f32) -> f32 {
+    if !value.is_finite() {
+        warn!(target: "application", name, value, "threshold is not finite, using default {non_finite_default}");
+        return non_finite_default;
+    }
+    if !(0.0..=1.0).contains(&value) {
+        let clamped = value.clamp(0.0, 1.0);
+        warn!(target: "application", name, value, clamped, "threshold out of [0.0, 1.0] range, clamping");
+        return clamped;
+    }
+    value
 }
 
 fn find_best_catalog_match(
