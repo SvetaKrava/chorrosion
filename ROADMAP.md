@@ -246,18 +246,18 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 5.2 File Organization
 
-- [ ] File renaming implementation
+- [x] File renaming implementation (Issue #35, PR #156, PR #158) ✓ PARTIALLY COMPLETE
   - [ ] File Path Generation and Naming Logic (Issue #21)
-  - [ ] Naming pattern engine
-  - [ ] Token replacement (artist, album, track, etc.)
-  - [ ] Safe file operations
-- [ ] Folder organization
-  - [ ] Artist folder structure
-  - [ ] Album folder structure
-  - [ ] Multi-disc handling
-- [ ] File operations
-  - [ ] Copy vs. move logic
-  - [ ] Hard link support
+  - [x] Naming pattern engine (Issue #35, PR #156, PR #158) ✓
+  - [x] Token replacement (artist, album, track, disc, ext) (Issue #35, PR #156, PR #158) ✓
+  - [x] Safe file operations (Issue #35, PR #156, PR #158) ✓
+- [x] Folder organization (Issue #35, PR #156, PR #158) ✓ COMPLETE
+  - [x] Artist folder structure (Issue #35, PR #156, PR #158) ✓
+  - [x] Album folder structure (Issue #35, PR #156, PR #158) ✓
+  - [x] Multi-disc handling (Issue #35, PR #156, PR #158) ✓
+- [x] File operations (Issue #35, PR #156, PR #158) ✓ PARTIALLY COMPLETE
+  - [x] Copy vs. move logic (Issue #35, PR #156, PR #158) ✓
+  - [x] Hard link support (Issue #35, PR #156, PR #158) ✓
   - [ ] Permission handling
 
 ### 5.3 Quality Management
@@ -526,4 +526,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-03-02  
 **Current Phase:** Phase 5: File Management  
-**Next Milestone:** File Organization and Renaming Engine (Issue #35)
+**Next Milestone:** Metadata and Artwork Embedding in Audio Files (Issue #36)
