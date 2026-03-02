@@ -71,7 +71,6 @@ impl Default for TagEmbeddingOptions {
 pub enum TagEmbeddingOutcome {
     Embedded {
         format: TagFormat,
-        backup_path: PathBuf,
     },
     Skipped {
         reason: String,
@@ -167,12 +166,20 @@ impl TagEmbeddingService {
         }
 
         if options.verify_roundtrip {
-            let snapshot = self
-                .backend
-                .read_snapshot(&temp_path, format)
-                .map_err(TagEmbeddingError::RoundtripVerification)?;
+            let snapshot = match self.backend.read_snapshot(&temp_path, format) {
+                Ok(snapshot) => snapshot,
+                Err(err) => {
+                    let _ = fs::remove_file(&temp_path);
+                    let _ = fs::remove_file(&backup_path);
+                    return Err(TagEmbeddingError::RoundtripVerification(err));
+                }
+            };
 
-            verify_snapshot(&request.payload, &snapshot)?;
+            if let Err(err) = verify_snapshot(&request.payload, &snapshot) {
+                let _ = fs::remove_file(&temp_path);
+                let _ = fs::remove_file(&backup_path);
+                return Err(err);
+            }
         }
 
         if let Err(error) = replace_file_atomically(&temp_path, &request.file_path) {
@@ -184,10 +191,7 @@ impl TagEmbeddingService {
 
         let _ = fs::remove_file(&backup_path);
 
-        Ok(TagEmbeddingOutcome::Embedded {
-            format,
-            backup_path,
-        })
+        Ok(TagEmbeddingOutcome::Embedded { format })
     }
 }
 
@@ -195,15 +199,18 @@ fn detect_tag_format(path: &Path) -> Result<TagFormat, TagEmbeddingError> {
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+        .map(|value| value.to_ascii_lowercase());
 
-    match extension.as_str() {
-        "mp3" => Ok(TagFormat::Id3v2),
-        "flac" | "ogg" | "opus" => Ok(TagFormat::VorbisComments),
-        "m4a" | "aac" | "mp4" => Ok(TagFormat::Mp4),
-        "wv" | "ape" => Ok(TagFormat::Ape),
-        _ => Err(TagEmbeddingError::UnsupportedFormat(extension)),
+    match extension.as_deref() {
+        Some("mp3") => Ok(TagFormat::Id3v2),
+        Some("flac") | Some("ogg") | Some("opus") => Ok(TagFormat::VorbisComments),
+        Some("m4a") | Some("aac") | Some("mp4") => Ok(TagFormat::Mp4),
+        Some("wv") | Some("ape") => Ok(TagFormat::Ape),
+        None => Err(TagEmbeddingError::UnsupportedFormat(format!(
+            "missing or invalid file extension for path {}",
+            path.display()
+        ))),
+        Some(other) => Err(TagEmbeddingError::UnsupportedFormat(other.to_string())),
     }
 }
 
@@ -287,12 +294,35 @@ fn restore_backup(backup_path: &Path, destination: &Path) -> Result<(), TagEmbed
     Ok(())
 }
 
+#[cfg(unix)]
 fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), TagEmbeddingError> {
+    // On Unix, std::fs::rename uses rename(2), which atomically replaces
+    // the destination if it already exists.
+    fs::rename(temp_path, destination)
+        .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))
+}
+
+#[cfg(not(unix))]
+fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), TagEmbeddingError> {
+    let backup = backup_path_for(destination);
+
     if destination.exists() {
-        fs::remove_file(destination)
+        fs::rename(destination, &backup)
             .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))?;
     }
-    fs::rename(temp_path, destination).map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))
+
+    match fs::rename(temp_path, destination) {
+        Ok(()) => {
+            // Best-effort cleanup of the backup; ignore errors.
+            let _ = fs::remove_file(&backup);
+            Ok(())
+        }
+        Err(err) => {
+            // Attempt to restore the original file from the backup.
+            let _ = fs::rename(&backup, destination);
+            Err(TagEmbeddingError::FileOperation(err.to_string()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -356,12 +386,21 @@ mod tests {
         }
     }
 
+    static TEMP_DIRS: std::sync::OnceLock<std::sync::Mutex<Vec<tempfile::TempDir>>> =
+        std::sync::OnceLock::new();
+
     fn create_temp_file(extension: &str) -> PathBuf {
         let dir = tempfile::tempdir().expect("tempdir should be created");
         let file_path = dir.path().join(format!("song.{extension}"));
         fs::write(&file_path, b"original").expect("file should be written");
-        let persisted = dir.keep();
-        persisted.join(format!("song.{extension}"))
+        // Store the TempDir so it is not dropped immediately; it will be
+        // cleaned up automatically when the test process exits.
+        let registry = TEMP_DIRS.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+        registry
+            .lock()
+            .expect("TEMP_DIRS lock")
+            .push(dir);
+        file_path
     }
 
     fn request_for(path: PathBuf) -> TagEmbeddingRequest {
