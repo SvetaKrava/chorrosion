@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+lazy_static! {
+    static ref TOKEN_REGEX: Regex =
+        Regex::new(r"\{(?P<token>[a-z]+(?::\d+)?)\}")
+            .expect("failed to compile token replacement regex pattern");
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileOperationMode {
@@ -44,10 +51,7 @@ pub fn render_naming_pattern(
         ));
     }
 
-    let token_regex = Regex::new(r"\{(?P<token>[a-z]+(?::\d+)?)\}")
-        .map_err(|err| FileOrganizationError::InvalidPattern(err.to_string()))?;
-
-    let rendered = token_regex
+    let rendered = TOKEN_REGEX
         .replace_all(pattern, |captures: &regex::Captures| {
             resolve_token(captures.name("token").map(|m| m.as_str()).unwrap_or(""), context)
         })
@@ -79,7 +83,7 @@ pub fn build_organized_file_path(
     };
 
     let mut path = PathBuf::from(base);
-    for segment in rendered_folder.split('/') {
+    for segment in rendered_folder.split(['/', '\\']) {
         let segment = sanitize_component(segment);
         if !segment.is_empty() {
             path.push(segment);
@@ -104,6 +108,20 @@ pub fn apply_file_operation(
         return Err(FileOrganizationError::SourceNotFound(
             source.display().to_string(),
         ));
+    }
+
+    // Guard against source and destination being the same file to prevent data loss.
+    let canonical_source = source
+        .canonicalize()
+        .map_err(|err| FileOrganizationError::FileOperation(err.to_string()))?;
+    if let Ok(canonical_dest) = destination.canonicalize() {
+        if canonical_source == canonical_dest {
+            tracing::trace!(
+                target: "application",
+                "source and destination resolve to the same path, skipping file operation"
+            );
+            return Ok(());
+        }
     }
 
     if destination.exists() {
@@ -163,51 +181,56 @@ fn resolve_token(token: &str, context: &TrackPathContext) -> String {
             .disc_number
             .map(|number| format!("{:02}", number))
             .unwrap_or_default(),
-        _ => String::new(),
+        _ => token.to_string(),
     }
 }
 
 fn sanitize_component(input: &str) -> String {
     let banned = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
-    input
+
+    // Replace banned characters with spaces and normalize whitespace.
+    let sanitized = input
         .chars()
         .map(|character| if banned.contains(&character) { ' ' } else { character })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+
+    // Trim leading/trailing spaces and dots (prevents Windows issues and neutralizes
+    // components that reduce to "." or "..").
+    let mut component = sanitized
+        .trim_matches(|c: char| c == ' ' || c == '.')
+        .to_string();
+
+    // Explicitly neutralize path traversal components that survived trimming.
+    if component == "." || component == ".." {
+        return String::new();
+    }
+
+    // Reject Windows reserved device names to keep paths filesystem-safe.
+    if !component.is_empty() {
+        let lower = component.to_ascii_lowercase();
+        let is_reserved = matches!(
+            lower.as_str(),
+            "con" | "prn" | "aux" | "nul"
+                | "com1" | "com2" | "com3" | "com4" | "com5"
+                | "com6" | "com7" | "com8" | "com9"
+                | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5"
+                | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+        );
+        if is_reserved {
+            component.push('_');
+        }
+    }
+
+    component
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct TestTempDir {
-        path: PathBuf,
-    }
-
-    impl TestTempDir {
-        fn new(prefix: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time should be valid")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("{prefix}-{unique}"));
-            fs::create_dir_all(&path).expect("temp directory should be created");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestTempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    use tempfile::tempdir;
 
     fn sample_context() -> TrackPathContext {
         TrackPathContext {
@@ -250,7 +273,7 @@ mod tests {
 
     #[test]
     fn copy_operation_creates_destination_and_keeps_source() {
-        let temp_dir = TestTempDir::new("chorrosion-copy");
+        let temp_dir = tempdir().expect("temp directory should be created");
         let source = temp_dir.path().join("source.flac");
         let destination = temp_dir.path().join("library").join("dest.flac");
         fs::write(&source, b"audio-data").expect("source should be written");
@@ -264,7 +287,7 @@ mod tests {
 
     #[test]
     fn move_operation_transfers_file() {
-        let temp_dir = TestTempDir::new("chorrosion-move");
+        let temp_dir = tempdir().expect("temp directory should be created");
         let source = temp_dir.path().join("source.mp3");
         let destination = temp_dir.path().join("organized").join("dest.mp3");
         fs::write(&source, b"audio-data").expect("source should be written");
@@ -278,7 +301,7 @@ mod tests {
 
     #[test]
     fn hardlink_operation_creates_link() {
-        let temp_dir = TestTempDir::new("chorrosion-link");
+        let temp_dir = tempdir().expect("temp directory should be created");
         let source = temp_dir.path().join("source.flac");
         let destination = temp_dir.path().join("organized").join("linked.flac");
         fs::write(&source, b"audio-data").expect("source should be written");
@@ -292,7 +315,7 @@ mod tests {
 
     #[test]
     fn target_exists_without_overwrite_returns_error() {
-        let temp_dir = TestTempDir::new("chorrosion-overwrite");
+        let temp_dir = tempdir().expect("temp directory should be created");
         let source = temp_dir.path().join("source.flac");
         let destination = temp_dir.path().join("dest.flac");
         fs::write(&source, b"audio-data").expect("source should be written");
