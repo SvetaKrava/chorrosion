@@ -12,6 +12,7 @@ pub mod matching;
 pub mod matching_precedence;
 pub mod release_parsing;
 pub mod search_automation;
+pub mod tag_embedding;
 
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
@@ -50,6 +51,11 @@ pub use release_parsing::{
 pub use search_automation::{
     automatic_search_missing_albums, detect_missing_albums, manual_search,
     AlbumSearchTarget, AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
+};
+pub use tag_embedding::{
+    ArtworkData, TagEmbeddingBackend, TagEmbeddingError, TagEmbeddingOptions,
+    TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest, TagEmbeddingService,
+    TagFormat, TagRoundtripSnapshot,
 };
 
 use tracing::info;
