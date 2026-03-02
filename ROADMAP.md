@@ -219,6 +219,11 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 - [x] File scanning and detection (Issue #34, PR #152, PR #153) ✓ COMPLETE
 - [x] Track file parsing (tags, duration, bitrate) (Issue #34, PR #152, PR #153) ✓ PARTIALLY COMPLETE
+  - [x] Embedded tag field model (artist, album, title) ✓
+  - [x] Duration read from file system metadata ✓
+  - [x] Bitrate extraction from filename heuristics (BITRATE_REGEX) ✓
+  - [ ] Library-based tag reading (ID3/FLAC/Vorbis/APEv2) — placeholder only
+  - [ ] Bitrate from audio codec/stream data (not just filename)
 - [x] **Fingerprint generation during import** (Issue #67) ✓
   - [x] Generate Chromaprint fingerprint ✓
   - [x] Cache in database (Issue #66) ✓
@@ -232,7 +237,12 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Fallback: Filename heuristics (Issue #28) ✓
   - [x] Fuzzy matching for poor metadata (Issue #34, PR #152, PR #153) ✓
 - [x] Import decision logic (Issue #34, PR #152, PR #153) ✓ PARTIALLY COMPLETE
-- [ ] Manual import UI support
+  - [x] ImportDecision enum (Import / NeedsReview / Skip) ✓
+  - [x] Confidence-threshold-based auto-import ✓
+  - [x] NeedsReview flagging for low-confidence matches ✓
+  - [x] Catalog match evaluation (ImportEvaluation) ✓
+  - [ ] Quality upgrade / duplicate-file decisions
+  - [ ] Manual import UI support
 
 ### 5.2 File Organization
 
