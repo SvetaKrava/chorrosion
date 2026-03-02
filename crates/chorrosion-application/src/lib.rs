@@ -3,6 +3,7 @@ use chorrosion_config::AppConfig;
 pub mod embedded_tags;
 pub mod download_clients;
 pub mod events;
+pub mod file_organization;
 pub mod filename_heuristics;
 pub mod import;
 pub mod import_matching;
@@ -18,6 +19,10 @@ pub use embedded_tags::{
 pub use download_clients::{
     AddTorrentRequest, DownloadClient, DownloadClientError, DownloadItem, DownloadState,
     QBittorrentClient,
+};
+pub use file_organization::{
+    apply_file_operation, build_organized_file_path, render_naming_pattern, FileOperationMode,
+    FileOrganizationError, TrackPathContext,
 };
 pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
