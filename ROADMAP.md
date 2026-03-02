@@ -251,7 +251,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Naming pattern engine (Issue #35, PR #156, PR #158) ✓
   - [x] Token replacement (artist, album, track, disc, ext) (Issue #35, PR #156, PR #158) ✓
   - [x] Safe file operations (Issue #35, PR #156, PR #158) ✓
-- [x] Folder organization (Issue #35, PR #156, PR #158) ✓ PARTIALLY COMPLETE
+- [x] Folder organization (Issue #35, PR #156, PR #158) ✓ COMPLETE
   - [x] Artist folder structure (Issue #35, PR #156, PR #158) ✓
   - [x] Album folder structure (Issue #35, PR #156, PR #158) ✓
   - [x] Multi-disc handling (Issue #35, PR #156, PR #158) ✓
