@@ -5,6 +5,7 @@ use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing::trace;
 
 lazy_static! {
     static ref TOKEN_REGEX: Regex =
@@ -116,7 +117,7 @@ pub fn apply_file_operation(
         .map_err(|err| FileOrganizationError::FileOperation(err.to_string()))?;
     if let Ok(canonical_dest) = destination.canonicalize() {
         if canonical_source == canonical_dest {
-            tracing::trace!(
+            trace!(
                 target: "application",
                 "source and destination resolve to the same path, skipping file operation"
             );
@@ -209,10 +210,13 @@ fn sanitize_component(input: &str) -> String {
     }
 
     // Reject Windows reserved device names to keep paths filesystem-safe.
+    // Reserved names are invalid even with an extension (e.g., "con.txt"),
+    // so we check the stem (portion before the first dot) and insert '_' there.
     if !component.is_empty() {
-        let lower = component.to_ascii_lowercase();
+        let stem = component.split('.').next().unwrap_or(&component);
+        let lower_stem = stem.to_ascii_lowercase();
         let is_reserved = matches!(
-            lower.as_str(),
+            lower_stem.as_str(),
             "con" | "prn" | "aux" | "nul"
                 | "com1" | "com2" | "com3" | "com4" | "com5"
                 | "com6" | "com7" | "com8" | "com9"
@@ -220,7 +224,8 @@ fn sanitize_component(input: &str) -> String {
                 | "lpt6" | "lpt7" | "lpt8" | "lpt9"
         );
         if is_reserved {
-            component.push('_');
+            // Insert '_' after the stem to make "con" → "con_" and "con.txt" → "con_.txt".
+            component.insert(stem.len(), '_');
         }
     }
 
@@ -248,6 +253,13 @@ mod tests {
         let rendered = render_naming_pattern("{track:02} - {title}", &sample_context())
             .expect("render should succeed");
         assert_eq!(rendered, "04 - Roygbiv");
+    }
+
+    #[test]
+    fn unknown_token_is_preserved_in_rendered_output() {
+        let rendered = render_naming_pattern("{unknown} - {title}", &sample_context())
+            .expect("render should succeed");
+        assert_eq!(rendered, "unknown - Roygbiv");
     }
 
     #[test]
