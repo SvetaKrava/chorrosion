@@ -217,21 +217,21 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 5.1 Import System
 
-- [ ] File scanning and detection
-- [ ] Track file parsing (tags, duration, bitrate)
+- [x] File scanning and detection (Issue #34, PR #152, PR #153) ✓ COMPLETE
+- [x] Track file parsing (tags, duration, bitrate) (Issue #34, PR #152, PR #153) ✓ PARTIALLY COMPLETE
 - [x] **Fingerprint generation during import** (Issue #67) ✓
   - [x] Generate Chromaprint fingerprint ✓
   - [x] Cache in database (Issue #66) ✓
   - [x] Store in TrackFile domain model ✓
-- [ ] File matching algorithm
+- [x] File matching algorithm (Issue #34, PR #152, PR #153) ✓ PARTIALLY COMPLETE
   - [x] **Primary: Fingerprint-based lookup** (Issue #68) ✓
     - [x] Query AcoustID with fingerprint ✓
     - [x] Link to MusicBrainz recording ✓
     - [ ] Link to artist/album via recording
   - [x] Fallback: Embedded tag matching (Issue #28) ✓
   - [x] Fallback: Filename heuristics (Issue #28) ✓
-  - [ ] Fuzzy matching for poor metadata
-- [ ] Import decision logic
+  - [x] Fuzzy matching for poor metadata (Issue #34, PR #152, PR #153) ✓
+- [x] Import decision logic (Issue #34, PR #152, PR #153) ✓ PARTIALLY COMPLETE
 - [ ] Manual import UI support
 
 ### 5.2 File Organization
@@ -514,6 +514,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-02-28  
-**Current Phase:** Phase 4: Search & Download  
-**Next Milestone:** File Import System with Matching Algorithm (Issue #34)
+**Last Updated:** 2026-03-02  
+**Current Phase:** Phase 5: File Management  
+**Next Milestone:** File Organization and Renaming Engine (Issue #35)
