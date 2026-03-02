@@ -304,25 +304,14 @@ fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), T
 
 #[cfg(not(unix))]
 fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), TagEmbeddingError> {
-    let backup = backup_path_for(destination);
-
+    // Remove the destination so we can rename the temp into place.
+    // The caller already holds a backup and is responsible for restoring it on error.
     if destination.exists() {
-        fs::rename(destination, &backup)
+        fs::remove_file(destination)
             .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))?;
     }
-
-    match fs::rename(temp_path, destination) {
-        Ok(()) => {
-            // Best-effort cleanup of the backup; ignore errors.
-            let _ = fs::remove_file(&backup);
-            Ok(())
-        }
-        Err(err) => {
-            // Attempt to restore the original file from the backup.
-            let _ = fs::rename(&backup, destination);
-            Err(TagEmbeddingError::FileOperation(err.to_string()))
-        }
-    }
+    fs::rename(temp_path, destination)
+        .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))
 }
 
 #[cfg(test)]
@@ -501,5 +490,12 @@ mod tests {
             detect_tag_format(Path::new("track.ape")).expect("ape format"),
             TagFormat::Ape
         ));
+    }
+
+    #[test]
+    fn returns_clear_error_for_missing_extension() {
+        let err = detect_tag_format(Path::new("trackname")).expect_err("should fail without extension");
+        assert!(matches!(err, TagEmbeddingError::UnsupportedFormat(_)));
+        assert!(err.to_string().contains("missing or invalid file extension"));
     }
 }
