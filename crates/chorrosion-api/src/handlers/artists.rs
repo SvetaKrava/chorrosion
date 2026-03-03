@@ -235,23 +235,33 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> (V
         artists.retain(|artist| artist.status == status);
     }
 
-    artists.sort_by(|left, right| {
-        let ordering = match query.sort_by {
-            ArtistSortField::Name => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
-            ArtistSortField::Status => left.status.to_string().cmp(&right.status.to_string()),
-            ArtistSortField::Monitored => left.monitored.cmp(&right.monitored),
-        };
-
-        match query.sort_order {
-            SortOrder::Asc => ordering,
-            SortOrder::Desc => ordering.reverse(),
+    match query.sort_by {
+        ArtistSortField::Name => {
+            artists.sort_by_cached_key(|a| (a.name.to_lowercase(), a.id.0));
         }
-    });
+        ArtistSortField::Status => {
+            artists.sort_by_cached_key(|a| (a.status.to_string(), a.id.0));
+        }
+        ArtistSortField::Monitored => {
+            artists.sort_by_cached_key(|a| (a.monitored, a.id.0));
+        }
+    }
 
-    let start = query.offset as usize;
-    let end = start.saturating_add(query.limit as usize);
+    if query.sort_order == SortOrder::Desc {
+        artists.reverse();
+    }
 
     let total = artists.len() as i64;
+
+    let start = match usize::try_from(query.offset) {
+        Ok(v) => v,
+        Err(_) => return (vec![], total),
+    };
+    let limit = match usize::try_from(query.limit) {
+        Ok(v) => v,
+        Err(_) => return (vec![], total),
+    };
+    let end = start.saturating_add(limit);
 
     if start >= artists.len() {
         return (vec![], total);
@@ -424,6 +434,66 @@ mod tests {
 
         let result = normalize_list_query(&query);
         assert!(matches!(result, Err(ListArtistsQueryError::InvalidLimit)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_negative_offset() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: -1,
+            monitored: None,
+            status: None,
+            sort_by: None,
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::InvalidOffset)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_status() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: Some("unknown".to_string()),
+            sort_by: None,
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::InvalidStatus)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_sort_by() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: Some("invalid_field".to_string()),
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::InvalidSortBy)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_sort_order() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: None,
+            sort_order: Some("random".to_string()),
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::InvalidSortOrder)));
     }
 
     #[test]
