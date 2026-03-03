@@ -3,6 +3,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use lofty::config::WriteOptions;
+use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::probe::Probe;
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +110,116 @@ pub trait TagEmbeddingBackend: Send + Sync {
         file_path: &Path,
         format: TagFormat,
     ) -> Result<TagRoundtripSnapshot, String>;
+}
+
+pub struct LoftyTagEmbeddingBackend;
+
+impl LoftyTagEmbeddingBackend {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for LoftyTagEmbeddingBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TagEmbeddingBackend for LoftyTagEmbeddingBackend {
+    fn write_to_path(
+        &self,
+        file_path: &Path,
+        format: TagFormat,
+        payload: &TagEmbeddingPayload,
+        overwrite_existing: bool,
+    ) -> Result<(), String> {
+        let mut tagged_file = Probe::open(file_path)
+            .map_err(|err| err.to_string())?
+            .read()
+            .map_err(|err| err.to_string())?;
+
+        let tag_type = format_to_tag_type(format);
+
+        let mut working_tag = tagged_file
+            .remove(tag_type)
+            .unwrap_or_else(|| Tag::new(tag_type));
+
+        if overwrite_existing || working_tag.artist().is_none() {
+            set_optional_text(&mut working_tag, payload.artist.as_deref(), |tag, value| {
+                tag.set_artist(value.to_string());
+            });
+        }
+        if overwrite_existing || working_tag.album().is_none() {
+            set_optional_text(&mut working_tag, payload.album.as_deref(), |tag, value| {
+                tag.set_album(value.to_string());
+            });
+        }
+        if overwrite_existing || working_tag.title().is_none() {
+            set_optional_text(&mut working_tag, payload.title.as_deref(), |tag, value| {
+                tag.set_title(value.to_string());
+            });
+        }
+
+        if let Some(track_number) = payload.track_number {
+            if overwrite_existing || working_tag.track().is_none() {
+                working_tag.set_track(track_number);
+            }
+        }
+
+        if let Some(disc_number) = payload.disc_number {
+            if overwrite_existing || working_tag.disk().is_none() {
+                working_tag.set_disk(disc_number);
+            }
+        }
+
+        upsert_fingerprint_item(
+            &mut working_tag,
+            payload.fingerprint_hash.as_deref(),
+            overwrite_existing,
+        );
+
+        upsert_artwork(
+            &mut working_tag,
+            payload.artwork.as_ref(),
+            overwrite_existing,
+        )
+        .map_err(|err| err.to_string())?;
+
+        tagged_file.insert_tag(working_tag);
+        tagged_file
+            .save_to_path(file_path, WriteOptions::default())
+            .map_err(|err| err.to_string())
+    }
+
+    fn read_snapshot(
+        &self,
+        file_path: &Path,
+        format: TagFormat,
+    ) -> Result<TagRoundtripSnapshot, String> {
+        let tagged_file = Probe::open(file_path)
+            .map_err(|err| err.to_string())?
+            .read()
+            .map_err(|err| err.to_string())?;
+
+        let tag_type = format_to_tag_type(format);
+        let tag = tagged_file
+            .tag(tag_type)
+            .or_else(|| tagged_file.primary_tag())
+            .ok_or_else(|| "no readable tags found for roundtrip".to_string())?;
+
+        let fingerprint_hash = tag
+            .get_string(&ItemKey::Unknown("CHORROSION_FINGERPRINT".to_string()))
+            .map(|value| value.to_string());
+
+        Ok(TagRoundtripSnapshot {
+            artist: tag.artist().map(|value| value.to_string()),
+            album: tag.album().map(|value| value.to_string()),
+            title: tag.title().map(|value| value.to_string()),
+            fingerprint_hash,
+            has_artwork: !tag.pictures().is_empty(),
+        })
+    }
 }
 
 pub struct TagEmbeddingService {
@@ -291,6 +406,67 @@ fn temp_path_for(file_path: &Path) -> PathBuf {
 fn restore_backup(backup_path: &Path, destination: &Path) -> Result<(), TagEmbeddingError> {
     fs::copy(backup_path, destination)
         .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))?;
+    Ok(())
+}
+
+fn format_to_tag_type(format: TagFormat) -> TagType {
+    match format {
+        TagFormat::Id3v2 => TagType::Id3v2,
+        TagFormat::VorbisComments => TagType::VorbisComments,
+        TagFormat::Mp4 => TagType::Mp4Ilst,
+        TagFormat::Ape => TagType::Ape,
+    }
+}
+
+fn set_optional_text<F>(tag: &mut Tag, value: Option<&str>, mut setter: F)
+where
+    F: FnMut(&mut Tag, &str),
+{
+    if let Some(value) = value {
+        setter(tag, value);
+    }
+}
+
+fn upsert_fingerprint_item(tag: &mut Tag, fingerprint_hash: Option<&str>, overwrite_existing: bool) {
+    let Some(fingerprint_hash) = fingerprint_hash else {
+        return;
+    };
+
+    let key = ItemKey::Unknown("CHORROSION_FINGERPRINT".to_string());
+    let existing = tag.get_string(&key);
+
+    if existing.is_none() || overwrite_existing {
+        tag.insert(TagItem::new(
+            key,
+            ItemValue::Text(fingerprint_hash.to_string()),
+        ));
+    }
+}
+
+fn upsert_artwork(
+    tag: &mut Tag,
+    artwork: Option<&ArtworkData>,
+    overwrite_existing: bool,
+) -> Result<(), String> {
+    let Some(artwork) = artwork else {
+        return Ok(());
+    };
+
+    if overwrite_existing && !tag.pictures().is_empty() {
+        tag.remove_picture_type(PictureType::CoverFront);
+    } else if !overwrite_existing && !tag.pictures().is_empty() {
+        return Ok(());
+    }
+
+    let mime_type = MimeType::from_str(&artwork.mime_type);
+
+    tag.push_picture(Picture::new_unchecked(
+        PictureType::CoverFront,
+        Some(mime_type),
+        None,
+        artwork.bytes.clone(),
+    ));
+
     Ok(())
 }
 
