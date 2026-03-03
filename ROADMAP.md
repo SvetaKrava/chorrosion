@@ -247,7 +247,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ### 5.2 File Organization
 
 - [x] File renaming implementation (Issue #35, PR #156, PR #158) ✓ PARTIALLY COMPLETE
-  - [ ] File Path Generation and Naming Logic (Issue #21)
+  - [x] File Path Generation and Naming Logic (Issue #21, PR #156, PR #158) ✓
   - [x] Naming pattern engine (Issue #35, PR #156, PR #158) ✓
   - [x] Token replacement (artist, album, track, disc, ext) (Issue #35, PR #156, PR #158) ✓
   - [x] Safe file operations (Issue #35, PR #156, PR #158) ✓
@@ -526,4 +526,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-03-03  
 **Current Phase:** Phase 5: File Management  
-**Next Milestone:** File Path Generation and Naming Logic (Issue #21)
+**Next Milestone:** Quality Management and replacement workflow (Phase 5.3)
