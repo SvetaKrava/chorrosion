@@ -235,22 +235,6 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> (V
         artists.retain(|artist| artist.status == status);
     }
 
-    match query.sort_by {
-        ArtistSortField::Name => {
-            artists.sort_by_cached_key(|a| (a.name.to_lowercase(), a.id.0));
-        }
-        ArtistSortField::Status => {
-            artists.sort_by_cached_key(|a| (a.status.to_string(), a.id.0));
-        }
-        ArtistSortField::Monitored => {
-            artists.sort_by_cached_key(|a| (a.monitored, a.id.0));
-        }
-    }
-
-    if query.sort_order == SortOrder::Desc {
-        artists.reverse();
-    }
-
     let total = artists.len() as i64;
 
     let start = match usize::try_from(query.offset) {
@@ -261,12 +245,34 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> (V
         Ok(v) => v,
         Err(_) => return (vec![], total),
     };
-    let end = start.saturating_add(limit);
 
     if start >= artists.len() {
         return (vec![], total);
     }
 
+    match query.sort_by {
+        ArtistSortField::Name => {
+            artists.sort_by_cached_key(|a| (a.name.to_lowercase(), a.id.0));
+        }
+        ArtistSortField::Status => {
+            artists.sort_by_cached_key(|a| {
+                let rank: u8 = match a.status {
+                    ArtistStatus::Continuing => 0,
+                    ArtistStatus::Ended => 1,
+                };
+                (rank, a.id.0)
+            });
+        }
+        ArtistSortField::Monitored => {
+            artists.sort_by_cached_key(|a| (a.monitored, a.id.0));
+        }
+    }
+
+    if query.sort_order == SortOrder::Desc {
+        artists.reverse();
+    }
+
+    let end = start.saturating_add(limit);
     let page = artists
         .into_iter()
         .skip(start)
@@ -543,5 +549,35 @@ mod tests {
         assert_eq!(paged.len(), 2);
         assert_eq!(paged[0].name, "Charlie");
         assert_eq!(paged[1].name, "Bravo");
+    }
+
+    #[test]
+    fn apply_query_sort_is_deterministic_when_primary_keys_equal() {
+        use uuid::Uuid;
+
+        let mut a1 = artist("same", ArtistStatus::Continuing, true);
+        a1.id = ArtistId::from_uuid(Uuid::from_u128(1));
+
+        let mut a2 = artist("same", ArtistStatus::Continuing, true);
+        a2.id = ArtistId::from_uuid(Uuid::from_u128(2));
+
+        let query = NormalizedListQuery {
+            limit: 50,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: ArtistSortField::Name,
+            sort_order: SortOrder::Asc,
+        };
+
+        // Run twice with inputs in different order to verify stable tie-breaking.
+        let (ordered1, _) = apply_list_query(vec![a2.clone(), a1.clone()], &query);
+        let (ordered2, _) = apply_list_query(vec![a1.clone(), a2.clone()], &query);
+
+        // UUID 1 < UUID 2, so a1 must always come first in ascending order.
+        assert_eq!(ordered1[0].id, a1.id);
+        assert_eq!(ordered1[1].id, a2.id);
+        assert_eq!(ordered2[0].id, a1.id);
+        assert_eq!(ordered2[1].id, a2.id);
     }
 }
