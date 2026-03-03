@@ -28,7 +28,7 @@ jobs:
 
       - name: Setup cmake (Windows)
         if: runner.os == 'Windows'
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@3.32.2
 
       - name: Install chromaprint (Windows)
         if: runner.os == 'Windows'
@@ -96,7 +96,7 @@ jobs:
 
       - name: Setup cmake (Windows)
         if: runner.os == 'Windows'
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@3.32.2
 
       - name: Install chromaprint (Windows)
         if: runner.os == 'Windows'
