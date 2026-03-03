@@ -436,7 +436,9 @@ fn upsert_fingerprint_item(tag: &mut Tag, fingerprint_hash: Option<&str>, overwr
     let existing = tag.get_string(&key);
 
     if existing.is_none() || overwrite_existing {
-        tag.insert(TagItem::new(
+        // `Tag::insert` rejects ItemKey::Unknown (map_key returns None),
+        // so use insert_unchecked which bypasses the key-mapping check.
+        tag.insert_unchecked(TagItem::new(
             key,
             ItemValue::Text(fingerprint_hash.to_string()),
         ));
@@ -452,9 +454,14 @@ fn upsert_artwork(
         return Ok(());
     };
 
-    if overwrite_existing && !tag.pictures().is_empty() {
+    let has_cover_front = tag
+        .pictures()
+        .iter()
+        .any(|p| p.pic_type() == PictureType::CoverFront);
+
+    if overwrite_existing && has_cover_front {
         tag.remove_picture_type(PictureType::CoverFront);
-    } else if !overwrite_existing && !tag.pictures().is_empty() {
+    } else if !overwrite_existing && has_cover_front {
         return Ok(());
     }
 
@@ -673,5 +680,232 @@ mod tests {
         let err = detect_tag_format(Path::new("trackname")).expect_err("should fail without extension");
         assert!(matches!(err, TagEmbeddingError::UnsupportedFormat(_)));
         assert!(err.to_string().contains("missing or invalid file extension"));
+    }
+
+    // ── upsert_artwork unit tests ─────────────────────────────────────────────
+
+    fn make_artwork(bytes: Vec<u8>) -> ArtworkData {
+        ArtworkData { mime_type: "image/jpeg".to_string(), bytes }
+    }
+
+    #[test]
+    fn upsert_artwork_no_op_when_none_provided() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        upsert_artwork(&mut tag, None, true).expect("should succeed");
+        assert!(tag.pictures().is_empty());
+    }
+
+    #[test]
+    fn upsert_artwork_adds_cover_front_when_tag_is_empty() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        let artwork = make_artwork(vec![0x01, 0x02, 0x03]);
+        upsert_artwork(&mut tag, Some(&artwork), false).expect("should succeed");
+        assert_eq!(tag.pictures().len(), 1);
+        assert_eq!(tag.pictures()[0].pic_type(), PictureType::CoverFront);
+        assert_eq!(tag.pictures()[0].data(), &[0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn upsert_artwork_adds_cover_front_when_only_non_cover_front_exists() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        tag.push_picture(Picture::new_unchecked(
+            PictureType::Artist,
+            Some(MimeType::Jpeg),
+            None,
+            vec![0xAA, 0xBB],
+        ));
+
+        let artwork = make_artwork(vec![0x01, 0x02]);
+        upsert_artwork(&mut tag, Some(&artwork), false).expect("should succeed");
+
+        // Should now have both the artist picture and the new CoverFront
+        assert_eq!(tag.pictures().len(), 2);
+        assert!(tag.pictures().iter().any(|p| p.pic_type() == PictureType::CoverFront));
+        assert!(tag.pictures().iter().any(|p| p.pic_type() == PictureType::Artist));
+    }
+
+    #[test]
+    fn upsert_artwork_preserves_existing_cover_front_when_overwrite_false() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        tag.push_picture(Picture::new_unchecked(
+            PictureType::CoverFront,
+            Some(MimeType::Jpeg),
+            None,
+            vec![0x01, 0x02], // "original" bytes
+        ));
+
+        let artwork = make_artwork(vec![0x10, 0x20, 0x30]);
+        upsert_artwork(&mut tag, Some(&artwork), false).expect("should succeed");
+
+        assert_eq!(tag.pictures().len(), 1);
+        assert_eq!(tag.pictures()[0].data(), &[0x01, 0x02]); // unchanged
+    }
+
+    #[test]
+    fn upsert_artwork_replaces_cover_front_when_overwrite_true() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        tag.push_picture(Picture::new_unchecked(
+            PictureType::CoverFront,
+            Some(MimeType::Jpeg),
+            None,
+            vec![0x01, 0x02],
+        ));
+
+        let artwork = make_artwork(vec![0x10, 0x20, 0x30]);
+        upsert_artwork(&mut tag, Some(&artwork), true).expect("should succeed");
+
+        assert_eq!(tag.pictures().len(), 1);
+        assert_eq!(tag.pictures()[0].data(), &[0x10, 0x20, 0x30]); // replaced
+    }
+
+    // ── LoftyTagEmbeddingBackend integration tests ────────────────────────────
+
+    /// Minimal valid MPEG/MP3 file: ID3v2.4 header followed by two identical
+    /// MPEG1 Layer-3 frames at 32 kbps / 44100 Hz / Joint Stereo (104 bytes
+    /// each).  Two frames are required so that lofty's `cmp_header` cross-check
+    /// succeeds and the file type is positively identified as MPEG during the
+    /// write path.
+    ///
+    /// Frame header bytes [0xFF, 0xFB, 0x10, 0x44]:
+    ///   sync=0xFFE, MPEG1, Layer3, 32 kbps, 44100 Hz, no padding, Joint Stereo
+    ///   frame_length = floor(1152 × 32000 / (8 × 44100)) = 104 bytes
+    ///
+    /// Layout: [0..10) ID3v2 header | [10..114) frame-1 | [114..218) frame-2
+    const MINIMAL_MP3: &[u8] = &{
+        const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
+        let mut b = [0u8; 218];
+        // ID3v2.4 header at offset 0 (10 bytes, empty tag – size field = 0)
+        b[0] = b'I'; b[1] = b'D'; b[2] = b'3'; b[3] = 4;
+        // Frame 1 header at offset 10 (frame_length = 104 bytes)
+        b[10] = FRAME_HDR[0]; b[11] = FRAME_HDR[1];
+        b[12] = FRAME_HDR[2]; b[13] = FRAME_HDR[3];
+        // Frame 2 header at offset 10 + 104 = 114
+        b[114] = FRAME_HDR[0]; b[115] = FRAME_HDR[1];
+        b[116] = FRAME_HDR[2]; b[117] = FRAME_HDR[3];
+        b
+    };
+
+    /// Minimal valid FLAC stream: 4-byte stream marker + STREAMINFO metadata
+    /// block (NOT the last-block, 34 bytes of well-formed but silent data) +
+    /// an empty PADDING block (last-block flag set, size=0).
+    ///
+    /// The PADDING block is required to prevent an index-out-of-bounds panic in
+    /// lofty's FLAC writer when it tries to add padding to a file whose only
+    /// existing block is STREAMINFO.
+    const MINIMAL_FLAC: &[u8] = &[
+        b'f', b'L', b'a', b'C',                                   // stream marker
+        0x00, 0x00, 0x00, 0x22,                                    // NOT last block + STREAMINFO type 0 + size=34
+        0x00, 0x10, 0x00, 0x10,                                    // min/max block size = 16
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                        // min/max frame size = 0 (unknown)
+        0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x00, 0x00,           // 44100 Hz, 1ch, 16-bit, 0 samples
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,           // MD5 signature (bytes 1–8)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,           // MD5 signature (bytes 9–16)
+        0x81, 0x00, 0x00, 0x00,                                    // last block + PADDING type 1 + size=0
+    ];
+
+    fn write_fixture(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = dir.path().join(name);
+        fs::write(&path, bytes).expect("fixture write");
+        path
+    }
+
+    fn full_payload() -> TagEmbeddingPayload {
+        TagEmbeddingPayload {
+            artist: Some("Roundtrip Artist".to_string()),
+            album: Some("Roundtrip Album".to_string()),
+            title: Some("Roundtrip Track".to_string()),
+            track_number: Some(7),
+            disc_number: Some(2),
+            fingerprint_hash: Some("fp_deadbeef".to_string()),
+            artwork: Some(ArtworkData {
+                mime_type: "image/jpeg".to_string(),
+                bytes: vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x01],
+            }),
+        }
+    }
+
+    #[test]
+    fn lofty_backend_id3v2_roundtrip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_fixture(&dir, "track.mp3", MINIMAL_MP3);
+
+        let backend = LoftyTagEmbeddingBackend::new();
+        backend
+            .write_to_path(&path, TagFormat::Id3v2, &full_payload(), true)
+            .expect("write should succeed");
+
+        let snapshot = backend
+            .read_snapshot(&path, TagFormat::Id3v2)
+            .expect("read should succeed");
+
+        assert_eq!(snapshot.artist.as_deref(), Some("Roundtrip Artist"));
+        assert_eq!(snapshot.album.as_deref(), Some("Roundtrip Album"));
+        assert_eq!(snapshot.title.as_deref(), Some("Roundtrip Track"));
+        assert_eq!(snapshot.fingerprint_hash.as_deref(), Some("fp_deadbeef"));
+        assert!(snapshot.has_artwork);
+    }
+
+    #[test]
+    fn lofty_backend_vorbis_roundtrip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_fixture(&dir, "track.flac", MINIMAL_FLAC);
+
+        let backend = LoftyTagEmbeddingBackend::new();
+        backend
+            .write_to_path(&path, TagFormat::VorbisComments, &full_payload(), true)
+            .expect("write should succeed");
+
+        let snapshot = backend
+            .read_snapshot(&path, TagFormat::VorbisComments)
+            .expect("read should succeed");
+
+        assert_eq!(snapshot.artist.as_deref(), Some("Roundtrip Artist"));
+        assert_eq!(snapshot.album.as_deref(), Some("Roundtrip Album"));
+        assert_eq!(snapshot.title.as_deref(), Some("Roundtrip Track"));
+        assert_eq!(snapshot.fingerprint_hash.as_deref(), Some("fp_deadbeef"));
+        assert!(snapshot.has_artwork);
+    }
+
+    #[test]
+    fn lofty_backend_id3v2_overwrite_false_preserves_existing_text() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_fixture(&dir, "track_preserve.mp3", MINIMAL_MP3);
+
+        let backend = LoftyTagEmbeddingBackend::new();
+
+        // First write: establish initial tags
+        let initial = TagEmbeddingPayload {
+            artist: Some("Original Artist".to_string()),
+            album: None,
+            title: None,
+            track_number: None,
+            disc_number: None,
+            fingerprint_hash: None,
+            artwork: None,
+        };
+        backend
+            .write_to_path(&path, TagFormat::Id3v2, &initial, true)
+            .expect("initial write");
+
+        // Second write with overwrite_existing=false must not replace artist
+        let update = TagEmbeddingPayload {
+            artist: Some("New Artist".to_string()),
+            album: Some("New Album".to_string()),
+            title: None,
+            track_number: None,
+            disc_number: None,
+            fingerprint_hash: None,
+            artwork: None,
+        };
+        backend
+            .write_to_path(&path, TagFormat::Id3v2, &update, false)
+            .expect("update write");
+
+        let snapshot = backend
+            .read_snapshot(&path, TagFormat::Id3v2)
+            .expect("read");
+
+        assert_eq!(snapshot.artist.as_deref(), Some("Original Artist")); // preserved
+        assert_eq!(snapshot.album.as_deref(), Some("New Album")); // filled in (was absent)
     }
 }
