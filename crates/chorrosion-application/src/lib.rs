@@ -53,7 +53,7 @@ pub use search_automation::{
     AlbumSearchTarget, AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
 };
 pub use tag_embedding::{
-    ArtworkData, TagEmbeddingBackend, TagEmbeddingError, TagEmbeddingOptions,
+    ArtworkData, LoftyTagEmbeddingBackend, TagEmbeddingBackend, TagEmbeddingError, TagEmbeddingOptions,
     TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest, TagEmbeddingService,
     TagFormat, TagRoundtripSnapshot,
 };
