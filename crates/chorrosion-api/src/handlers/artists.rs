@@ -7,6 +7,7 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Artist, ArtistStatus};
+use chorrosion_infrastructure::repositories::Repository;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -102,7 +103,7 @@ pub struct ErrorResponse {
     tag = "artists"
 )]
 pub async fn list_artists(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<ListArtistsQuery>,
 ) -> Result<Json<ListArtistsResponse>, (StatusCode, Json<ErrorResponse>)> {
     debug!(target: "api", ?query, "listing artists");
@@ -116,11 +117,18 @@ pub async fn list_artists(
         )
     })?;
 
-    // TODO: Use repository to fetch from database
-    let artists: Vec<Artist> = vec![];
-    let total = artists.len() as i64;
+    let artists = state.artist_repository.list(5000, 0).await.map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to list artists: {error}"),
+            }),
+        )
+    })?;
 
-    let page = apply_list_query(artists, &normalized)
+    let (page, total) = apply_list_query(artists, &normalized);
+
+    let page = page
         .into_iter()
         .map(ArtistResponse::from)
         .collect();
@@ -218,7 +226,7 @@ fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery,
     })
 }
 
-fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> Vec<Artist> {
+fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> (Vec<Artist>, i64) {
     if let Some(monitored) = query.monitored {
         artists.retain(|artist| artist.monitored == monitored);
     }
@@ -243,15 +251,19 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> Ve
     let start = query.offset as usize;
     let end = start.saturating_add(query.limit as usize);
 
+    let total = artists.len() as i64;
+
     if start >= artists.len() {
-        return vec![];
+        return (vec![], total);
     }
 
-    artists
+    let page = artists
         .into_iter()
         .skip(start)
         .take(end.saturating_sub(start))
-        .collect()
+        .collect();
+
+    (page, total)
 }
 
 /// Get a single artist by ID
@@ -269,19 +281,28 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> Ve
     tag = "artists"
 )]
 pub async fn get_artist(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching artist");
 
-    // TODO: Use repository to fetch from database
-    // For now, return 404
-    (
-        StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: format!("Artist {} not found", id),
-        }),
-    )
+    match state.artist_repository.get_by_id(id.clone()).await {
+        Ok(Some(artist)) => (StatusCode::OK, Json(ArtistResponse::from(artist))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Artist {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to fetch artist: {error}"),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 /// Create a new artist
@@ -422,8 +443,9 @@ mod tests {
             sort_order: SortOrder::Asc,
         };
 
-        let filtered = apply_list_query(artists, &query);
+        let (filtered, total) = apply_list_query(artists, &query);
 
+        assert_eq!(total, 1);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "A");
     }
@@ -445,8 +467,9 @@ mod tests {
             sort_order: SortOrder::Desc,
         };
 
-        let paged = apply_list_query(artists, &query);
+        let (paged, total) = apply_list_query(artists, &query);
 
+        assert_eq!(total, 3);
         assert_eq!(paged.len(), 2);
         assert_eq!(paged[0].name, "Charlie");
         assert_eq!(paged[1].name, "Bravo");

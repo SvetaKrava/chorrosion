@@ -9,6 +9,7 @@ anyhow = { workspace = true }
 chorrosion-config = { path = "../chorrosion-config" }
 chorrosion-domain = { path = "../chorrosion-domain" }
 chorrosion-fingerprint = { path = "../chorrosion-fingerprint" }
+chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chrono = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }

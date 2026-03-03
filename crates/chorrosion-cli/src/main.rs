@@ -6,8 +6,9 @@ use axum::serve;
 use chorrosion_api::router;
 use chorrosion_application::AppState;
 use chorrosion_config::load as load_config;
-use chorrosion_infrastructure::init_database;
+use chorrosion_infrastructure::{init_database, sqlite_adapters::SqliteArtistRepository};
 use chorrosion_scheduler::Scheduler;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -17,10 +18,11 @@ async fn main() -> Result<()> {
     init_tracing();
 
     let config = load_config(None)?;
-    let state = AppState::new(config.clone());
-    state.on_start();
+    let pool = init_database(&config).await?;
+    let artist_repository = Arc::new(SqliteArtistRepository::new(pool));
 
-    init_database(&config).await?;
+    let state = AppState::new(config.clone(), artist_repository);
+    state.on_start();
 
     let scheduler = Scheduler::new(config.clone());
     scheduler.register_jobs().await;

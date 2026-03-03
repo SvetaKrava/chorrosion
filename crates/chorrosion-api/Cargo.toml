@@ -8,6 +8,7 @@ license.workspace = true
 axum = { workspace = true }
 chorrosion-application = { path = "../chorrosion-application" }
 chorrosion-domain = { path = "../chorrosion-domain" }
+chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

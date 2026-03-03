@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
+use chorrosion_infrastructure::sqlite_adapters::SqliteArtistRepository;
+use std::sync::Arc;
 pub mod embedded_tags;
 pub mod download_clients;
 pub mod events;
@@ -63,11 +65,15 @@ use tracing::info;
 #[derive(Clone)]
 pub struct AppState {
     pub config: AppConfig,
+    pub artist_repository: Arc<SqliteArtistRepository>,
 }
 
 impl AppState {
-    pub fn new(config: AppConfig) -> Self {
-        Self { config }
+    pub fn new(config: AppConfig, artist_repository: Arc<SqliteArtistRepository>) -> Self {
+        Self {
+            config,
+            artist_repository,
+        }
     }
 
     pub fn on_start(&self) {
