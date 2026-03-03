@@ -273,16 +273,16 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
-- [ ] Embed metadata and artwork in supported formats
+- [x] Embed metadata and artwork in supported formats (Issue #36, PR #160) ✓ PARTIALLY COMPLETE
   - [ ] ID3v2 (MP3): tags + front cover artwork
   - [ ] Vorbis Comments (FLAC/OGG): tags + embedded pictures + fingerprint
   - [ ] MP4/M4A atoms: tags + cover art (`covr`) + fingerprint
-  - [ ] Safe, atomic writes with backup/rollback on failure
+  - [x] Safe, atomic writes with backup/rollback on failure (Issue #36, PR #160) ✓
   - [ ] Charset/normalization handling and tag sanitation
-  - [ ] Configurable per profile (enable/disable, overwrite rules)
+  - [x] Configurable per profile (enable/disable, overwrite rules) (Issue #36, PR #160) ✓
   - [ ] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh
-  - [ ] Read-only tag mode that never modifies source files
-  - [ ] Fallback behavior for unsupported file types
+  - [x] Read-only tag mode that never modifies source files (Issue #36, PR #160) ✓
+  - [x] Fallback behavior for unsupported file types (Issue #36, PR #160) ✓
   - [ ] **Store computed fingerprint in file tags** (Phase 5.4 follow-up)
 
 ---
@@ -524,6 +524,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-03-02  
+**Last Updated:** 2026-03-03  
 **Current Phase:** Phase 5: File Management  
-**Next Milestone:** Metadata and Artwork Embedding in Audio Files (Issue #36)
+**Next Milestone:** Complete format-specific metadata/artwork embedding backends (Issue #36 follow-up)
