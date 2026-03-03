@@ -273,7 +273,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
-- [x] Embed metadata and artwork in supported formats (Issue #36, PR #160, PR #165, PR #166) ✓ COMPLETE
+- [x] Embed metadata and artwork in supported formats (Issue #36, PR #160, PR #165, PR #166) ✓ PARTIALLY COMPLETE
   - [x] ID3v2 (MP3): tags + front cover artwork (Issue #36, PR #165, PR #166) ✓
   - [x] Vorbis Comments (FLAC/OGG): tags + embedded pictures + fingerprint (Issue #36, PR #165, PR #166) ✓
   - [x] MP4/M4A atoms: tags + cover art (`covr`) + fingerprint (Issue #36, PR #165, PR #166) ✓
