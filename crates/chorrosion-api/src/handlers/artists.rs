@@ -482,13 +482,32 @@ pub async fn delete_artist(
         Ok(Some(_)) => {
             match state.artist_repository.delete(id.clone()).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
-                Err(error) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("failed to delete artist: {error}"),
-                    }),
-                )
-                    .into_response(),
+                Err(delete_error) => {
+                    // Check if the artist was concurrently deleted before we could.
+                    match state.artist_repository.get_by_id(id.clone()).await {
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            Json(ErrorResponse {
+                                error: format!("Artist {} not found", id),
+                            }),
+                        )
+                            .into_response(),
+                        Ok(Some(_)) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("failed to delete artist: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                        Err(_) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("failed to delete artist: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
             }
         }
         Ok(None) => (
@@ -737,11 +756,13 @@ mod tests {
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
         use chorrosion_infrastructure::sqlite_adapters::SqliteArtistRepository;
-        use sqlx::SqlitePool;
         use std::sync::Arc;
 
         async fn make_test_state() -> AppState {
-            let pool = SqlitePool::connect("sqlite::memory:")
+            use sqlx::sqlite::SqlitePoolOptions;
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
                 .await
                 .expect("in-memory SQLite");
             sqlx::migrate!("../../migrations")
