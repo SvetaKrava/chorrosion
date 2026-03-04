@@ -419,24 +419,52 @@ pub async fn delete_album(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting album");
 
-    match state.album_repository.delete(id.clone()).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => match state.album_repository.get_by_id(id.clone()).await {
-            Ok(None) => (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("Album {} not found", id),
-                }),
-            )
-                .into_response(),
-            Ok(Some(_)) | Err(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to delete album: {error}"),
-                }),
-            )
-                .into_response(),
-        },
+    match state.album_repository.get_by_id(id.clone()).await {
+        Ok(Some(_)) => {
+            match state.album_repository.delete(id.clone()).await {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(delete_error) => {
+                    // Check if the album was concurrently deleted before we could.
+                    match state.album_repository.get_by_id(id.clone()).await {
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            Json(ErrorResponse {
+                                error: format!("Album {} not found", id),
+                            }),
+                        )
+                            .into_response(),
+                        Ok(Some(_)) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("failed to delete album: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                        Err(_) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("failed to delete album: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Album {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to fetch album before delete: {error}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -723,7 +751,7 @@ mod tests {
             for title in ["Album A", "Album B", "Album C"] {
                 state
                     .album_repository
-                    .create(Album::new(artist.id.clone(), title))
+                    .create(Album::new(artist.id, title))
                     .await
                     .unwrap();
             }
