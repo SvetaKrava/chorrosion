@@ -166,39 +166,39 @@ struct NormalizedListQuery {
 
 #[derive(Debug)]
 enum ListArtistsQueryError {
-    InvalidLimit,
-    InvalidOffset,
-    InvalidStatus,
-    InvalidSortBy,
-    InvalidSortOrder,
+    Limit,
+    Offset,
+    Status,
+    SortBy,
+    SortOrder,
 }
 
 impl std::fmt::Display for ListArtistsQueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidLimit => write!(f, "limit must be between 1 and 500"),
-            Self::InvalidOffset => write!(f, "offset must be greater than or equal to 0"),
-            Self::InvalidStatus => write!(f, "status must be one of: continuing, ended"),
-            Self::InvalidSortBy => write!(f, "sort_by must be one of: name, status, monitored"),
-            Self::InvalidSortOrder => write!(f, "sort_order must be one of: asc, desc"),
+            Self::Limit => write!(f, "limit must be between 1 and 500"),
+            Self::Offset => write!(f, "offset must be greater than or equal to 0"),
+            Self::Status => write!(f, "status must be one of: continuing, ended"),
+            Self::SortBy => write!(f, "sort_by must be one of: name, status, monitored"),
+            Self::SortOrder => write!(f, "sort_order must be one of: asc, desc"),
         }
     }
 }
 
 fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery, ListArtistsQueryError> {
     if !(1..=500).contains(&query.limit) {
-        return Err(ListArtistsQueryError::InvalidLimit);
+        return Err(ListArtistsQueryError::Limit);
     }
 
     if query.offset < 0 {
-        return Err(ListArtistsQueryError::InvalidOffset);
+        return Err(ListArtistsQueryError::Offset);
     }
 
     let status = match query.status.as_deref() {
         None => None,
         Some(value) if value.eq_ignore_ascii_case("continuing") => Some(ArtistStatus::Continuing),
         Some(value) if value.eq_ignore_ascii_case("ended") => Some(ArtistStatus::Ended),
-        Some(_) => return Err(ListArtistsQueryError::InvalidStatus),
+        Some(_) => return Err(ListArtistsQueryError::Status),
     };
 
     let sort_by = match query.sort_by.as_deref() {
@@ -206,14 +206,14 @@ fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery,
         Some(value) if value.eq_ignore_ascii_case("name") => ArtistSortField::Name,
         Some(value) if value.eq_ignore_ascii_case("status") => ArtistSortField::Status,
         Some(value) if value.eq_ignore_ascii_case("monitored") => ArtistSortField::Monitored,
-        Some(_) => return Err(ListArtistsQueryError::InvalidSortBy),
+        Some(_) => return Err(ListArtistsQueryError::SortBy),
     };
 
     let sort_order = match query.sort_order.as_deref() {
         None => SortOrder::Asc,
         Some(value) if value.eq_ignore_ascii_case("asc") => SortOrder::Asc,
         Some(value) if value.eq_ignore_ascii_case("desc") => SortOrder::Desc,
-        Some(_) => return Err(ListArtistsQueryError::InvalidSortOrder),
+        Some(_) => return Err(ListArtistsQueryError::SortOrder),
     };
 
     Ok(NormalizedListQuery {
@@ -439,7 +439,7 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidLimit)));
+        assert!(matches!(result, Err(ListArtistsQueryError::Limit)));
     }
 
     #[test]
@@ -454,7 +454,7 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidOffset)));
+        assert!(matches!(result, Err(ListArtistsQueryError::Offset)));
     }
 
     #[test]
@@ -469,7 +469,7 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidStatus)));
+        assert!(matches!(result, Err(ListArtistsQueryError::Status)));
     }
 
     #[test]
@@ -484,7 +484,7 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidSortBy)));
+        assert!(matches!(result, Err(ListArtistsQueryError::SortBy)));
     }
 
     #[test]
@@ -499,7 +499,7 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidSortOrder)));
+        assert!(matches!(result, Err(ListArtistsQueryError::SortOrder)));
     }
 
     #[test]
