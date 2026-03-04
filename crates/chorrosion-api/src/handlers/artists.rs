@@ -334,12 +334,11 @@ pub async fn get_artist(
     tag = "artists"
 )]
 pub async fn create_artist(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(request): Json<CreateArtistRequest>,
 ) -> impl IntoResponse {
     debug!(target: "api", ?request, "creating artist");
 
-    // TODO: Use repository to insert into database
     let mut artist = Artist::new(request.name);
     artist.foreign_artist_id = request.foreign_artist_id;
     artist.monitored = request.monitored.unwrap_or(true);
@@ -352,7 +351,16 @@ pub async fn create_artist(
         };
     }
 
-    (StatusCode::CREATED, Json(ArtistResponse::from(artist)))
+    match state.artist_repository.create(artist).await {
+        Ok(created) => (StatusCode::CREATED, Json(ArtistResponse::from(created))).into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to create artist: {error}"),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 /// Update an existing artist
@@ -372,19 +380,63 @@ pub async fn create_artist(
     tag = "artists"
 )]
 pub async fn update_artist(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     Json(request): Json<UpdateArtistRequest>,
 ) -> impl IntoResponse {
     debug!(target: "api", %id, ?request, "updating artist");
 
-    // TODO: Use repository to fetch and update in database
-    (
-        StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: format!("Artist {} not found", id),
-        }),
-    )
+    let mut artist = match state.artist_repository.get_by_id(id.clone()).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Artist {} not found", id),
+                }),
+            )
+                .into_response()
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+                .into_response()
+        }
+    };
+
+    if let Some(name) = request.name {
+        artist.name = name;
+    }
+    if let Some(foreign_id) = request.foreign_artist_id {
+        artist.foreign_artist_id = Some(foreign_id);
+    }
+    if let Some(status_str) = request.status {
+        artist.status = match status_str.as_str() {
+            "ended" => ArtistStatus::Ended,
+            _ => ArtistStatus::Continuing,
+        };
+    }
+    if let Some(monitored) = request.monitored {
+        artist.monitored = monitored;
+    }
+    if let Some(path) = request.path {
+        artist.path = Some(path);
+    }
+
+    match state.artist_repository.update(artist).await {
+        Ok(updated) => (StatusCode::OK, Json(ArtistResponse::from(updated))).into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to update artist: {error}"),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 /// Delete an artist
@@ -402,18 +454,34 @@ pub async fn update_artist(
     tag = "artists"
 )]
 pub async fn delete_artist(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting artist");
 
-    // TODO: Use repository to delete from database
-    (
-        StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: format!("Artist {} not found", id),
-        }),
-    )
+    match state.artist_repository.delete(id.clone()).await {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => {
+            let err_msg = error.to_string();
+            if err_msg.contains("not found") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        error: format!("Artist {} not found", id),
+                    }),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("failed to delete artist: {error}"),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
