@@ -6,6 +6,7 @@ use anyhow::Result;
 use chorrosion_config::AppConfig;
 use reqwest::Client;
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::info;
 
@@ -16,17 +17,13 @@ pub fn http_client() -> Client {
         .expect("http client")
 }
 
-pub async fn init_database(config: &AppConfig) -> Result<()> {
-    info!(target: "infrastructure", "initializing database");
-
-    // Normalize the database URL for SQLite on Windows
+fn normalize_database_url(config: &AppConfig) -> Result<String> {
     let db_url = if config.database.url.starts_with("sqlite://")
         && !config.database.url.starts_with("sqlite://:memory:")
     {
         let db_path = config.database.url.trim_start_matches("sqlite://");
         let path = Path::new(db_path);
 
-        // Create parent directory if needed
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
@@ -34,35 +31,45 @@ pub async fn init_database(config: &AppConfig) -> Result<()> {
             }
         }
 
-        // Convert to absolute path for better Windows compatibility
         let absolute_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
             std::env::current_dir()?.join(path)
         };
 
-        // Use the absolute path with forward slashes (SQLite handles this on all platforms)
         let path_str = absolute_path.to_string_lossy().replace('\\', "/");
 
-        // Add create mode to ensure SQLite can create the file
         format!("sqlite://{}?mode=rwc", path_str)
     } else {
         config.database.url.clone()
     };
 
+    Ok(db_url)
+}
+
+pub async fn create_sqlite_pool(config: &AppConfig) -> Result<SqlitePool> {
+    let db_url = normalize_database_url(config)?;
+
     info!(target: "infrastructure", db_url = %db_url, "connecting to database");
 
-    // SQLite pool connection
     let pool = SqlitePoolOptions::new()
         .max_connections(config.database.pool_max_size)
         .connect(&db_url)
         .await?;
 
+    Ok(pool)
+}
+
+pub async fn init_database(config: &AppConfig) -> Result<SqlitePool> {
+    info!(target: "infrastructure", "initializing database");
+
+    let pool = create_sqlite_pool(config).await?;
+
     info!(target: "infrastructure", db_url = %config.database.url, "running migrations");
     sqlx::migrate!("../../migrations").run(&pool).await?;
 
     info!(target: "infrastructure", "database initialized successfully");
-    Ok(())
+    Ok(pool)
 }
 
 #[cfg(test)]

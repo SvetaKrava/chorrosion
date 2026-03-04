@@ -377,12 +377,14 @@ dependencies = [
  "axum",
  "chorrosion-application",
  "chorrosion-domain",
+ "chorrosion-infrastructure",
  "serde",
  "serde_json",
  "tracing",
  "url",
  "utoipa",
  "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -394,6 +396,7 @@ dependencies = [
  "chorrosion-config",
  "chorrosion-domain",
  "chorrosion-fingerprint",
+ "chorrosion-infrastructure",
  "chrono",
  "lazy_static",
  "lofty",

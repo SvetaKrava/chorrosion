@@ -10,7 +10,7 @@ use axum::{
 use chorrosion_application::AppState;
 use handlers::artists::{
     create_artist, delete_artist, get_artist, list_artists, update_artist, ArtistResponse,
-    CreateArtistRequest, ErrorResponse, UpdateArtistRequest, __path_create_artist,
+    CreateArtistRequest, ErrorResponse, ListArtistsResponse, UpdateArtistRequest, __path_create_artist,
     __path_delete_artist, __path_get_artist, __path_list_artists, __path_update_artist,
 };
 use handlers::indexers::{
@@ -59,6 +59,7 @@ async fn health() -> Json<HealthResponse> {
     components(
         schemas(
             HealthResponse,
+            ListArtistsResponse,
             ArtistResponse,
             CreateArtistRequest,
             UpdateArtistRequest,
