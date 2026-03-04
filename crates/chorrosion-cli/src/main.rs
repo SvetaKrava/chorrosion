@@ -6,7 +6,10 @@ use axum::serve;
 use chorrosion_api::router;
 use chorrosion_application::AppState;
 use chorrosion_config::load as load_config;
-use chorrosion_infrastructure::{init_database, sqlite_adapters::SqliteArtistRepository};
+use chorrosion_infrastructure::{
+    init_database,
+    sqlite_adapters::{SqliteAlbumRepository, SqliteArtistRepository},
+};
 use chorrosion_scheduler::Scheduler;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -19,9 +22,10 @@ async fn main() -> Result<()> {
 
     let config = load_config(None)?;
     let pool = init_database(&config).await?;
-    let artist_repository = Arc::new(SqliteArtistRepository::new(pool));
+    let artist_repository = Arc::new(SqliteArtistRepository::new(pool.clone()));
+    let album_repository = Arc::new(SqliteAlbumRepository::new(pool));
 
-    let state = AppState::new(config.clone(), artist_repository);
+    let state = AppState::new(config.clone(), artist_repository, album_repository);
     state.on_start();
 
     let scheduler = Scheduler::new(config.clone());
