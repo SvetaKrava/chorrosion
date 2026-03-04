@@ -166,39 +166,39 @@ struct NormalizedListQuery {
 
 #[derive(Debug)]
 enum ListArtistsQueryError {
-    InvalidLimit,
-    InvalidOffset,
-    InvalidStatus,
-    InvalidSortBy,
-    InvalidSortOrder,
+    Limit,
+    Offset,
+    Status,
+    SortBy,
+    SortOrder,
 }
 
 impl std::fmt::Display for ListArtistsQueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidLimit => write!(f, "limit must be between 1 and 500"),
-            Self::InvalidOffset => write!(f, "offset must be greater than or equal to 0"),
-            Self::InvalidStatus => write!(f, "status must be one of: continuing, ended"),
-            Self::InvalidSortBy => write!(f, "sort_by must be one of: name, status, monitored"),
-            Self::InvalidSortOrder => write!(f, "sort_order must be one of: asc, desc"),
+            Self::Limit => write!(f, "limit must be between 1 and 500"),
+            Self::Offset => write!(f, "offset must be greater than or equal to 0"),
+            Self::Status => write!(f, "status must be one of: continuing, ended"),
+            Self::SortBy => write!(f, "sort_by must be one of: name, status, monitored"),
+            Self::SortOrder => write!(f, "sort_order must be one of: asc, desc"),
         }
     }
 }
 
 fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery, ListArtistsQueryError> {
     if !(1..=500).contains(&query.limit) {
-        return Err(ListArtistsQueryError::InvalidLimit);
+        return Err(ListArtistsQueryError::Limit);
     }
 
     if query.offset < 0 {
-        return Err(ListArtistsQueryError::InvalidOffset);
+        return Err(ListArtistsQueryError::Offset);
     }
 
     let status = match query.status.as_deref() {
         None => None,
         Some(value) if value.eq_ignore_ascii_case("continuing") => Some(ArtistStatus::Continuing),
         Some(value) if value.eq_ignore_ascii_case("ended") => Some(ArtistStatus::Ended),
-        Some(_) => return Err(ListArtistsQueryError::InvalidStatus),
+        Some(_) => return Err(ListArtistsQueryError::Status),
     };
 
     let sort_by = match query.sort_by.as_deref() {
@@ -206,14 +206,14 @@ fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery,
         Some(value) if value.eq_ignore_ascii_case("name") => ArtistSortField::Name,
         Some(value) if value.eq_ignore_ascii_case("status") => ArtistSortField::Status,
         Some(value) if value.eq_ignore_ascii_case("monitored") => ArtistSortField::Monitored,
-        Some(_) => return Err(ListArtistsQueryError::InvalidSortBy),
+        Some(_) => return Err(ListArtistsQueryError::SortBy),
     };
 
     let sort_order = match query.sort_order.as_deref() {
         None => SortOrder::Asc,
         Some(value) if value.eq_ignore_ascii_case("asc") => SortOrder::Asc,
         Some(value) if value.eq_ignore_ascii_case("desc") => SortOrder::Desc,
-        Some(_) => return Err(ListArtistsQueryError::InvalidSortOrder),
+        Some(_) => return Err(ListArtistsQueryError::SortOrder),
     };
 
     Ok(NormalizedListQuery {
@@ -235,28 +235,44 @@ fn apply_list_query(mut artists: Vec<Artist>, query: &NormalizedListQuery) -> (V
         artists.retain(|artist| artist.status == status);
     }
 
-    artists.sort_by(|left, right| {
-        let ordering = match query.sort_by {
-            ArtistSortField::Name => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
-            ArtistSortField::Status => left.status.to_string().cmp(&right.status.to_string()),
-            ArtistSortField::Monitored => left.monitored.cmp(&right.monitored),
-        };
-
-        match query.sort_order {
-            SortOrder::Asc => ordering,
-            SortOrder::Desc => ordering.reverse(),
-        }
-    });
-
-    let start = query.offset as usize;
-    let end = start.saturating_add(query.limit as usize);
-
     let total = artists.len() as i64;
+
+    let start = match usize::try_from(query.offset) {
+        Ok(v) => v,
+        Err(_) => return (vec![], total),
+    };
+    let limit = match usize::try_from(query.limit) {
+        Ok(v) => v,
+        Err(_) => return (vec![], total),
+    };
 
     if start >= artists.len() {
         return (vec![], total);
     }
 
+    match query.sort_by {
+        ArtistSortField::Name => {
+            artists.sort_by_cached_key(|a| (a.name.to_lowercase(), a.id.0));
+        }
+        ArtistSortField::Status => {
+            artists.sort_by_cached_key(|a| {
+                let rank: u8 = match a.status {
+                    ArtistStatus::Continuing => 0,
+                    ArtistStatus::Ended => 1,
+                };
+                (rank, a.id.0)
+            });
+        }
+        ArtistSortField::Monitored => {
+            artists.sort_by_cached_key(|a| (a.monitored, a.id.0));
+        }
+    }
+
+    if query.sort_order == SortOrder::Desc {
+        artists.reverse();
+    }
+
+    let end = start.saturating_add(limit);
     let page = artists
         .into_iter()
         .skip(start)
@@ -423,7 +439,67 @@ mod tests {
         };
 
         let result = normalize_list_query(&query);
-        assert!(matches!(result, Err(ListArtistsQueryError::InvalidLimit)));
+        assert!(matches!(result, Err(ListArtistsQueryError::Limit)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_negative_offset() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: -1,
+            monitored: None,
+            status: None,
+            sort_by: None,
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::Offset)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_status() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: Some("unknown".to_string()),
+            sort_by: None,
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::Status)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_sort_by() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: Some("invalid_field".to_string()),
+            sort_order: None,
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::SortBy)));
+    }
+
+    #[test]
+    fn normalize_query_rejects_invalid_sort_order() {
+        let query = ListArtistsQuery {
+            limit: 10,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: None,
+            sort_order: Some("random".to_string()),
+        };
+
+        let result = normalize_list_query(&query);
+        assert!(matches!(result, Err(ListArtistsQueryError::SortOrder)));
     }
 
     #[test]
@@ -473,5 +549,36 @@ mod tests {
         assert_eq!(paged.len(), 2);
         assert_eq!(paged[0].name, "Charlie");
         assert_eq!(paged[1].name, "Bravo");
+    }
+
+    #[test]
+    fn apply_query_sort_is_deterministic_when_primary_keys_equal() {
+        use chorrosion_domain::ArtistId;
+        use uuid::Uuid;
+
+        let mut a1 = artist("same", ArtistStatus::Continuing, true);
+        a1.id = ArtistId::from_uuid(Uuid::from_u128(1));
+
+        let mut a2 = artist("same", ArtistStatus::Continuing, true);
+        a2.id = ArtistId::from_uuid(Uuid::from_u128(2));
+
+        let query = NormalizedListQuery {
+            limit: 50,
+            offset: 0,
+            monitored: None,
+            status: None,
+            sort_by: ArtistSortField::Name,
+            sort_order: SortOrder::Asc,
+        };
+
+        // Run twice with inputs in different order to verify stable tie-breaking.
+        let (ordered1, _) = apply_list_query(vec![a2.clone(), a1.clone()], &query);
+        let (ordered2, _) = apply_list_query(vec![a1.clone(), a2.clone()], &query);
+
+        // UUID 1 < UUID 2, so a1 must always come first in ascending order.
+        assert_eq!(ordered1[0].id, a1.id);
+        assert_eq!(ordered1[1].id, a2.id);
+        assert_eq!(ordered2[0].id, a1.id);
+        assert_eq!(ordered2[1].id, a2.id);
     }
 }
