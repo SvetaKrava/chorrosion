@@ -376,10 +376,13 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chorrosion-application",
+ "chorrosion-config",
  "chorrosion-domain",
  "chorrosion-infrastructure",
  "serde",
  "serde_json",
+ "sqlx",
+ "tokio",
  "tracing",
  "url",
  "utoipa",

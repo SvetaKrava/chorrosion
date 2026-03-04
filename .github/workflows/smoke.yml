@@ -29,6 +29,8 @@ jobs:
       - name: Install chromaprint and FFmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           # Install LLVM using winget (recommended)
           # If winget fails, use choco as fallback

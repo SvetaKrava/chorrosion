@@ -29,6 +29,8 @@ jobs:
       - name: Install chromaprint (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
           $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
@@ -93,6 +95,8 @@ jobs:
       - name: Install chromaprint (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
           $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
