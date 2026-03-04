@@ -18,3 +18,6 @@ utoipa-swagger-ui = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+chorrosion-config = { path = "../chorrosion-config" }
