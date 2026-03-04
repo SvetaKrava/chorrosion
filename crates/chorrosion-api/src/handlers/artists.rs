@@ -87,6 +87,25 @@ pub struct ErrorResponse {
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+fn parse_artist_status(
+    status_str: &str,
+) -> Result<ArtistStatus, (StatusCode, Json<ErrorResponse>)> {
+    match status_str.to_ascii_lowercase().as_str() {
+        "continuing" => Ok(ArtistStatus::Continuing),
+        "ended" => Ok(ArtistStatus::Ended),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("invalid status value: {status_str}"),
+            }),
+        )),
+    }
+}
+
+// ============================================================================
 // Handlers
 // ============================================================================
 
@@ -345,10 +364,10 @@ pub async fn create_artist(
     artist.path = request.path;
 
     if let Some(status_str) = request.status {
-        artist.status = match status_str.as_str() {
-            "ended" => ArtistStatus::Ended,
-            _ => ArtistStatus::Continuing,
-        };
+        match parse_artist_status(&status_str) {
+            Ok(status) => artist.status = status,
+            Err(err_response) => return err_response.into_response(),
+        }
     }
 
     match state.artist_repository.create(artist).await {
@@ -415,10 +434,10 @@ pub async fn update_artist(
         artist.foreign_artist_id = Some(foreign_id);
     }
     if let Some(status_str) = request.status {
-        artist.status = match status_str.as_str() {
-            "ended" => ArtistStatus::Ended,
-            _ => ArtistStatus::Continuing,
-        };
+        match parse_artist_status(&status_str) {
+            Ok(status) => artist.status = status,
+            Err(err_response) => return err_response.into_response(),
+        }
     }
     if let Some(monitored) = request.monitored {
         artist.monitored = monitored;
@@ -459,28 +478,33 @@ pub async fn delete_artist(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting artist");
 
-    match state.artist_repository.delete(id.clone()).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => {
-            let err_msg = error.to_string();
-            if err_msg.contains("not found") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        error: format!("Artist {} not found", id),
-                    }),
-                )
-                    .into_response()
-            } else {
-                (
+    match state.artist_repository.get_by_id(id.clone()).await {
+        Ok(Some(_)) => {
+            match state.artist_repository.delete(id.clone()).await {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(error) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
                         error: format!("failed to delete artist: {error}"),
                     }),
                 )
-                    .into_response()
+                    .into_response(),
             }
         }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Artist {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to fetch artist before delete: {error}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -648,5 +672,211 @@ mod tests {
         assert_eq!(ordered1[1].id, a2.id);
         assert_eq!(ordered2[0].id, a1.id);
         assert_eq!(ordered2[1].id, a2.id);
+    }
+
+    // ============================================================================
+    // parse_artist_status tests
+    // ============================================================================
+
+    #[test]
+    fn parse_status_accepts_continuing_case_insensitive() {
+        assert!(matches!(
+            parse_artist_status("continuing"),
+            Ok(ArtistStatus::Continuing)
+        ));
+        assert!(matches!(
+            parse_artist_status("Continuing"),
+            Ok(ArtistStatus::Continuing)
+        ));
+        assert!(matches!(
+            parse_artist_status("CONTINUING"),
+            Ok(ArtistStatus::Continuing)
+        ));
+    }
+
+    #[test]
+    fn parse_status_accepts_ended_case_insensitive() {
+        assert!(matches!(
+            parse_artist_status("ended"),
+            Ok(ArtistStatus::Ended)
+        ));
+        assert!(matches!(
+            parse_artist_status("Ended"),
+            Ok(ArtistStatus::Ended)
+        ));
+        assert!(matches!(
+            parse_artist_status("ENDED"),
+            Ok(ArtistStatus::Ended)
+        ));
+    }
+
+    #[test]
+    fn parse_status_rejects_unknown_value() {
+        let result = parse_artist_status("unknown");
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn parse_status_rejects_empty_string() {
+        let result = parse_artist_status("");
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // ============================================================================
+    // Write handler tests (async, in-memory SQLite)
+    // ============================================================================
+
+    #[cfg(test)]
+    mod write_handlers {
+        use super::*;
+        use axum::extract::{Path, State};
+        use axum::response::IntoResponse;
+        use chorrosion_config::AppConfig;
+        use chorrosion_infrastructure::sqlite_adapters::SqliteArtistRepository;
+        use sqlx::SqlitePool;
+        use std::sync::Arc;
+
+        async fn make_test_state() -> AppState {
+            let pool = SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("in-memory SQLite");
+            sqlx::migrate!("../../migrations")
+                .run(&pool)
+                .await
+                .expect("migrations");
+            AppState::new(AppConfig::default(), Arc::new(SqliteArtistRepository::new(pool)))
+        }
+
+        // --- create_artist ---
+
+        #[tokio::test]
+        async fn create_artist_returns_201_on_success() {
+            let state = make_test_state().await;
+            let request = CreateArtistRequest {
+                name: "Test Artist".to_string(),
+                foreign_artist_id: None,
+                status: None,
+                monitored: None,
+                path: None,
+            };
+            let response = create_artist(State(state), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+
+        #[tokio::test]
+        async fn create_artist_rejects_invalid_status() {
+            let state = make_test_state().await;
+            let request = CreateArtistRequest {
+                name: "Test Artist".to_string(),
+                foreign_artist_id: None,
+                status: Some("garbage".to_string()),
+                monitored: None,
+                path: None,
+            };
+            let response = create_artist(State(state), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn create_artist_accepts_uppercase_ended_status() {
+            let state = make_test_state().await;
+            let request = CreateArtistRequest {
+                name: "Test Artist".to_string(),
+                foreign_artist_id: None,
+                status: Some("ENDED".to_string()),
+                monitored: None,
+                path: None,
+            };
+            let response = create_artist(State(state), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+
+        // --- update_artist ---
+
+        #[tokio::test]
+        async fn update_artist_returns_200_on_success() {
+            let state = make_test_state().await;
+            // First create an artist.
+            let created = state
+                .artist_repository
+                .create(Artist::new("Before"))
+                .await
+                .unwrap();
+            let id = created.id.to_string();
+            let request = UpdateArtistRequest {
+                name: Some("After".to_string()),
+                foreign_artist_id: None,
+                status: None,
+                monitored: None,
+                path: None,
+            };
+            let response =
+                update_artist(State(state), Path(id), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        #[tokio::test]
+        async fn update_artist_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let request = UpdateArtistRequest {
+                name: Some("Name".to_string()),
+                foreign_artist_id: None,
+                status: None,
+                monitored: None,
+                path: None,
+            };
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response =
+                update_artist(State(state), Path(unknown_id), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn update_artist_rejects_invalid_status() {
+            let state = make_test_state().await;
+            let created = state
+                .artist_repository
+                .create(Artist::new("Artist"))
+                .await
+                .unwrap();
+            let id = created.id.to_string();
+            let request = UpdateArtistRequest {
+                name: None,
+                foreign_artist_id: None,
+                status: Some("bad_status".to_string()),
+                monitored: None,
+                path: None,
+            };
+            let response =
+                update_artist(State(state), Path(id), Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        // --- delete_artist ---
+
+        #[tokio::test]
+        async fn delete_artist_returns_204_on_success() {
+            let state = make_test_state().await;
+            let created = state
+                .artist_repository
+                .create(Artist::new("To Delete"))
+                .await
+                .unwrap();
+            let id = created.id.to_string();
+            let response = delete_artist(State(state), Path(id)).await.into_response();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+
+        #[tokio::test]
+        async fn delete_artist_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response = delete_artist(State(state), Path(unknown_id)).await.into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
     }
 }
