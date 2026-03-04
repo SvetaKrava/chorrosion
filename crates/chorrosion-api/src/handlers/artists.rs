@@ -553,6 +553,7 @@ mod tests {
 
     #[test]
     fn apply_query_sort_is_deterministic_when_primary_keys_equal() {
+        use chorrosion_domain::ArtistId;
         use uuid::Uuid;
 
         let mut a1 = artist("same", ArtistStatus::Continuing, true);
