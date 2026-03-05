@@ -24,6 +24,12 @@ use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
     TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
 };
+use handlers::tracks::{
+    create_track, delete_track, get_track, list_tracks, update_track, CreateTrackRequest,
+    ErrorResponse as TrackErrorResponse, ListTracksResponse, TrackResponse, UpdateTrackRequest,
+    __path_create_track, __path_delete_track, __path_get_track, __path_list_tracks,
+    __path_update_track,
+};
 use middleware::auth::auth_middleware;
 use serde::Serialize;
 use tracing::info;
@@ -66,6 +72,11 @@ async fn health() -> Json<HealthResponse> {
         create_album,
         update_album,
         delete_album,
+        list_tracks,
+        get_track,
+        create_track,
+        update_track,
+        delete_track,
         test_indexer_endpoint,
     ),
     components(
@@ -81,6 +92,11 @@ async fn health() -> Json<HealthResponse> {
             CreateAlbumRequest,
             UpdateAlbumRequest,
             AlbumErrorResponse,
+            ListTracksResponse,
+            TrackResponse,
+            CreateTrackRequest,
+            UpdateTrackRequest,
+            TrackErrorResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -91,6 +107,7 @@ async fn health() -> Json<HealthResponse> {
         (name = "system", description = "System health and status endpoints"),
         (name = "artists", description = "Artist management endpoints"),
         (name = "albums", description = "Album management endpoints"),
+        (name = "tracks", description = "Track management endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
     info(
@@ -114,6 +131,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/albums/:id",
             get(get_album).put(update_album).delete(delete_album),
+        )
+        .route("/tracks", get(list_tracks).post(create_track))
+        .route(
+            "/tracks/:id",
+            get(get_track).put(update_track).delete(delete_track),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));

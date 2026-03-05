@@ -478,21 +478,42 @@ mod tests {
 
     #[test]
     fn parse_status_accepts_wanted_case_insensitive() {
-        assert!(matches!(parse_album_status("wanted"), Ok(AlbumStatus::Wanted)));
-        assert!(matches!(parse_album_status("WANTED"), Ok(AlbumStatus::Wanted)));
-        assert!(matches!(parse_album_status("Wanted"), Ok(AlbumStatus::Wanted)));
+        assert!(matches!(
+            parse_album_status("wanted"),
+            Ok(AlbumStatus::Wanted)
+        ));
+        assert!(matches!(
+            parse_album_status("WANTED"),
+            Ok(AlbumStatus::Wanted)
+        ));
+        assert!(matches!(
+            parse_album_status("Wanted"),
+            Ok(AlbumStatus::Wanted)
+        ));
     }
 
     #[test]
     fn parse_status_accepts_released_case_insensitive() {
-        assert!(matches!(parse_album_status("released"), Ok(AlbumStatus::Released)));
-        assert!(matches!(parse_album_status("RELEASED"), Ok(AlbumStatus::Released)));
+        assert!(matches!(
+            parse_album_status("released"),
+            Ok(AlbumStatus::Released)
+        ));
+        assert!(matches!(
+            parse_album_status("RELEASED"),
+            Ok(AlbumStatus::Released)
+        ));
     }
 
     #[test]
     fn parse_status_accepts_announced_case_insensitive() {
-        assert!(matches!(parse_album_status("announced"), Ok(AlbumStatus::Announced)));
-        assert!(matches!(parse_album_status("ANNOUNCED"), Ok(AlbumStatus::Announced)));
+        assert!(matches!(
+            parse_album_status("announced"),
+            Ok(AlbumStatus::Announced)
+        ));
+        assert!(matches!(
+            parse_album_status("ANNOUNCED"),
+            Ok(AlbumStatus::Announced)
+        ));
     }
 
     #[test]
@@ -522,7 +543,7 @@ mod tests {
         use chorrosion_config::AppConfig;
         use chorrosion_domain::Artist;
         use chorrosion_infrastructure::sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository,
+            SqliteAlbumRepository, SqliteArtistRepository, SqliteTrackRepository,
         };
         use std::sync::Arc;
 
@@ -540,7 +561,8 @@ mod tests {
             AppState::new(
                 AppConfig::default(),
                 Arc::new(SqliteArtistRepository::new(pool.clone())),
-                Arc::new(SqliteAlbumRepository::new(pool)),
+                Arc::new(SqliteAlbumRepository::new(pool.clone())),
+                Arc::new(SqliteTrackRepository::new(pool)),
             )
         }
 
@@ -567,7 +589,9 @@ mod tests {
                 status: None,
                 monitored: None,
             };
-            let response = create_album(State(state), Json(request)).await.into_response();
+            let response = create_album(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::CREATED);
         }
 
@@ -583,7 +607,9 @@ mod tests {
                 status: None,
                 monitored: None,
             };
-            let response = create_album(State(state), Json(request)).await.into_response();
+            let response = create_album(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -600,7 +626,9 @@ mod tests {
                 status: Some("garbage".to_string()),
                 monitored: None,
             };
-            let response = create_album(State(state), Json(request)).await.into_response();
+            let response = create_album(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -617,7 +645,9 @@ mod tests {
                 status: None,
                 monitored: None,
             };
-            let response = create_album(State(state), Json(request)).await.into_response();
+            let response = create_album(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -632,8 +662,9 @@ mod tests {
                 .create(Album::new(artist.id, "My Album"))
                 .await
                 .unwrap();
-            let response =
-                get_album(State(state), Path(album.id.to_string())).await.into_response();
+            let response = get_album(State(state), Path(album.id.to_string()))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -641,7 +672,9 @@ mod tests {
         async fn get_album_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response = get_album(State(state), Path(unknown_id)).await.into_response();
+            let response = get_album(State(state), Path(unknown_id))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -665,10 +698,9 @@ mod tests {
                 status: None,
                 monitored: None,
             };
-            let response =
-                update_album(State(state), Path(album.id.to_string()), Json(request))
-                    .await
-                    .into_response();
+            let response = update_album(State(state), Path(album.id.to_string()), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -685,10 +717,9 @@ mod tests {
                 monitored: None,
             };
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response =
-                update_album(State(state), Path(unknown_id), Json(request))
-                    .await
-                    .into_response();
+            let response = update_album(State(state), Path(unknown_id), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -710,10 +741,9 @@ mod tests {
                 status: None,
                 monitored: None,
             };
-            let response =
-                update_album(State(state), Path(album.id.to_string()), Json(request))
-                    .await
-                    .into_response();
+            let response = update_album(State(state), Path(album.id.to_string()), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -728,8 +758,9 @@ mod tests {
                 .create(Album::new(artist.id, "To Delete"))
                 .await
                 .unwrap();
-            let response =
-                delete_album(State(state), Path(album.id.to_string())).await.into_response();
+            let response = delete_album(State(state), Path(album.id.to_string()))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NO_CONTENT);
         }
 
@@ -737,8 +768,9 @@ mod tests {
         async fn delete_album_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response =
-                delete_album(State(state), Path(unknown_id)).await.into_response();
+            let response = delete_album(State(state), Path(unknown_id))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -755,7 +787,10 @@ mod tests {
                     .await
                     .unwrap();
             }
-            let query = ListAlbumsQuery { limit: 2, offset: 0 };
+            let query = ListAlbumsQuery {
+                limit: 2,
+                offset: 0,
+            };
             let result = list_albums(State(state), Query(query)).await.unwrap();
             assert_eq!(result.total, 3);
             assert_eq!(result.items.len(), 2);
