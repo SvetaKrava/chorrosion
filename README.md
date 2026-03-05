@@ -80,6 +80,21 @@ SQLite tips:
 - Base: `/api/v1`
 - OpenAPI docs are generated with `utoipa` and exposed at `/docs`.
 
+Current implemented endpoints:
+
+- `GET /health`
+- `GET /api/v1/artists`
+- `GET /api/v1/artists/:id`
+- `POST /api/v1/artists`
+- `PUT /api/v1/artists/:id`
+- `DELETE /api/v1/artists/:id`
+- `GET /api/v1/albums`
+- `GET /api/v1/albums/:id`
+- `POST /api/v1/albums`
+- `PUT /api/v1/albums/:id`
+- `DELETE /api/v1/albums/:id`
+- `POST /api/v1/indexers/test`
+
 ## Testing with the Mock Server
 
 Integration tests for the `chorrosion-metadata` crate require a mock server running on `127.0.0.1:3030` **before** running tests. The test suite does not start or stop the server automatically.
