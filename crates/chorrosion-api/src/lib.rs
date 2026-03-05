@@ -2,6 +2,12 @@
 pub mod handlers;
 pub mod middleware;
 
+/// Base path for all v1 API routes.
+pub const API_V1_BASE: &str = "/api/v1";
+
+/// Application version sourced from `Cargo.toml` at compile time.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use axum::{
     middleware as axum_middleware,
     routing::{get, post},
@@ -150,11 +156,12 @@ pub fn router(state: AppState) -> Router {
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 
-    let openapi = ApiDoc::openapi();
+    let mut openapi = ApiDoc::openapi();
+    openapi.info.version = APP_VERSION.to_string();
 
     Router::new()
         .route("/health", get(health_handler))
-        .nest("/api/v1", api_v1)
+        .nest(API_V1_BASE, api_v1)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
         .with_state(state)
 }
