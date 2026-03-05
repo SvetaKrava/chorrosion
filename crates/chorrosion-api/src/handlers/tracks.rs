@@ -923,9 +923,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn update_track_no_extra_album_fetch_when_album_id_provided() {
-            // When album_id is provided, the cached artist_id must be used
-            // without a second album DB query.  Verify the happy-path result.
+        async fn update_track_returns_200_when_album_id_changed_for_same_artist() {
+            // When album_id is changed to another album owned by the same artist,
+            // the update should succeed and return 200 OK.
             let state = make_test_state().await;
             let artist = create_test_artist(&state).await;
             let album1 = create_test_album(&state, &artist).await;
