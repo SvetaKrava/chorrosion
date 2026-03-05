@@ -24,6 +24,10 @@ use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
     TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
 };
+use handlers::system::{
+    get_system_status, get_system_version, SystemStatusResponse, SystemVersionResponse,
+    __path_get_system_status, __path_get_system_version,
+};
 use handlers::tracks::{
     create_track, delete_track, get_track, list_tracks, update_track, CreateTrackRequest,
     ErrorResponse as TrackErrorResponse, ListTracksResponse, TrackResponse, UpdateTrackRequest,
@@ -77,6 +81,8 @@ async fn health() -> Json<HealthResponse> {
         create_track,
         update_track,
         delete_track,
+        get_system_status,
+        get_system_version,
         test_indexer_endpoint,
     ),
     components(
@@ -97,6 +103,8 @@ async fn health() -> Json<HealthResponse> {
             CreateTrackRequest,
             UpdateTrackRequest,
             TrackErrorResponse,
+            SystemStatusResponse,
+            SystemVersionResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -137,6 +145,8 @@ pub fn router(state: AppState) -> Router {
             "/tracks/:id",
             get(get_track).put(update_track).delete(delete_track),
         )
+        .route("/system/status", get(get_system_status))
+        .route("/system/version", get(get_system_version))
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 
