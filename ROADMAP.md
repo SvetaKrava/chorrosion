@@ -293,15 +293,16 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 6.1 API Completion
 
-- [ ] Complete all artist endpoints
-  - [ ] List with pagination and sorting
-  - [ ] Detailed artist view
-  - [ ] Update monitored status
+- [x] Artist endpoints (Issue #9, PR #169, PR #172) ✓ PARTIALLY COMPLETE
+  - [x] List with pagination and sorting ✓
+  - [x] Detailed artist view ✓
+  - [x] Update monitored status (via update endpoint) ✓
   - [ ] Artist statistics
-- [ ] Album endpoints
+- [x] Album endpoints (PR #175) ✓ PARTIALLY COMPLETE
+  - [x] Album list and details ✓
+  - [x] Album create/update/delete ✓
+  - [x] Monitor toggle (via update endpoint) ✓
   - [ ] List by artist
-  - [ ] Album details
-  - [ ] Monitor toggle
   - [ ] Search trigger
 - [ ] Track endpoints
 - [ ] Queue/Activity endpoints
