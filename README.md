@@ -84,15 +84,15 @@ Current implemented endpoints:
 
 - `GET /health`
 - `GET /api/v1/artists`
-- `GET /api/v1/artists/:id`
+- `GET /api/v1/artists/{id}`
 - `POST /api/v1/artists`
-- `PUT /api/v1/artists/:id`
-- `DELETE /api/v1/artists/:id`
+- `PUT /api/v1/artists/{id}`
+- `DELETE /api/v1/artists/{id}`
 - `GET /api/v1/albums`
-- `GET /api/v1/albums/:id`
+- `GET /api/v1/albums/{id}`
 - `POST /api/v1/albums`
-- `PUT /api/v1/albums/:id`
-- `DELETE /api/v1/albums/:id`
+- `PUT /api/v1/albums/{id}`
+- `DELETE /api/v1/albums/{id}`
 - `POST /api/v1/indexers/test`
 
 ## Testing with the Mock Server
