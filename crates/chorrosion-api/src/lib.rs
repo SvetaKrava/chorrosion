@@ -8,10 +8,17 @@ use axum::{
     Json, Router,
 };
 use chorrosion_application::AppState;
+use handlers::albums::{
+    create_album, delete_album, get_album, list_albums, update_album, AlbumResponse,
+    CreateAlbumRequest, ErrorResponse as AlbumErrorResponse, ListAlbumsResponse,
+    UpdateAlbumRequest, __path_create_album, __path_delete_album, __path_get_album,
+    __path_list_albums, __path_update_album,
+};
 use handlers::artists::{
     create_artist, delete_artist, get_artist, list_artists, update_artist, ArtistResponse,
-    CreateArtistRequest, ErrorResponse, ListArtistsResponse, UpdateArtistRequest, __path_create_artist,
-    __path_delete_artist, __path_get_artist, __path_list_artists, __path_update_artist,
+    CreateArtistRequest, ErrorResponse, ListArtistsResponse, UpdateArtistRequest,
+    __path_create_artist, __path_delete_artist, __path_get_artist, __path_list_artists,
+    __path_update_artist,
 };
 use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
@@ -54,6 +61,11 @@ async fn health() -> Json<HealthResponse> {
         create_artist,
         update_artist,
         delete_artist,
+        list_albums,
+        get_album,
+        create_album,
+        update_album,
+        delete_album,
         test_indexer_endpoint,
     ),
     components(
@@ -64,6 +76,11 @@ async fn health() -> Json<HealthResponse> {
             CreateArtistRequest,
             UpdateArtistRequest,
             ErrorResponse,
+            ListAlbumsResponse,
+            AlbumResponse,
+            CreateAlbumRequest,
+            UpdateAlbumRequest,
+            AlbumErrorResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -73,6 +90,7 @@ async fn health() -> Json<HealthResponse> {
     tags(
         (name = "system", description = "System health and status endpoints"),
         (name = "artists", description = "Artist management endpoints"),
+        (name = "albums", description = "Album management endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
     info(
@@ -91,6 +109,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/artists/:id",
             get(get_artist).put(update_artist).delete(delete_artist),
+        )
+        .route("/albums", get(list_albums).post(create_album))
+        .route(
+            "/albums/:id",
+            get(get_album).put(update_album).delete(delete_album),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));

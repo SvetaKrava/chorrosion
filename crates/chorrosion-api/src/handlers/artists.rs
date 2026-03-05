@@ -755,7 +755,9 @@ mod tests {
         use axum::extract::{Path, State};
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
-        use chorrosion_infrastructure::sqlite_adapters::SqliteArtistRepository;
+        use chorrosion_infrastructure::sqlite_adapters::{
+            SqliteAlbumRepository, SqliteArtistRepository,
+        };
         use std::sync::Arc;
 
         async fn make_test_state() -> AppState {
@@ -769,7 +771,11 @@ mod tests {
                 .run(&pool)
                 .await
                 .expect("migrations");
-            AppState::new(AppConfig::default(), Arc::new(SqliteArtistRepository::new(pool)))
+            AppState::new(
+                AppConfig::default(),
+                Arc::new(SqliteArtistRepository::new(pool.clone())),
+                Arc::new(SqliteAlbumRepository::new(pool)),
+            )
         }
 
         // --- create_artist ---

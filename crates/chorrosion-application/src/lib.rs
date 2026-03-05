@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
-use chorrosion_infrastructure::sqlite_adapters::SqliteArtistRepository;
+use chorrosion_infrastructure::sqlite_adapters::{SqliteAlbumRepository, SqliteArtistRepository};
 use std::sync::Arc;
-pub mod embedded_tags;
 pub mod download_clients;
+pub mod embedded_tags;
 pub mod events;
 pub mod file_organization;
 pub mod filename_heuristics;
@@ -16,12 +16,12 @@ pub mod release_parsing;
 pub mod search_automation;
 pub mod tag_embedding;
 
-pub use embedded_tags::{
-    EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
-};
 pub use download_clients::{
     AddTorrentRequest, DownloadClient, DownloadClientError, DownloadItem, DownloadState,
     QBittorrentClient,
+};
+pub use embedded_tags::{
+    EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,
 };
 pub use file_organization::{
     apply_file_operation, build_organized_file_path, render_naming_pattern, FileOperationMode,
@@ -47,17 +47,17 @@ pub use matching_precedence::{
     PrecedenceMatchingResult,
 };
 pub use release_parsing::{
-    deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title,
-    rank_releases, AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
+    deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
+    AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
 };
 pub use search_automation::{
-    automatic_search_missing_albums, detect_missing_albums, manual_search,
-    AlbumSearchTarget, AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
+    automatic_search_missing_albums, detect_missing_albums, manual_search, AlbumSearchTarget,
+    AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
 };
 pub use tag_embedding::{
-    ArtworkData, LoftyTagEmbeddingBackend, TagEmbeddingBackend, TagEmbeddingError, TagEmbeddingOptions,
-    TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest, TagEmbeddingService,
-    TagFormat, TagRoundtripSnapshot,
+    ArtworkData, LoftyTagEmbeddingBackend, TagEmbeddingBackend, TagEmbeddingError,
+    TagEmbeddingOptions, TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest,
+    TagEmbeddingService, TagFormat, TagRoundtripSnapshot,
 };
 
 use tracing::info;
@@ -66,13 +66,19 @@ use tracing::info;
 pub struct AppState {
     pub config: AppConfig,
     pub artist_repository: Arc<SqliteArtistRepository>,
+    pub album_repository: Arc<SqliteAlbumRepository>,
 }
 
 impl AppState {
-    pub fn new(config: AppConfig, artist_repository: Arc<SqliteArtistRepository>) -> Self {
+    pub fn new(
+        config: AppConfig,
+        artist_repository: Arc<SqliteArtistRepository>,
+        album_repository: Arc<SqliteAlbumRepository>,
+    ) -> Self {
         Self {
             config,
             artist_repository,
+            album_repository,
         }
     }
 

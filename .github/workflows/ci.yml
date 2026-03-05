@@ -26,17 +26,26 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint (Windows)
+      - name: Cache vcpkg packages (Windows)
         if: runner.os == 'Windows'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-chromaprint-windows-v1
+          restore-keys: vcpkg-chromaprint-windows-
+
+      - name: Install chromaprint (Windows)
+        if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
-          $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
-          $vcpkgRoot = Split-Path -Parent $vcpkgExe
-          $vcpkgInstalled = Join-Path $vcpkgRoot "installed\x64-windows"
-          echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+
+      - name: Set up chromaprint environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgInstalled = "C:\vcpkg\installed\x64-windows"
           echo "LIB=$vcpkgInstalled\lib;$env:LIB" >> $env:GITHUB_ENV
           echo "$vcpkgInstalled\bin" >> $env:GITHUB_PATH
 
@@ -92,17 +101,26 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint (Windows)
+      - name: Cache vcpkg packages (Windows)
         if: runner.os == 'Windows'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-chromaprint-windows-v1
+          restore-keys: vcpkg-chromaprint-windows-
+
+      - name: Install chromaprint (Windows)
+        if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
-          $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
-          $vcpkgRoot = Split-Path -Parent $vcpkgExe
-          $vcpkgInstalled = Join-Path $vcpkgRoot "installed\x64-windows"
-          echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+
+      - name: Set up chromaprint environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgInstalled = "C:\vcpkg\installed\x64-windows"
           echo "LIB=$vcpkgInstalled\lib;$env:LIB" >> $env:GITHUB_ENV
           echo "$vcpkgInstalled\bin" >> $env:GITHUB_PATH
 

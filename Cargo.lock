@@ -379,6 +379,7 @@ dependencies = [
  "chorrosion-config",
  "chorrosion-domain",
  "chorrosion-infrastructure",
+ "chrono",
  "serde",
  "serde_json",
  "sqlx",
