@@ -136,21 +136,22 @@ pub async fn list_artists(
         )
     })?;
 
-    let artists = state.artist_repository.list(5000, 0).await.map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("failed to list artists: {error}"),
-            }),
-        )
-    })?;
+    let artists = state
+        .artist_repository
+        .list(5000, 0)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to list artists: {error}"),
+                }),
+            )
+        })?;
 
     let (page, total) = apply_list_query(artists, &normalized);
 
-    let page = page
-        .into_iter()
-        .map(ArtistResponse::from)
-        .collect();
+    let page = page.into_iter().map(ArtistResponse::from).collect();
 
     Ok(Json(ListArtistsResponse {
         items: page,
@@ -204,7 +205,9 @@ impl std::fmt::Display for ListArtistsQueryError {
     }
 }
 
-fn normalize_list_query(query: &ListArtistsQuery) -> Result<NormalizedListQuery, ListArtistsQueryError> {
+fn normalize_list_query(
+    query: &ListArtistsQuery,
+) -> Result<NormalizedListQuery, ListArtistsQueryError> {
     if !(1..=500).contains(&query.limit) {
         return Err(ListArtistsQueryError::Limit);
     }
@@ -756,7 +759,7 @@ mod tests {
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
         use chorrosion_infrastructure::sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository,
+            SqliteAlbumRepository, SqliteArtistRepository, SqliteTrackRepository,
         };
         use std::sync::Arc;
 
@@ -774,7 +777,8 @@ mod tests {
             AppState::new(
                 AppConfig::default(),
                 Arc::new(SqliteArtistRepository::new(pool.clone())),
-                Arc::new(SqliteAlbumRepository::new(pool)),
+                Arc::new(SqliteAlbumRepository::new(pool.clone())),
+                Arc::new(SqliteTrackRepository::new(pool)),
             )
         }
 
@@ -790,7 +794,9 @@ mod tests {
                 monitored: None,
                 path: None,
             };
-            let response = create_artist(State(state), Json(request)).await.into_response();
+            let response = create_artist(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::CREATED);
         }
 
@@ -804,7 +810,9 @@ mod tests {
                 monitored: None,
                 path: None,
             };
-            let response = create_artist(State(state), Json(request)).await.into_response();
+            let response = create_artist(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -818,7 +826,9 @@ mod tests {
                 monitored: None,
                 path: None,
             };
-            let response = create_artist(State(state), Json(request)).await.into_response();
+            let response = create_artist(State(state), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::CREATED);
         }
 
@@ -841,8 +851,9 @@ mod tests {
                 monitored: None,
                 path: None,
             };
-            let response =
-                update_artist(State(state), Path(id), Json(request)).await.into_response();
+            let response = update_artist(State(state), Path(id), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -857,8 +868,9 @@ mod tests {
                 path: None,
             };
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response =
-                update_artist(State(state), Path(unknown_id), Json(request)).await.into_response();
+            let response = update_artist(State(state), Path(unknown_id), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -878,8 +890,9 @@ mod tests {
                 monitored: None,
                 path: None,
             };
-            let response =
-                update_artist(State(state), Path(id), Json(request)).await.into_response();
+            let response = update_artist(State(state), Path(id), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -902,7 +915,9 @@ mod tests {
         async fn delete_artist_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response = delete_artist(State(state), Path(unknown_id)).await.into_response();
+            let response = delete_artist(State(state), Path(unknown_id))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }
