@@ -14,6 +14,11 @@ use axum::{
     Json, Router,
 };
 use chorrosion_application::AppState;
+use handlers::activity::{
+    get_activity_history, get_activity_processing, get_activity_queue, ActivityItemResponse,
+    ActivityListResponse, __path_get_activity_history, __path_get_activity_processing,
+    __path_get_activity_queue,
+};
 use handlers::albums::{
     create_album, delete_album, get_album, list_albums, update_album, AlbumResponse,
     CreateAlbumRequest, ErrorResponse as AlbumErrorResponse, ListAlbumsResponse,
@@ -89,6 +94,9 @@ async fn health() -> Json<HealthResponse> {
         delete_track,
         get_system_status,
         get_system_version,
+        get_activity_queue,
+        get_activity_history,
+        get_activity_processing,
         test_indexer_endpoint,
     ),
     components(
@@ -111,6 +119,8 @@ async fn health() -> Json<HealthResponse> {
             TrackErrorResponse,
             SystemStatusResponse,
             SystemVersionResponse,
+            ActivityItemResponse,
+            ActivityListResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -122,6 +132,7 @@ async fn health() -> Json<HealthResponse> {
         (name = "artists", description = "Artist management endpoints"),
         (name = "albums", description = "Album management endpoints"),
         (name = "tracks", description = "Track management endpoints"),
+        (name = "activity", description = "Queue and activity endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
     info(
@@ -153,6 +164,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/system/status", get(get_system_status))
         .route("/system/version", get(get_system_version))
+        .route("/activity/queue", get(get_activity_queue))
+        .route("/activity/history", get(get_activity_history))
+        .route("/activity/processing", get(get_activity_processing))
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 
