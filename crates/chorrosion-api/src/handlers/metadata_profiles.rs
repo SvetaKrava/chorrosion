@@ -6,14 +6,15 @@ use axum::{
     Json,
 };
 use chorrosion_application::AppState;
-use chorrosion_domain::QualityProfile;
+use chorrosion_domain::MetadataProfile;
 use chorrosion_infrastructure::repositories::Repository;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Deserialize, IntoParams)]
-pub struct ListQualityProfilesQuery {
+pub struct ListMetadataProfilesQuery {
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -25,52 +26,52 @@ fn default_limit() -> i64 {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct QualityProfileResponse {
+pub struct MetadataProfileResponse {
     pub id: String,
     pub name: String,
-    pub allowed_qualities: Vec<String>,
-    pub upgrade_allowed: bool,
-    pub cutoff_quality: Option<String>,
+    pub primary_album_types: Vec<String>,
+    pub secondary_album_types: Vec<String>,
+    pub release_statuses: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ListQualityProfilesResponse {
-    pub items: Vec<QualityProfileResponse>,
+pub struct ListMetadataProfilesResponse {
+    pub items: Vec<MetadataProfileResponse>,
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
 }
 
-impl From<QualityProfile> for QualityProfileResponse {
-    fn from(profile: QualityProfile) -> Self {
+impl From<MetadataProfile> for MetadataProfileResponse {
+    fn from(profile: MetadataProfile) -> Self {
         Self {
             id: profile.id.to_string(),
             name: profile.name,
-            allowed_qualities: profile.allowed_qualities,
-            upgrade_allowed: profile.upgrade_allowed,
-            cutoff_quality: profile.cutoff_quality,
+            primary_album_types: profile.primary_album_types,
+            secondary_album_types: profile.secondary_album_types,
+            release_statuses: profile.release_statuses,
         }
     }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateQualityProfileRequest {
+pub struct CreateMetadataProfileRequest {
     pub name: String,
-    pub allowed_qualities: Vec<String>,
-    pub upgrade_allowed: Option<bool>,
-    pub cutoff_quality: Option<String>,
+    pub primary_album_types: Option<Vec<String>>,
+    pub secondary_album_types: Option<Vec<String>>,
+    pub release_statuses: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateQualityProfileRequest {
+pub struct UpdateMetadataProfileRequest {
     pub name: Option<String>,
-    pub allowed_qualities: Option<Vec<String>>,
-    pub upgrade_allowed: Option<bool>,
-    pub cutoff_quality: Option<String>,
+    pub primary_album_types: Option<Vec<String>>,
+    pub secondary_album_types: Option<Vec<String>>,
+    pub release_statuses: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-#[schema(as = QualityProfileErrorResponse)]
+#[schema(as = MetadataProfileErrorResponse)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -88,37 +89,22 @@ fn validate_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     }
 }
 
-fn validate_allowed_qualities(
-    allowed_qualities: &[String],
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if allowed_qualities.is_empty() || allowed_qualities.iter().all(|q| q.trim().is_empty()) {
-        Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "allowed_qualities must contain at least one non-empty value".to_string(),
-            }),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 #[utoipa::path(
     get,
-    path = "/api/v1/settings/quality-profiles",
-    params(ListQualityProfilesQuery),
+    path = "/api/v1/settings/metadata-profiles",
+    params(ListMetadataProfilesQuery),
     responses(
-        (status = 200, description = "List quality profiles", body = ListQualityProfilesResponse),
+        (status = 200, description = "List metadata profiles", body = ListMetadataProfilesResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "settings"
 )]
-pub async fn list_quality_profiles(
+pub async fn list_metadata_profiles(
     State(state): State<AppState>,
-    Query(query): Query<ListQualityProfilesQuery>,
-) -> Result<Json<ListQualityProfilesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    debug!(target: "api", ?query, "listing quality profiles");
+    Query(query): Query<ListMetadataProfilesQuery>,
+) -> Result<Json<ListMetadataProfilesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", ?query, "listing metadata profiles");
 
     if !(1..=500).contains(&query.limit) {
         return Err((
@@ -138,14 +124,14 @@ pub async fn list_quality_profiles(
     }
 
     let all_profiles = state
-        .quality_profile_repository
+        .metadata_profile_repository
         .list(5000, 0)
         .await
         .map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("failed to list quality profiles: {error}"),
+                    error: format!("failed to list metadata profiles: {error}"),
                 }),
             )
         })?;
@@ -159,7 +145,7 @@ pub async fn list_quality_profiles(
                 Json(ErrorResponse {
                     error: "offset out of valid range".to_string(),
                 }),
-            ))
+            ));
         }
     };
     let limit = match usize::try_from(query.limit) {
@@ -170,17 +156,18 @@ pub async fn list_quality_profiles(
                 Json(ErrorResponse {
                     error: "limit out of valid range".to_string(),
                 }),
-            ))
+            ));
         }
     };
+
     let items = all_profiles
         .into_iter()
         .skip(offset)
         .take(limit)
-        .map(QualityProfileResponse::from)
+        .map(MetadataProfileResponse::from)
         .collect();
 
-    Ok(Json(ListQualityProfilesResponse {
+    Ok(Json(ListMetadataProfilesResponse {
         items,
         total,
         limit: query.limit,
@@ -190,36 +177,40 @@ pub async fn list_quality_profiles(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/settings/quality-profiles/{id}",
-    params(("id" = String, Path, description = "Quality profile ID")),
+    path = "/api/v1/settings/metadata-profiles/{id}",
+    params(("id" = String, Path, description = "Metadata profile ID")),
     responses(
-        (status = 200, description = "Quality profile found", body = QualityProfileResponse),
-        (status = 404, description = "Quality profile not found", body = ErrorResponse),
+        (status = 200, description = "Metadata profile found", body = MetadataProfileResponse),
+        (status = 404, description = "Metadata profile not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "settings"
 )]
-pub async fn get_quality_profile(
+pub async fn get_metadata_profile(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    debug!(target: "api", %id, "fetching quality profile");
+    debug!(target: "api", %id, "fetching metadata profile");
 
-    match state.quality_profile_repository.get_by_id(id.clone()).await {
+    match state
+        .metadata_profile_repository
+        .get_by_id(id.clone())
+        .await
+    {
         Ok(Some(profile)) => {
-            (StatusCode::OK, Json(QualityProfileResponse::from(profile))).into_response()
+            (StatusCode::OK, Json(MetadataProfileResponse::from(profile))).into_response()
         }
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Quality profile {} not found", id),
+                error: format!("Metadata profile {} not found", id),
             }),
         )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("failed to fetch quality profile: {error}"),
+                error: format!("failed to fetch metadata profile: {error}"),
             }),
         )
             .into_response(),
@@ -228,42 +219,46 @@ pub async fn get_quality_profile(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/settings/quality-profiles",
-    request_body = CreateQualityProfileRequest,
+    path = "/api/v1/settings/metadata-profiles",
+    request_body = CreateMetadataProfileRequest,
     responses(
-        (status = 201, description = "Quality profile created", body = QualityProfileResponse),
+        (status = 201, description = "Metadata profile created", body = MetadataProfileResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "settings"
 )]
-pub async fn create_quality_profile(
+pub async fn create_metadata_profile(
     State(state): State<AppState>,
-    Json(request): Json<CreateQualityProfileRequest>,
+    Json(request): Json<CreateMetadataProfileRequest>,
 ) -> impl IntoResponse {
-    debug!(target: "api", ?request, "creating quality profile");
+    debug!(target: "api", ?request, "creating metadata profile");
 
     if let Err(err_response) = validate_name(&request.name) {
         return err_response.into_response();
     }
-    if let Err(err_response) = validate_allowed_qualities(&request.allowed_qualities) {
-        return err_response.into_response();
+
+    let mut profile = MetadataProfile::new(request.name);
+    if let Some(primary) = request.primary_album_types {
+        profile.primary_album_types = primary;
+    }
+    if let Some(secondary) = request.secondary_album_types {
+        profile.secondary_album_types = secondary;
+    }
+    if let Some(statuses) = request.release_statuses {
+        profile.release_statuses = statuses;
     }
 
-    let mut profile = QualityProfile::new(request.name, request.allowed_qualities);
-    profile.upgrade_allowed = request.upgrade_allowed.unwrap_or(false);
-    profile.cutoff_quality = request.cutoff_quality;
-
-    match state.quality_profile_repository.create(profile).await {
+    match state.metadata_profile_repository.create(profile).await {
         Ok(created) => (
             StatusCode::CREATED,
-            Json(QualityProfileResponse::from(created)),
+            Json(MetadataProfileResponse::from(created)),
         )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("failed to create quality profile: {error}"),
+                error: format!("failed to create metadata profile: {error}"),
             }),
         )
             .into_response(),
@@ -272,43 +267,47 @@ pub async fn create_quality_profile(
 
 #[utoipa::path(
     put,
-    path = "/api/v1/settings/quality-profiles/{id}",
-    params(("id" = String, Path, description = "Quality profile ID")),
-    request_body = UpdateQualityProfileRequest,
+    path = "/api/v1/settings/metadata-profiles/{id}",
+    params(("id" = String, Path, description = "Metadata profile ID")),
+    request_body = UpdateMetadataProfileRequest,
     responses(
-        (status = 200, description = "Quality profile updated", body = QualityProfileResponse),
+        (status = 200, description = "Metadata profile updated", body = MetadataProfileResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
-        (status = 404, description = "Quality profile not found", body = ErrorResponse),
+        (status = 404, description = "Metadata profile not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "settings"
 )]
-pub async fn update_quality_profile(
+pub async fn update_metadata_profile(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<UpdateQualityProfileRequest>,
+    Json(request): Json<UpdateMetadataProfileRequest>,
 ) -> impl IntoResponse {
-    debug!(target: "api", %id, ?request, "updating quality profile");
+    debug!(target: "api", %id, ?request, "updating metadata profile");
 
-    let mut profile = match state.quality_profile_repository.get_by_id(id.clone()).await {
+    let mut profile = match state
+        .metadata_profile_repository
+        .get_by_id(id.clone())
+        .await
+    {
         Ok(Some(profile)) => profile,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
-                    error: format!("Quality profile {} not found", id),
+                    error: format!("Metadata profile {} not found", id),
                 }),
             )
-                .into_response()
+                .into_response();
         }
         Err(error) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("failed to fetch quality profile: {error}"),
+                    error: format!("failed to fetch metadata profile: {error}"),
                 }),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -318,27 +317,25 @@ pub async fn update_quality_profile(
         }
         profile.name = name;
     }
-    if let Some(allowed_qualities) = request.allowed_qualities {
-        if let Err(err_response) = validate_allowed_qualities(&allowed_qualities) {
-            return err_response.into_response();
-        }
-        profile.allowed_qualities = allowed_qualities;
+    if let Some(primary) = request.primary_album_types {
+        profile.primary_album_types = primary;
     }
-    if let Some(upgrade_allowed) = request.upgrade_allowed {
-        profile.upgrade_allowed = upgrade_allowed;
+    if let Some(secondary) = request.secondary_album_types {
+        profile.secondary_album_types = secondary;
     }
-    if let Some(cutoff_quality) = request.cutoff_quality {
-        profile.cutoff_quality = Some(cutoff_quality);
+    if let Some(statuses) = request.release_statuses {
+        profile.release_statuses = statuses;
     }
+    profile.updated_at = Utc::now();
 
-    match state.quality_profile_repository.update(profile).await {
+    match state.metadata_profile_repository.update(profile).await {
         Ok(updated) => {
-            (StatusCode::OK, Json(QualityProfileResponse::from(updated))).into_response()
+            (StatusCode::OK, Json(MetadataProfileResponse::from(updated))).into_response()
         }
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("failed to update quality profile: {error}"),
+                error: format!("failed to update metadata profile: {error}"),
             }),
         )
             .into_response(),
@@ -347,40 +344,48 @@ pub async fn update_quality_profile(
 
 #[utoipa::path(
     delete,
-    path = "/api/v1/settings/quality-profiles/{id}",
-    params(("id" = String, Path, description = "Quality profile ID")),
+    path = "/api/v1/settings/metadata-profiles/{id}",
+    params(("id" = String, Path, description = "Metadata profile ID")),
     responses(
-        (status = 204, description = "Quality profile deleted"),
-        (status = 404, description = "Quality profile not found", body = ErrorResponse),
+        (status = 204, description = "Metadata profile deleted"),
+        (status = 404, description = "Metadata profile not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "settings"
 )]
-pub async fn delete_quality_profile(
+pub async fn delete_metadata_profile(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    debug!(target: "api", %id, "deleting quality profile");
+    debug!(target: "api", %id, "deleting metadata profile");
 
-    match state.quality_profile_repository.get_by_id(id.clone()).await {
+    match state
+        .metadata_profile_repository
+        .get_by_id(id.clone())
+        .await
+    {
         Ok(Some(_)) => {
-            match state.quality_profile_repository.delete(id.clone()).await {
+            match state.metadata_profile_repository.delete(id.clone()).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Recheck existence to distinguish concurrent deletion (404)
                     // from a transient delete failure (500).
-                    match state.quality_profile_repository.get_by_id(id.clone()).await {
+                    match state
+                        .metadata_profile_repository
+                        .get_by_id(id.clone())
+                        .await
+                    {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {
-                                error: format!("Quality profile {} not found", id),
+                                error: format!("Metadata profile {} not found", id),
                             }),
                         )
                             .into_response(),
                         Ok(Some(_)) | Err(_) => (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(ErrorResponse {
-                                error: format!("failed to delete quality profile: {delete_error}"),
+                                error: format!("failed to delete metadata profile: {delete_error}"),
                             }),
                         )
                             .into_response(),
@@ -391,14 +396,14 @@ pub async fn delete_quality_profile(
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!("Quality profile {} not found", id),
+                error: format!("Metadata profile {} not found", id),
             }),
         )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("failed to fetch quality profile before delete: {error}"),
+                error: format!("failed to fetch metadata profile before delete: {error}"),
             }),
         )
             .into_response(),
@@ -441,27 +446,24 @@ mod tests {
             )
         }
 
-        async fn create_test_profile(state: &AppState) -> chorrosion_domain::QualityProfile {
+        async fn create_test_profile(state: &AppState) -> chorrosion_domain::MetadataProfile {
             state
-                .quality_profile_repository
-                .create(chorrosion_domain::QualityProfile::new(
-                    "Test Profile",
-                    vec!["FLAC".to_string()],
-                ))
+                .metadata_profile_repository
+                .create(chorrosion_domain::MetadataProfile::new("Test Profile"))
                 .await
-                .expect("create test quality profile")
+                .expect("create test metadata profile")
         }
 
-        // --- list_quality_profiles ---
+        // --- list_metadata_profiles ---
 
         #[tokio::test]
-        async fn list_quality_profiles_returns_empty_when_none() {
+        async fn list_metadata_profiles_returns_empty_when_none() {
             let state = make_test_state().await;
-            let query = ListQualityProfilesQuery {
+            let query = ListMetadataProfilesQuery {
                 limit: 10,
                 offset: 0,
             };
-            let result = list_quality_profiles(State(state), Query(query))
+            let result = list_metadata_profiles(State(state), Query(query))
                 .await
                 .unwrap();
             assert_eq!(result.total, 0);
@@ -469,193 +471,225 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn list_quality_profiles_rejects_invalid_limit() {
+        async fn list_metadata_profiles_rejects_invalid_limit() {
             let state = make_test_state().await;
-            let query = ListQualityProfilesQuery {
+            let query = ListMetadataProfilesQuery {
                 limit: 0,
                 offset: 0,
             };
-            let result = list_quality_profiles(State(state), Query(query)).await;
+            let result = list_metadata_profiles(State(state), Query(query)).await;
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
             assert_eq!(status, StatusCode::BAD_REQUEST);
         }
 
         #[tokio::test]
-        async fn list_quality_profiles_rejects_negative_offset() {
+        async fn list_metadata_profiles_rejects_negative_offset() {
             let state = make_test_state().await;
-            let query = ListQualityProfilesQuery {
+            let query = ListMetadataProfilesQuery {
                 limit: 10,
                 offset: -1,
             };
-            let result = list_quality_profiles(State(state), Query(query)).await;
+            let result = list_metadata_profiles(State(state), Query(query)).await;
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
             assert_eq!(status, StatusCode::BAD_REQUEST);
         }
 
         #[tokio::test]
-        async fn list_quality_profiles_returns_accurate_total_with_pagination() {
+        async fn list_metadata_profiles_returns_accurate_total_with_pagination() {
             let state = make_test_state().await;
             for name in ["Profile A", "Profile B", "Profile C"] {
                 state
-                    .quality_profile_repository
-                    .create(chorrosion_domain::QualityProfile::new(
-                        name,
-                        vec!["FLAC".to_string()],
-                    ))
+                    .metadata_profile_repository
+                    .create(chorrosion_domain::MetadataProfile::new(name))
                     .await
                     .unwrap();
             }
-            let query = ListQualityProfilesQuery {
+            let query = ListMetadataProfilesQuery {
                 limit: 2,
                 offset: 0,
             };
-            let result = list_quality_profiles(State(state), Query(query))
+            let result = list_metadata_profiles(State(state), Query(query))
                 .await
                 .unwrap();
             assert_eq!(result.total, 3);
             assert_eq!(result.items.len(), 2);
         }
 
-        // --- get_quality_profile ---
+        // --- get_metadata_profile ---
 
         #[tokio::test]
-        async fn get_quality_profile_returns_200_on_success() {
+        async fn get_metadata_profile_returns_200_on_success() {
             let state = make_test_state().await;
             let profile = create_test_profile(&state).await;
-            let response = get_quality_profile(State(state), Path(profile.id.to_string()))
+            let response = get_metadata_profile(State(state), Path(profile.id.to_string()))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
         #[tokio::test]
-        async fn get_quality_profile_returns_404_for_unknown_id() {
+        async fn get_metadata_profile_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response = get_quality_profile(State(state), Path(unknown_id))
+            let response = get_metadata_profile(State(state), Path(unknown_id))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
-        // --- create_quality_profile ---
+        // --- create_metadata_profile ---
 
         #[tokio::test]
-        async fn create_quality_profile_returns_201_on_success() {
+        async fn create_metadata_profile_returns_201_on_success() {
             let state = make_test_state().await;
-            let request = CreateQualityProfileRequest {
+            let request = CreateMetadataProfileRequest {
                 name: "New Profile".to_string(),
-                allowed_qualities: vec!["FLAC".to_string()],
-                upgrade_allowed: None,
-                cutoff_quality: None,
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
             };
-            let response = create_quality_profile(State(state), Json(request))
+            let response = create_metadata_profile(State(state), Json(request))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::CREATED);
         }
 
         #[tokio::test]
-        async fn create_quality_profile_returns_400_for_empty_name() {
+        async fn create_metadata_profile_returns_400_for_empty_name() {
             let state = make_test_state().await;
-            let request = CreateQualityProfileRequest {
+            let request = CreateMetadataProfileRequest {
                 name: "   ".to_string(),
-                allowed_qualities: vec!["FLAC".to_string()],
-                upgrade_allowed: None,
-                cutoff_quality: None,
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
             };
-            let response = create_quality_profile(State(state), Json(request))
+            let response = create_metadata_profile(State(state), Json(request))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
-        #[tokio::test]
-        async fn create_quality_profile_returns_400_for_empty_allowed_qualities() {
-            let state = make_test_state().await;
-            let request = CreateQualityProfileRequest {
-                name: "Valid Name".to_string(),
-                allowed_qualities: vec![],
-                upgrade_allowed: None,
-                cutoff_quality: None,
-            };
-            let response = create_quality_profile(State(state), Json(request))
-                .await
-                .into_response();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
-
-        // --- update_quality_profile ---
+        // --- update_metadata_profile ---
 
         #[tokio::test]
-        async fn update_quality_profile_returns_200_on_success() {
+        async fn update_metadata_profile_returns_200_on_success() {
             let state = make_test_state().await;
             let profile = create_test_profile(&state).await;
-            let request = UpdateQualityProfileRequest {
+            let request = UpdateMetadataProfileRequest {
                 name: Some("Updated Name".to_string()),
-                allowed_qualities: None,
-                upgrade_allowed: None,
-                cutoff_quality: None,
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
             };
-            let response =
-                update_quality_profile(State(state), Path(profile.id.to_string()), Json(request))
-                    .await
-                    .into_response();
+            let response = update_metadata_profile(
+                State(state),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
         #[tokio::test]
-        async fn update_quality_profile_returns_404_for_unknown_id() {
+        async fn update_metadata_profile_bumps_updated_at_and_preserves_created_at() {
             let state = make_test_state().await;
-            let request = UpdateQualityProfileRequest {
+            let profile = create_test_profile(&state).await;
+            let original_created_at = profile.created_at;
+            let original_updated_at = profile.updated_at;
+
+            // Ensure the clock advances before the update.
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+
+            let request = UpdateMetadataProfileRequest {
+                name: Some("Bumped Name".to_string()),
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
+            };
+            let response = update_metadata_profile(
+                State(state.clone()),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let persisted = state
+                .metadata_profile_repository
+                .get_by_id(profile.id.to_string())
+                .await
+                .expect("get_by_id succeeds")
+                .expect("profile still exists");
+
+            assert!(
+                persisted.updated_at > original_updated_at,
+                "updated_at should be bumped after update"
+            );
+            assert_eq!(
+                persisted.created_at, original_created_at,
+                "created_at must not change on update"
+            );
+        }
+
+        #[tokio::test]
+        async fn update_metadata_profile_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let request = UpdateMetadataProfileRequest {
                 name: Some("Name".to_string()),
-                allowed_qualities: None,
-                upgrade_allowed: None,
-                cutoff_quality: None,
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
             };
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response = update_quality_profile(State(state), Path(unknown_id), Json(request))
-                .await
-                .into_response();
+            let response =
+                update_metadata_profile(State(state), Path(unknown_id), Json(request))
+                    .await
+                    .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
         #[tokio::test]
-        async fn update_quality_profile_returns_400_for_empty_name() {
+        async fn update_metadata_profile_returns_400_for_empty_name() {
             let state = make_test_state().await;
             let profile = create_test_profile(&state).await;
-            let request = UpdateQualityProfileRequest {
+            let request = UpdateMetadataProfileRequest {
                 name: Some("  ".to_string()),
-                allowed_qualities: None,
-                upgrade_allowed: None,
-                cutoff_quality: None,
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
             };
-            let response =
-                update_quality_profile(State(state), Path(profile.id.to_string()), Json(request))
-                    .await
-                    .into_response();
+            let response = update_metadata_profile(
+                State(state),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
-        // --- delete_quality_profile ---
+        // --- delete_metadata_profile ---
 
         #[tokio::test]
-        async fn delete_quality_profile_returns_204_on_success() {
+        async fn delete_metadata_profile_returns_204_on_success() {
             let state = make_test_state().await;
             let profile = create_test_profile(&state).await;
-            let response = delete_quality_profile(State(state), Path(profile.id.to_string()))
-                .await
-                .into_response();
+            let response =
+                delete_metadata_profile(State(state), Path(profile.id.to_string()))
+                    .await
+                    .into_response();
             assert_eq!(response.status(), StatusCode::NO_CONTENT);
         }
 
         #[tokio::test]
-        async fn delete_quality_profile_returns_404_for_unknown_id() {
+        async fn delete_metadata_profile_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response = delete_quality_profile(State(state), Path(unknown_id))
+            let response = delete_metadata_profile(State(state), Path(unknown_id))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);

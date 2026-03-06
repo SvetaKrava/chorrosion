@@ -9,8 +9,8 @@ use chorrosion_config::load as load_config;
 use chorrosion_infrastructure::{
     init_database,
     sqlite_adapters::{
-        SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
-        SqliteTrackRepository,
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTrackRepository,
     },
 };
 use chorrosion_scheduler::Scheduler;
@@ -28,7 +28,8 @@ async fn main() -> Result<()> {
     let artist_repository = Arc::new(SqliteArtistRepository::new(pool.clone()));
     let album_repository = Arc::new(SqliteAlbumRepository::new(pool.clone()));
     let track_repository = Arc::new(SqliteTrackRepository::new(pool.clone()));
-    let quality_profile_repository = Arc::new(SqliteQualityProfileRepository::new(pool));
+    let quality_profile_repository = Arc::new(SqliteQualityProfileRepository::new(pool.clone()));
+    let metadata_profile_repository = Arc::new(SqliteMetadataProfileRepository::new(pool));
 
     let state = AppState::new(
         config.clone(),
@@ -36,6 +37,7 @@ async fn main() -> Result<()> {
         album_repository,
         track_repository,
         quality_profile_repository,
+        metadata_profile_repository,
     );
     state.on_start();
 

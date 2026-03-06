@@ -318,7 +318,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [ ] Log viewing
 - [x] Settings endpoints ✓ PARTIALLY COMPLETE
   - [x] Quality profiles CRUD (`/api/v1/settings/quality-profiles`) ✓
-  - [ ] Metadata profiles CRUD
+  - [x] Metadata profiles CRUD (`/api/v1/settings/metadata-profiles`) ✓
   - [ ] Indexer management
   - [ ] Download client management
 

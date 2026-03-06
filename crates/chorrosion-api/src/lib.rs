@@ -35,6 +35,14 @@ use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
     TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
 };
+use handlers::metadata_profiles::{
+    create_metadata_profile, delete_metadata_profile, get_metadata_profile, list_metadata_profiles,
+    update_metadata_profile, CreateMetadataProfileRequest,
+    ErrorResponse as MetadataProfileErrorResponse, ListMetadataProfilesResponse,
+    MetadataProfileResponse, UpdateMetadataProfileRequest, __path_create_metadata_profile,
+    __path_delete_metadata_profile, __path_get_metadata_profile, __path_list_metadata_profiles,
+    __path_update_metadata_profile,
+};
 use handlers::quality_profiles::{
     create_quality_profile, delete_quality_profile, get_quality_profile, list_quality_profiles,
     update_quality_profile, CreateQualityProfileRequest,
@@ -110,6 +118,11 @@ async fn health() -> Json<HealthResponse> {
         create_quality_profile,
         update_quality_profile,
         delete_quality_profile,
+        list_metadata_profiles,
+        get_metadata_profile,
+        create_metadata_profile,
+        update_metadata_profile,
+        delete_metadata_profile,
         test_indexer_endpoint,
     ),
     components(
@@ -139,6 +152,11 @@ async fn health() -> Json<HealthResponse> {
             CreateQualityProfileRequest,
             UpdateQualityProfileRequest,
             QualityProfileErrorResponse,
+            ListMetadataProfilesResponse,
+            MetadataProfileResponse,
+            CreateMetadataProfileRequest,
+            UpdateMetadataProfileRequest,
+            MetadataProfileErrorResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -195,6 +213,16 @@ pub fn router(state: AppState) -> Router {
             get(get_quality_profile)
                 .put(update_quality_profile)
                 .delete(delete_quality_profile),
+        )
+        .route(
+            "/settings/metadata-profiles",
+            get(list_metadata_profiles).post(create_metadata_profile),
+        )
+        .route(
+            "/settings/metadata-profiles/:id",
+            get(get_metadata_profile)
+                .put(update_metadata_profile)
+                .delete(delete_metadata_profile),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
