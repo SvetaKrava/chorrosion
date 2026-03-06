@@ -2,4 +2,5 @@
 pub mod albums;
 pub mod artists;
 pub mod indexers;
+pub mod system;
 pub mod tracks;

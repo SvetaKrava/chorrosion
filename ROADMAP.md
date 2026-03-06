@@ -304,13 +304,16 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Monitor toggle (via update endpoint) ✓
   - [ ] List by artist
   - [ ] Search trigger
-- [ ] Track endpoints
+- [x] Track endpoints (PR #178) ✓ PARTIALLY COMPLETE
+  - [x] Track list and details ✓
+  - [x] Track create/update/delete ✓
+  - [ ] Album/artist filtered listing endpoints
 - [ ] Queue/Activity endpoints
   - [ ] Download queue
   - [ ] History
   - [ ] Currently processing
-- [ ] System endpoints
-  - [ ] Status and version
+- [x] System endpoints ✓ PARTIALLY COMPLETE
+  - [x] Status and version
   - [ ] Tasks/jobs management
   - [ ] Log viewing
 - [ ] Settings endpoints

@@ -93,6 +93,13 @@ Current implemented endpoints:
 - `POST /api/v1/albums`
 - `PUT /api/v1/albums/{id}`
 - `DELETE /api/v1/albums/{id}`
+- `GET /api/v1/tracks`
+- `GET /api/v1/tracks/{id}`
+- `POST /api/v1/tracks`
+- `PUT /api/v1/tracks/{id}`
+- `DELETE /api/v1/tracks/{id}`
+- `GET /api/v1/system/status`
+- `GET /api/v1/system/version`
 - `POST /api/v1/indexers/test`
 
 ## Testing with the Mock Server

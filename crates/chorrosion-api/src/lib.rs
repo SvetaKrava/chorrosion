@@ -2,6 +2,12 @@
 pub mod handlers;
 pub mod middleware;
 
+/// Base path for all v1 API routes.
+pub const API_V1_BASE: &str = "/api/v1";
+
+/// Application version sourced from `Cargo.toml` at compile time.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use axum::{
     middleware as axum_middleware,
     routing::{get, post},
@@ -23,6 +29,10 @@ use handlers::artists::{
 use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
     TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
+};
+use handlers::system::{
+    get_system_status, get_system_version, SystemStatusResponse, SystemVersionResponse,
+    __path_get_system_status, __path_get_system_version,
 };
 use handlers::tracks::{
     create_track, delete_track, get_track, list_tracks, update_track, CreateTrackRequest,
@@ -77,6 +87,8 @@ async fn health() -> Json<HealthResponse> {
         create_track,
         update_track,
         delete_track,
+        get_system_status,
+        get_system_version,
         test_indexer_endpoint,
     ),
     components(
@@ -97,6 +109,8 @@ async fn health() -> Json<HealthResponse> {
             CreateTrackRequest,
             UpdateTrackRequest,
             TrackErrorResponse,
+            SystemStatusResponse,
+            SystemVersionResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -137,14 +151,17 @@ pub fn router(state: AppState) -> Router {
             "/tracks/:id",
             get(get_track).put(update_track).delete(delete_track),
         )
+        .route("/system/status", get(get_system_status))
+        .route("/system/version", get(get_system_version))
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 
-    let openapi = ApiDoc::openapi();
+    let mut openapi = ApiDoc::openapi();
+    openapi.info.version = APP_VERSION.to_string();
 
     Router::new()
         .route("/health", get(health_handler))
-        .nest("/api/v1", api_v1)
+        .nest(API_V1_BASE, api_v1)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
         .with_state(state)
 }
