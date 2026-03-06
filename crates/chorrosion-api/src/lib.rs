@@ -32,8 +32,11 @@ use handlers::artists::{
     __path_update_artist,
 };
 use handlers::indexers::{
-    test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
-    TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
+    create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
+    update_indexer, CreateIndexerRequest, IndexerCapabilitiesResponse, IndexerErrorResponse,
+    IndexerResponse, IndexerTestErrorResponse, ListIndexersResponse, TestIndexerRequest,
+    TestIndexerResponse, UpdateIndexerRequest, __path_create_indexer, __path_delete_indexer,
+    __path_get_indexer, __path_list_indexers, __path_test_indexer_endpoint, __path_update_indexer,
 };
 use handlers::metadata_profiles::{
     create_metadata_profile, delete_metadata_profile, get_metadata_profile, list_metadata_profiles,
@@ -123,6 +126,11 @@ async fn health() -> Json<HealthResponse> {
         create_metadata_profile,
         update_metadata_profile,
         delete_metadata_profile,
+        list_indexers,
+        get_indexer,
+        create_indexer,
+        update_indexer,
+        delete_indexer,
         test_indexer_endpoint,
     ),
     components(
@@ -157,6 +165,11 @@ async fn health() -> Json<HealthResponse> {
             CreateMetadataProfileRequest,
             UpdateMetadataProfileRequest,
             MetadataProfileErrorResponse,
+            ListIndexersResponse,
+            IndexerResponse,
+            CreateIndexerRequest,
+            UpdateIndexerRequest,
+            IndexerErrorResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -223,6 +236,14 @@ pub fn router(state: AppState) -> Router {
             get(get_metadata_profile)
                 .put(update_metadata_profile)
                 .delete(delete_metadata_profile),
+        )
+        .route(
+            "/settings/indexers",
+            get(list_indexers).post(create_indexer),
+        )
+        .route(
+            "/settings/indexers/:id",
+            get(get_indexer).put(update_indexer).delete(delete_indexer),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));

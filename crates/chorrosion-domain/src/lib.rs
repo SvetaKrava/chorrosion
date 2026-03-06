@@ -619,6 +619,38 @@ impl MetadataProfile {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexerDefinition {
+    pub id: ProfileId,
+    pub name: String,
+    pub base_url: String,
+    pub protocol: String,
+    pub api_key: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl IndexerDefinition {
+    pub fn new(
+        name: impl Into<String>,
+        base_url: impl Into<String>,
+        protocol: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: ProfileId::new(),
+            name: name.into(),
+            base_url: base_url.into(),
+            protocol: protocol.into(),
+            api_key: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
 // ============================================================================
 // Track File (represents a physical audio file associated to a Track)
 // ============================================================================

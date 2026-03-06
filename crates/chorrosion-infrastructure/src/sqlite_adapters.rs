@@ -2,8 +2,8 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
-    ArtistStatus, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile, TrackFileId,
-    TrackId,
+    ArtistStatus, IndexerDefinition, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile,
+    TrackFileId, TrackId,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -12,8 +12,9 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::repositories::{
-    AlbumRepository, ArtistRelationshipRepository, ArtistRepository, MetadataProfileRepository,
-    QualityProfileRepository, Repository, TrackFileRepository, TrackRepository,
+    AlbumRepository, ArtistRelationshipRepository, ArtistRepository, IndexerDefinitionRepository,
+    MetadataProfileRepository, QualityProfileRepository, Repository, TrackFileRepository,
+    TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -925,6 +926,28 @@ fn row_to_metadata_profile(row: &sqlx::sqlite::SqliteRow) -> Result<MetadataProf
     })
 }
 
+fn row_to_indexer_definition(row: &sqlx::sqlite::SqliteRow) -> Result<IndexerDefinition> {
+    let id: String = row.get("id");
+    let name: String = row.get("name");
+    let base_url: String = row.get("base_url");
+    let protocol: String = row.get("protocol");
+    let api_key: Option<String> = row.get("api_key");
+    let enabled: bool = row.get("enabled");
+
+    let profile_id = ProfileId::from_uuid(uuid::Uuid::parse_str(&id)?);
+
+    Ok(IndexerDefinition {
+        id: profile_id,
+        name,
+        base_url,
+        protocol,
+        api_key,
+        enabled,
+        created_at: parse_dt(row.get("created_at"))?,
+        updated_at: parse_dt(row.get("updated_at"))?,
+    })
+}
+
 // ============================================================================
 
 /// SQLx-backed Quality Profile repository
@@ -1177,6 +1200,133 @@ impl MetadataProfileRepository for SqliteMetadataProfileRepository {
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_metadata_profile(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// ============================================================================
+
+/// SQLx-backed Indexer Definition repository
+#[allow(dead_code)]
+pub struct SqliteIndexerDefinitionRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteIndexerDefinitionRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
+    async fn create(&self, entity: IndexerDefinition) -> Result<IndexerDefinition> {
+        debug!(target: "repository", profile_id = %entity.id, "creating indexer definition");
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO indexer_definitions (
+                id, name, base_url, protocol, api_key, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(entity.id.to_string())
+        .bind(entity.name.clone())
+        .bind(entity.base_url.clone())
+        .bind(entity.protocol.clone())
+        .bind(entity.api_key.clone())
+        .bind(entity.enabled)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<IndexerDefinition>> {
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching indexer definition by id");
+        let row = sqlx::query("SELECT * FROM indexer_definitions WHERE id = ? LIMIT 1")
+            .bind(&id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_indexer_definition(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<IndexerDefinition>> {
+        debug!(target: "repository", limit, offset, "listing indexer definitions");
+        let rows = sqlx::query("SELECT * FROM indexer_definitions ORDER BY name LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_indexer_definition(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, entity: IndexerDefinition) -> Result<IndexerDefinition> {
+        debug!(target: "repository", profile_id = %entity.id, "updating indexer definition");
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            UPDATE indexer_definitions SET
+                name = ?,
+                base_url = ?,
+                protocol = ?,
+                api_key = ?,
+                enabled = ?,
+                updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(entity.name.clone())
+        .bind(entity.base_url.clone())
+        .bind(entity.protocol.clone())
+        .bind(entity.api_key.clone())
+        .bind(entity.enabled)
+        .bind(updated_at)
+        .bind(entity.id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(entity)
+    }
+
+    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting indexer definition");
+        let result = sqlx::query("DELETE FROM indexer_definitions WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("indexer definition not found: {}", id));
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl IndexerDefinitionRepository for SqliteIndexerDefinitionRepository {
+    async fn get_by_name(&self, name: &str) -> Result<Option<IndexerDefinition>> {
+        debug!(target: "repository", name, "fetching indexer definition by name");
+        let row = sqlx::query("SELECT * FROM indexer_definitions WHERE name = ? LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_indexer_definition(&r)?))
         } else {
             Ok(None)
         }
