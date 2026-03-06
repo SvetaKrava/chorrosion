@@ -26,27 +26,39 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint and FFmpeg (Windows)
+      - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
-          # Install LLVM using winget (recommended)
-          # If winget fails, use choco as fallback
           try {
             winget install --id llvm.llvm -e --source winget --accept-source-agreements --accept-package-agreements
           } catch {
             choco install llvm -y
           }
 
+      - name: Cache vcpkg chromaprint and FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-chromaprint-ffmpeg-windows-v1
+          restore-keys: vcpkg-chromaprint-ffmpeg-windows-
+
+      - name: Install chromaprint and FFmpeg via vcpkg (Windows)
+        if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
           vcpkg install chromaprint:x64-windows
           vcpkg install ffmpeg[avcodec,avdevice,avformat,avfilter,swresample,swscale]:x64-windows
 
+      - name: Set up chromaprint and FFmpeg environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgInstalled = "C:\vcpkg\installed\x64-windows"
           $vcpkgExe = (Get-Command vcpkg -ErrorAction Stop).Source
           $vcpkgRoot = Split-Path -Parent $vcpkgExe
-          $vcpkgInstalled = Join-Path $vcpkgRoot "installed\x64-windows"
-
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
