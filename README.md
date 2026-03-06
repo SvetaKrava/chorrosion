@@ -103,6 +103,11 @@ Current implemented endpoints:
 - `GET /api/v1/activity/queue`
 - `GET /api/v1/activity/history`
 - `GET /api/v1/activity/processing`
+- `GET /api/v1/settings/quality-profiles`
+- `GET /api/v1/settings/quality-profiles/{id}`
+- `POST /api/v1/settings/quality-profiles`
+- `PUT /api/v1/settings/quality-profiles/{id}`
+- `DELETE /api/v1/settings/quality-profiles/{id}`
 - `POST /api/v1/indexers/test`
 
 ## Testing with the Mock Server
