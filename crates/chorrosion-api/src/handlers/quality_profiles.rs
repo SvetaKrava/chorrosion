@@ -151,8 +151,28 @@ pub async fn list_quality_profiles(
         })?;
 
     let total = all_profiles.len() as i64;
-    let offset = query.offset as usize;
-    let limit = query.limit as usize;
+    let offset = match usize::try_from(query.offset) {
+        Ok(offset) => offset,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "offset out of valid range".to_string(),
+                }),
+            ))
+        }
+    };
+    let limit = match usize::try_from(query.limit) {
+        Ok(limit) => limit,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "limit out of valid range".to_string(),
+                }),
+            ))
+        }
+    };
     let items = all_profiles
         .into_iter()
         .skip(offset)
@@ -342,27 +362,310 @@ pub async fn delete_quality_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting quality profile");
 
-    match state.quality_profile_repository.delete(id.clone()).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => {
-            let err_msg = error.to_string();
-            if err_msg.contains("not found") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        error: format!("Quality profile {} not found", id),
-                    }),
-                )
-                    .into_response()
-            } else {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("failed to delete quality profile: {error}"),
-                    }),
-                )
-                    .into_response()
+    match state.quality_profile_repository.get_by_id(id.clone()).await {
+        Ok(Some(_)) => {
+            match state.quality_profile_repository.delete(id.clone()).await {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(delete_error) => {
+                    // Recheck existence to distinguish concurrent deletion (404)
+                    // from a transient delete failure (500).
+                    match state.quality_profile_repository.get_by_id(id.clone()).await {
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            Json(ErrorResponse {
+                                error: format!("Quality profile {} not found", id),
+                            }),
+                        )
+                            .into_response(),
+                        Ok(Some(_)) | Err(_) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("failed to delete quality profile: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
             }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Quality profile {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to fetch quality profile before delete: {error}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod write_handlers {
+        use super::*;
+        use axum::extract::{Path, Query, State};
+        use axum::response::IntoResponse;
+        use chorrosion_config::AppConfig;
+        use chorrosion_infrastructure::sqlite_adapters::{
+            SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
+            SqliteTrackRepository,
+        };
+        use std::sync::Arc;
+
+        async fn make_test_state() -> AppState {
+            use sqlx::sqlite::SqlitePoolOptions;
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .expect("in-memory SQLite");
+            sqlx::migrate!("../../migrations")
+                .run(&pool)
+                .await
+                .expect("migrations");
+            AppState::new(
+                AppConfig::default(),
+                Arc::new(SqliteArtistRepository::new(pool.clone())),
+                Arc::new(SqliteAlbumRepository::new(pool.clone())),
+                Arc::new(SqliteTrackRepository::new(pool.clone())),
+                Arc::new(SqliteQualityProfileRepository::new(pool)),
+            )
+        }
+
+        async fn create_test_profile(state: &AppState) -> chorrosion_domain::QualityProfile {
+            state
+                .quality_profile_repository
+                .create(chorrosion_domain::QualityProfile::new(
+                    "Test Profile",
+                    vec!["FLAC".to_string()],
+                ))
+                .await
+                .expect("create test quality profile")
+        }
+
+        // --- list_quality_profiles ---
+
+        #[tokio::test]
+        async fn list_quality_profiles_returns_empty_when_none() {
+            let state = make_test_state().await;
+            let query = ListQualityProfilesQuery {
+                limit: 10,
+                offset: 0,
+            };
+            let result = list_quality_profiles(State(state), Query(query))
+                .await
+                .unwrap();
+            assert_eq!(result.total, 0);
+            assert!(result.items.is_empty());
+        }
+
+        #[tokio::test]
+        async fn list_quality_profiles_rejects_invalid_limit() {
+            let state = make_test_state().await;
+            let query = ListQualityProfilesQuery {
+                limit: 0,
+                offset: 0,
+            };
+            let result = list_quality_profiles(State(state), Query(query)).await;
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn list_quality_profiles_rejects_negative_offset() {
+            let state = make_test_state().await;
+            let query = ListQualityProfilesQuery {
+                limit: 10,
+                offset: -1,
+            };
+            let result = list_quality_profiles(State(state), Query(query)).await;
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn list_quality_profiles_returns_accurate_total_with_pagination() {
+            let state = make_test_state().await;
+            for name in ["Profile A", "Profile B", "Profile C"] {
+                state
+                    .quality_profile_repository
+                    .create(chorrosion_domain::QualityProfile::new(
+                        name,
+                        vec!["FLAC".to_string()],
+                    ))
+                    .await
+                    .unwrap();
+            }
+            let query = ListQualityProfilesQuery {
+                limit: 2,
+                offset: 0,
+            };
+            let result = list_quality_profiles(State(state), Query(query))
+                .await
+                .unwrap();
+            assert_eq!(result.total, 3);
+            assert_eq!(result.items.len(), 2);
+        }
+
+        // --- get_quality_profile ---
+
+        #[tokio::test]
+        async fn get_quality_profile_returns_200_on_success() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = get_quality_profile(State(state), Path(profile.id.to_string()))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        #[tokio::test]
+        async fn get_quality_profile_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response = get_quality_profile(State(state), Path(unknown_id))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        // --- create_quality_profile ---
+
+        #[tokio::test]
+        async fn create_quality_profile_returns_201_on_success() {
+            let state = make_test_state().await;
+            let request = CreateQualityProfileRequest {
+                name: "New Profile".to_string(),
+                allowed_qualities: vec!["FLAC".to_string()],
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = create_quality_profile(State(state), Json(request))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+
+        #[tokio::test]
+        async fn create_quality_profile_returns_400_for_empty_name() {
+            let state = make_test_state().await;
+            let request = CreateQualityProfileRequest {
+                name: "   ".to_string(),
+                allowed_qualities: vec!["FLAC".to_string()],
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = create_quality_profile(State(state), Json(request))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn create_quality_profile_returns_400_for_empty_allowed_qualities() {
+            let state = make_test_state().await;
+            let request = CreateQualityProfileRequest {
+                name: "Valid Name".to_string(),
+                allowed_qualities: vec![],
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = create_quality_profile(State(state), Json(request))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        // --- update_quality_profile ---
+
+        #[tokio::test]
+        async fn update_quality_profile_returns_200_on_success() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let request = UpdateQualityProfileRequest {
+                name: Some("Updated Name".to_string()),
+                allowed_qualities: None,
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = update_quality_profile(
+                State(state),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        #[tokio::test]
+        async fn update_quality_profile_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let request = UpdateQualityProfileRequest {
+                name: Some("Name".to_string()),
+                allowed_qualities: None,
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response =
+                update_quality_profile(State(state), Path(unknown_id), Json(request))
+                    .await
+                    .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn update_quality_profile_returns_400_for_empty_name() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let request = UpdateQualityProfileRequest {
+                name: Some("  ".to_string()),
+                allowed_qualities: None,
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = update_quality_profile(
+                State(state),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        // --- delete_quality_profile ---
+
+        #[tokio::test]
+        async fn delete_quality_profile_returns_204_on_success() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response =
+                delete_quality_profile(State(state), Path(profile.id.to_string()))
+                    .await
+                    .into_response();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+
+        #[tokio::test]
+        async fn delete_quality_profile_returns_404_for_unknown_id() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response = delete_quality_profile(State(state), Path(unknown_id))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }
 }
