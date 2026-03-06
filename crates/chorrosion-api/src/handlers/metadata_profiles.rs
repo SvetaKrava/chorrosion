@@ -594,6 +594,48 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn update_metadata_profile_bumps_updated_at_and_preserves_created_at() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let original_created_at = profile.created_at;
+            let original_updated_at = profile.updated_at;
+
+            // Ensure the clock advances before the update.
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+
+            let request = UpdateMetadataProfileRequest {
+                name: Some("Bumped Name".to_string()),
+                primary_album_types: None,
+                secondary_album_types: None,
+                release_statuses: None,
+            };
+            let response = update_metadata_profile(
+                State(state.clone()),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let persisted = state
+                .metadata_profile_repository
+                .get_by_id(profile.id.to_string())
+                .await
+                .expect("get_by_id succeeds")
+                .expect("profile still exists");
+
+            assert!(
+                persisted.updated_at > original_updated_at,
+                "updated_at should be bumped after update"
+            );
+            assert_eq!(
+                persisted.created_at, original_created_at,
+                "created_at must not change on update"
+            );
+        }
+
+        #[tokio::test]
         async fn update_metadata_profile_returns_404_for_unknown_id() {
             let state = make_test_state().await;
             let request = UpdateMetadataProfileRequest {
