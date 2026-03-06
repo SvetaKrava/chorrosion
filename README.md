@@ -108,6 +108,11 @@ Current implemented endpoints:
 - `POST /api/v1/settings/quality-profiles`
 - `PUT /api/v1/settings/quality-profiles/{id}`
 - `DELETE /api/v1/settings/quality-profiles/{id}`
+- `GET /api/v1/settings/metadata-profiles`
+- `GET /api/v1/settings/metadata-profiles/{id}`
+- `POST /api/v1/settings/metadata-profiles`
+- `PUT /api/v1/settings/metadata-profiles/{id}`
+- `DELETE /api/v1/settings/metadata-profiles/{id}`
 - `POST /api/v1/indexers/test`
 
 ## Testing with the Mock Server

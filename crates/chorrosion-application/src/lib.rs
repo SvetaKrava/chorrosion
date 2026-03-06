@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::sqlite_adapters::{
-    SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
-    SqliteTrackRepository,
+    SqliteAlbumRepository, SqliteArtistRepository, SqliteMetadataProfileRepository,
+    SqliteQualityProfileRepository, SqliteTrackRepository,
 };
 use std::sync::Arc;
 pub mod download_clients;
@@ -72,6 +72,7 @@ pub struct AppState {
     pub album_repository: Arc<SqliteAlbumRepository>,
     pub track_repository: Arc<SqliteTrackRepository>,
     pub quality_profile_repository: Arc<SqliteQualityProfileRepository>,
+    pub metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
 }
 
 impl AppState {
@@ -81,6 +82,7 @@ impl AppState {
         album_repository: Arc<SqliteAlbumRepository>,
         track_repository: Arc<SqliteTrackRepository>,
         quality_profile_repository: Arc<SqliteQualityProfileRepository>,
+        metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
     ) -> Self {
         Self {
             config,
@@ -88,6 +90,7 @@ impl AppState {
             album_repository,
             track_repository,
             quality_profile_repository,
+            metadata_profile_repository,
         }
     }
 

@@ -415,8 +415,8 @@ mod tests {
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
         use chorrosion_infrastructure::sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
-            SqliteTrackRepository,
+            SqliteAlbumRepository, SqliteArtistRepository, SqliteMetadataProfileRepository,
+            SqliteQualityProfileRepository, SqliteTrackRepository,
         };
         use std::sync::Arc;
 
@@ -436,7 +436,8 @@ mod tests {
                 Arc::new(SqliteArtistRepository::new(pool.clone())),
                 Arc::new(SqliteAlbumRepository::new(pool.clone())),
                 Arc::new(SqliteTrackRepository::new(pool.clone())),
-                Arc::new(SqliteQualityProfileRepository::new(pool)),
+                Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
+                Arc::new(SqliteMetadataProfileRepository::new(pool)),
             )
         }
 
@@ -598,13 +599,10 @@ mod tests {
                 upgrade_allowed: None,
                 cutoff_quality: None,
             };
-            let response = update_quality_profile(
-                State(state),
-                Path(profile.id.to_string()),
-                Json(request),
-            )
-            .await
-            .into_response();
+            let response =
+                update_quality_profile(State(state), Path(profile.id.to_string()), Json(request))
+                    .await
+                    .into_response();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -618,10 +616,9 @@ mod tests {
                 cutoff_quality: None,
             };
             let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
-            let response =
-                update_quality_profile(State(state), Path(unknown_id), Json(request))
-                    .await
-                    .into_response();
+            let response = update_quality_profile(State(state), Path(unknown_id), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
@@ -635,13 +632,10 @@ mod tests {
                 upgrade_allowed: None,
                 cutoff_quality: None,
             };
-            let response = update_quality_profile(
-                State(state),
-                Path(profile.id.to_string()),
-                Json(request),
-            )
-            .await
-            .into_response();
+            let response =
+                update_quality_profile(State(state), Path(profile.id.to_string()), Json(request))
+                    .await
+                    .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -651,10 +645,9 @@ mod tests {
         async fn delete_quality_profile_returns_204_on_success() {
             let state = make_test_state().await;
             let profile = create_test_profile(&state).await;
-            let response =
-                delete_quality_profile(State(state), Path(profile.id.to_string()))
-                    .await
-                    .into_response();
+            let response = delete_quality_profile(State(state), Path(profile.id.to_string()))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::NO_CONTENT);
         }
 
