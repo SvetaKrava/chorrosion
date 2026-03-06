@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use axum::{extract::State, Json};
+use chorrosion_application::AppState;
+use serde::Serialize;
+use tracing::debug;
+use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ActivityItemResponse {
+    pub id: String,
+    pub name: String,
+    pub state: String,
+    pub progress_percent: u8,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ActivityListResponse {
+    pub items: Vec<ActivityItemResponse>,
+    pub total: i64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/activity/queue",
+    responses(
+        (status = 200, description = "Current download queue", body = ActivityListResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_activity_queue(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+    debug!(target: "api", "fetching activity queue");
+
+    // Placeholder until queue integration is wired from download clients.
+    Json(ActivityListResponse {
+        items: vec![],
+        total: 0,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/activity/history",
+    responses(
+        (status = 200, description = "Activity history", body = ActivityListResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_activity_history(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+    debug!(target: "api", "fetching activity history");
+
+    // Placeholder until history persistence/querying is implemented.
+    Json(ActivityListResponse {
+        items: vec![],
+        total: 0,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/activity/processing",
+    responses(
+        (status = 200, description = "Currently processing items", body = ActivityListResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_activity_processing(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+    debug!(target: "api", "fetching currently processing items");
+
+    // Placeholder until scheduler job tracking is exposed via API.
+    Json(ActivityListResponse {
+        items: vec![],
+        total: 0,
+    })
+}

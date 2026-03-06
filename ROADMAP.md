@@ -308,10 +308,10 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Track list and details ✓
   - [x] Track create/update/delete ✓
   - [ ] Album/artist filtered listing endpoints
-- [ ] Queue/Activity endpoints
-  - [ ] Download queue
-  - [ ] History
-  - [ ] Currently processing
+- [x] Queue/Activity endpoints ✓ PARTIALLY COMPLETE
+  - [x] Download queue endpoint (`GET /api/v1/activity/queue`) ✓
+  - [x] History endpoint (`GET /api/v1/activity/history`) ✓
+  - [x] Currently processing endpoint (`GET /api/v1/activity/processing`) ✓
 - [x] System endpoints ✓ PARTIALLY COMPLETE
   - [x] Status and version
   - [ ] Tasks/jobs management
