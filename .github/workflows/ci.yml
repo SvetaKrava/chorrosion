@@ -26,11 +26,18 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint (Windows)
+      - name: Cache vcpkg chromaprint (Windows)
         if: runner.os == 'Windows'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-chromaprint-windows-v2
+          restore-keys: vcpkg-chromaprint-windows-
+
+      - name: Install chromaprint (Windows)
+        if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
 
@@ -94,11 +101,18 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install chromaprint (Windows)
+      - name: Cache vcpkg chromaprint (Windows)
         if: runner.os == 'Windows'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-chromaprint-windows-v2
+          restore-keys: vcpkg-chromaprint-windows-
+
+      - name: Install chromaprint (Windows)
+        if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install chromaprint:x64-windows
 
