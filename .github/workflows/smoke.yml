@@ -26,16 +26,6 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          try {
-            winget install --id llvm.llvm -e --source winget --accept-source-agreements --accept-package-agreements
-          } catch {
-            choco install llvm -y
-          }
-
       - name: Cache vcpkg chromaprint and FFmpeg (Windows)
         if: runner.os == 'Windows'
         id: cache-vcpkg
@@ -49,6 +39,10 @@ jobs:
         if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
+          # LLVM is pre-installed on GitHub-hosted Windows runners; install via choco only if missing
+          if (-not (Test-Path "C:\Program Files\LLVM\bin\clang.exe")) {
+            choco install llvm -y
+          }
           vcpkg install chromaprint:x64-windows
           vcpkg install ffmpeg[avcodec,avdevice,avformat,avfilter,swresample,swscale]:x64-windows
 
