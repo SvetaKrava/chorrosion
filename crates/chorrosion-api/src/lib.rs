@@ -35,6 +35,14 @@ use handlers::indexers::{
     test_indexer_endpoint, IndexerCapabilitiesResponse, IndexerTestErrorResponse,
     TestIndexerRequest, TestIndexerResponse, __path_test_indexer_endpoint,
 };
+use handlers::quality_profiles::{
+    create_quality_profile, delete_quality_profile, get_quality_profile, list_quality_profiles,
+    update_quality_profile, CreateQualityProfileRequest,
+    ErrorResponse as QualityProfileErrorResponse, ListQualityProfilesResponse,
+    QualityProfileResponse, UpdateQualityProfileRequest, __path_create_quality_profile,
+    __path_delete_quality_profile, __path_get_quality_profile, __path_list_quality_profiles,
+    __path_update_quality_profile,
+};
 use handlers::system::{
     get_system_status, get_system_version, SystemStatusResponse, SystemVersionResponse,
     __path_get_system_status, __path_get_system_version,
@@ -97,6 +105,11 @@ async fn health() -> Json<HealthResponse> {
         get_activity_queue,
         get_activity_history,
         get_activity_processing,
+        list_quality_profiles,
+        get_quality_profile,
+        create_quality_profile,
+        update_quality_profile,
+        delete_quality_profile,
         test_indexer_endpoint,
     ),
     components(
@@ -121,6 +134,11 @@ async fn health() -> Json<HealthResponse> {
             SystemVersionResponse,
             ActivityItemResponse,
             ActivityListResponse,
+            ListQualityProfilesResponse,
+            QualityProfileResponse,
+            CreateQualityProfileRequest,
+            UpdateQualityProfileRequest,
+            QualityProfileErrorResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -133,6 +151,7 @@ async fn health() -> Json<HealthResponse> {
         (name = "albums", description = "Album management endpoints"),
         (name = "tracks", description = "Track management endpoints"),
         (name = "activity", description = "Queue and activity endpoints"),
+        (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
     info(
@@ -167,6 +186,16 @@ pub fn router(state: AppState) -> Router {
         .route("/activity/queue", get(get_activity_queue))
         .route("/activity/history", get(get_activity_history))
         .route("/activity/processing", get(get_activity_processing))
+        .route(
+            "/settings/quality-profiles",
+            get(list_quality_profiles).post(create_quality_profile),
+        )
+        .route(
+            "/settings/quality-profiles/:id",
+            get(get_quality_profile)
+                .put(update_quality_profile)
+                .delete(delete_quality_profile),
+        )
         .route("/indexers/test", post(test_indexer_endpoint))
         .layer(axum_middleware::from_fn(auth_middleware));
 

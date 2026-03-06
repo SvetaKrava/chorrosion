@@ -8,7 +8,10 @@ use chorrosion_application::AppState;
 use chorrosion_config::load as load_config;
 use chorrosion_infrastructure::{
     init_database,
-    sqlite_adapters::{SqliteAlbumRepository, SqliteArtistRepository, SqliteTrackRepository},
+    sqlite_adapters::{
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
+        SqliteTrackRepository,
+    },
 };
 use chorrosion_scheduler::Scheduler;
 use std::sync::Arc;
@@ -24,13 +27,15 @@ async fn main() -> Result<()> {
     let pool = init_database(&config).await?;
     let artist_repository = Arc::new(SqliteArtistRepository::new(pool.clone()));
     let album_repository = Arc::new(SqliteAlbumRepository::new(pool.clone()));
-    let track_repository = Arc::new(SqliteTrackRepository::new(pool));
+    let track_repository = Arc::new(SqliteTrackRepository::new(pool.clone()));
+    let quality_profile_repository = Arc::new(SqliteQualityProfileRepository::new(pool));
 
     let state = AppState::new(
         config.clone(),
         artist_repository,
         album_repository,
         track_repository,
+        quality_profile_repository,
     );
     state.on_start();
 

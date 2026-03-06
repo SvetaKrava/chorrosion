@@ -759,7 +759,8 @@ mod tests {
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
         use chorrosion_infrastructure::sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository, SqliteTrackRepository,
+            SqliteAlbumRepository, SqliteArtistRepository, SqliteQualityProfileRepository,
+            SqliteTrackRepository,
         };
         use std::sync::Arc;
 
@@ -778,7 +779,8 @@ mod tests {
                 AppConfig::default(),
                 Arc::new(SqliteArtistRepository::new(pool.clone())),
                 Arc::new(SqliteAlbumRepository::new(pool.clone())),
-                Arc::new(SqliteTrackRepository::new(pool)),
+                Arc::new(SqliteTrackRepository::new(pool.clone())),
+                Arc::new(SqliteQualityProfileRepository::new(pool)),
             )
         }
 
