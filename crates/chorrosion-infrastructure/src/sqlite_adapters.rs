@@ -2,8 +2,8 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
-    ArtistStatus, IndexerDefinition, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile,
-    TrackFileId, TrackId,
+    ArtistStatus, IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId,
+    QualityProfile, Track, TrackFile, TrackFileId, TrackId,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -934,10 +934,10 @@ fn row_to_indexer_definition(row: &sqlx::sqlite::SqliteRow) -> Result<IndexerDef
     let api_key: Option<String> = row.get("api_key");
     let enabled: bool = row.get("enabled");
 
-    let profile_id = ProfileId::from_uuid(uuid::Uuid::parse_str(&id)?);
+    let indexer_id = IndexerDefinitionId::from_uuid(uuid::Uuid::parse_str(&id)?);
 
     Ok(IndexerDefinition {
-        id: profile_id,
+        id: indexer_id,
         name,
         base_url,
         protocol,
@@ -1223,7 +1223,7 @@ impl SqliteIndexerDefinitionRepository {
 #[async_trait::async_trait]
 impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
     async fn create(&self, entity: IndexerDefinition) -> Result<IndexerDefinition> {
-        debug!(target: "repository", profile_id = %entity.id, "creating indexer definition");
+        debug!(target: "repository", indexer_definition_id = %entity.id, "creating indexer definition");
         let created_at = entity.created_at.to_rfc3339();
         let updated_at = entity.updated_at.to_rfc3339();
 
@@ -1276,7 +1276,7 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
     }
 
     async fn update(&self, entity: IndexerDefinition) -> Result<IndexerDefinition> {
-        debug!(target: "repository", profile_id = %entity.id, "updating indexer definition");
+        debug!(target: "repository", indexer_definition_id = %entity.id, "updating indexer definition");
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(

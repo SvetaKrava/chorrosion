@@ -12,6 +12,7 @@ chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 tracing = { workspace = true }
 url = "2.5"
 utoipa = { workspace = true }
@@ -20,5 +21,4 @@ utoipa-swagger-ui = { workspace = true }
 [dev-dependencies]
 uuid = { workspace = true }
 tokio = { workspace = true }
-sqlx = { workspace = true }
 chorrosion-config = { path = "../chorrosion-config" }

@@ -337,18 +337,39 @@ pub async fn create_indexer(
         request.base_url.trim(),
         protocol.as_str(),
     );
-    indexer.api_key = request.api_key;
+    let normalized_api_key = request.api_key.as_ref().and_then(|key| {
+        let trimmed = key.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    indexer.api_key = normalized_api_key;
     indexer.enabled = request.enabled;
 
     match state.indexer_definition_repository.create(indexer).await {
         Ok(created) => (StatusCode::CREATED, Json(IndexerResponse::from(created))).into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(IndexerErrorResponse {
-                error: format!("failed to create indexer: {error}"),
-            }),
-        )
-            .into_response(),
+        Err(error) => {
+            if let Some(sqlx::Error::Database(db_err)) = error.downcast_ref::<sqlx::Error>() {
+                if db_err.is_unique_violation() {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(IndexerErrorResponse {
+                            error: format!("Indexer '{}' already exists", request.name.trim()),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(IndexerErrorResponse {
+                    error: format!("failed to create indexer: {error}"),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -447,10 +468,11 @@ pub async fn update_indexer(
     }
 
     if let Some(api_key) = request.api_key {
-        indexer.api_key = if api_key.trim().is_empty() {
+        let trimmed = api_key.trim();
+        indexer.api_key = if trimmed.is_empty() {
             None
         } else {
-            Some(api_key)
+            Some(trimmed.to_string())
         };
     }
 
@@ -487,28 +509,46 @@ pub async fn delete_indexer(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.indexer_definition_repository.delete(id.clone()).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => match state
-            .indexer_definition_repository
-            .get_by_id(id.clone())
-            .await
-        {
-            Ok(None) => (
-                StatusCode::NOT_FOUND,
-                Json(IndexerErrorResponse {
-                    error: format!("Indexer {} not found", id),
-                }),
-            )
-                .into_response(),
-            Ok(Some(_)) | Err(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(IndexerErrorResponse {
-                    error: format!("failed to delete indexer {}", id),
-                }),
-            )
-                .into_response(),
-        },
+    match state.indexer_definition_repository.get_by_id(id.clone()).await {
+        Ok(Some(_)) => {
+            match state.indexer_definition_repository.delete(id.clone()).await {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(delete_error) => {
+                    // Recheck existence to distinguish concurrent deletion (404)
+                    // from a transient delete failure (500).
+                    match state.indexer_definition_repository.get_by_id(id.clone()).await {
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            Json(IndexerErrorResponse {
+                                error: format!("Indexer {} not found", id),
+                            }),
+                        )
+                            .into_response(),
+                        Ok(Some(_)) | Err(_) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(IndexerErrorResponse {
+                                error: format!("failed to delete indexer: {delete_error}"),
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(IndexerErrorResponse {
+                error: format!("Indexer {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(IndexerErrorResponse {
+                error: format!("failed to fetch indexer before delete: {error}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -665,7 +705,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::CREATED);
 
-        let list = list_indexers(
+        let Json(list) = list_indexers(
             State(state),
             Query(ListIndexersQuery {
                 limit: 50,
@@ -776,5 +816,75 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn create_indexer_normalizes_whitespace_api_key_to_none() {
+        let state = make_test_state().await;
+        let response = create_indexer(
+            State(state.clone()),
+            Json(CreateIndexerRequest {
+                name: "Beta".to_string(),
+                base_url: "https://beta.example".to_string(),
+                protocol: "torznab".to_string(),
+                api_key: Some("   ".to_string()),
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let stored = state
+            .indexer_definition_repository
+            .get_by_name("Beta")
+            .await
+            .expect("get_by_name")
+            .expect("indexer exists");
+        assert!(stored.api_key.is_none());
+
+        let Json(list) = list_indexers(
+            State(state),
+            Query(ListIndexersQuery {
+                limit: 50,
+                offset: 0,
+            }),
+        )
+        .await
+        .expect("list indexers");
+        assert!(!list.items[0].has_api_key);
+    }
+
+    #[tokio::test]
+    async fn create_indexer_returns_conflict_for_duplicate_name() {
+        let state = make_test_state().await;
+        let first = create_indexer(
+            State(state.clone()),
+            Json(CreateIndexerRequest {
+                name: "Duplicate".to_string(),
+                base_url: "https://first.example".to_string(),
+                protocol: "newznab".to_string(),
+                api_key: None,
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), StatusCode::CREATED);
+
+        let second = create_indexer(
+            State(state.clone()),
+            Json(CreateIndexerRequest {
+                name: "Duplicate".to_string(),
+                base_url: "https://second.example".to_string(),
+                protocol: "torznab".to_string(),
+                api_key: None,
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(second.status(), StatusCode::CONFLICT);
     }
 }

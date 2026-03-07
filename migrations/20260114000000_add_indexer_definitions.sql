@@ -9,5 +9,4 @@ CREATE TABLE IF NOT EXISTS indexer_definitions (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_indexer_definitions_name ON indexer_definitions(name);
 CREATE INDEX idx_indexer_definitions_enabled ON indexer_definitions(enabled);
