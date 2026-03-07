@@ -957,7 +957,7 @@ fn row_to_download_client_definition(
     let client_type: String = row.get("client_type");
     let base_url: String = row.get("base_url");
     let username: Option<String> = row.get("username");
-    let password: Option<String> = row.get("password");
+    let password_encrypted: Option<String> = row.get("password_encrypted");
     let category: Option<String> = row.get("category");
     let enabled: bool = row.get("enabled");
 
@@ -969,7 +969,7 @@ fn row_to_download_client_definition(
         client_type,
         base_url,
         username,
-        password,
+        password_encrypted,
         category,
         enabled,
         created_at: parse_dt(row.get("created_at"))?,
@@ -1386,7 +1386,7 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         sqlx::query(
             r#"
             INSERT INTO download_client_definitions (
-                id, name, client_type, base_url, username, password, category, enabled, created_at, updated_at
+                id, name, client_type, base_url, username, password_encrypted, category, enabled, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
@@ -1395,7 +1395,7 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         .bind(entity.client_type.clone())
         .bind(entity.base_url.clone())
         .bind(entity.username.clone())
-        .bind(entity.password.clone())
+        .bind(entity.password_encrypted.clone())
         .bind(entity.category.clone())
         .bind(entity.enabled)
         .bind(created_at)
@@ -1448,7 +1448,7 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
                 client_type = ?,
                 base_url = ?,
                 username = ?,
-                password = ?,
+                password_encrypted = ?,
                 category = ?,
                 enabled = ?,
                 updated_at = ?
@@ -1459,7 +1459,7 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         .bind(entity.client_type.clone())
         .bind(entity.base_url.clone())
         .bind(entity.username.clone())
-        .bind(entity.password.clone())
+        .bind(entity.password_encrypted.clone())
         .bind(entity.category.clone())
         .bind(entity.enabled)
         .bind(updated_at)
