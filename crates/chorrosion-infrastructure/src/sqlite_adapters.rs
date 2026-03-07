@@ -1276,7 +1276,7 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
     }
 
     async fn update(&self, entity: IndexerDefinition) -> Result<IndexerDefinition> {
-        debug!(target: "repository", profile_id = %entity.id, "updating indexer definition");
+        debug!(target: "repository", indexer_definition_id = %entity.id, "updating indexer definition");
         let updated_at = entity.updated_at.to_rfc3339();
 
         sqlx::query(
