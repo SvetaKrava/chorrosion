@@ -319,7 +319,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Settings endpoints ✓ PARTIALLY COMPLETE
   - [x] Quality profiles CRUD (`/api/v1/settings/quality-profiles`) ✓
   - [x] Metadata profiles CRUD (`/api/v1/settings/metadata-profiles`) ✓
-  - [ ] Indexer management
+  - [x] Indexer management (`/api/v1/settings/indexers`) ✓
   - [ ] Download client management
 
 ### 6.2 WebSocket/SSE Support

@@ -134,6 +134,31 @@ impl std::fmt::Display for ProfileId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct IndexerDefinitionId(pub Uuid);
+
+impl IndexerDefinitionId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for IndexerDefinitionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for IndexerDefinitionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackFileId(pub Uuid);
 
 impl TrackFileId {
@@ -613,6 +638,38 @@ impl MetadataProfile {
             primary_album_types: vec![],
             secondary_album_types: vec![],
             release_statuses: vec![],
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexerDefinition {
+    pub id: IndexerDefinitionId,
+    pub name: String,
+    pub base_url: String,
+    pub protocol: String,
+    pub api_key: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl IndexerDefinition {
+    pub fn new(
+        name: impl Into<String>,
+        base_url: impl Into<String>,
+        protocol: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: IndexerDefinitionId::new(),
+            name: name.into(),
+            base_url: base_url.into(),
+            protocol: protocol.into(),
+            api_key: None,
+            enabled: true,
             created_at: now,
             updated_at: now,
         }
