@@ -55,7 +55,7 @@ impl From<DownloadClientDefinition> for DownloadClientResponse {
             category: value.category,
             enabled: value.enabled,
             has_password: value
-                .password
+                .password_encrypted
                 .as_ref()
                 .is_some_and(|password| !password.trim().is_empty()),
         }
@@ -324,7 +324,7 @@ pub async fn create_download_client(
     let mut client =
         DownloadClientDefinition::new(request.name.trim(), client_type, request.base_url.trim());
     client.username = normalize_optional(request.username);
-    client.password = normalize_optional(request.password);
+    client.password_encrypted = normalize_optional(request.password);
     client.category = normalize_optional(request.category);
     client.enabled = request.enabled;
 
@@ -338,13 +338,29 @@ pub async fn create_download_client(
             Json(DownloadClientResponse::from(created)),
         )
             .into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(DownloadClientErrorResponse {
-                error: format!("failed to create download client: {error}"),
-            }),
-        )
-            .into_response(),
+        Err(error) => {
+            if let Some(sqlx::Error::Database(db_err)) = error.downcast_ref::<sqlx::Error>() {
+                if db_err.is_unique_violation() {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(DownloadClientErrorResponse {
+                            error: format!(
+                                "Download client '{}' already exists",
+                                request.name.trim()
+                            ),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DownloadClientErrorResponse {
+                    error: format!("failed to create download client: {error}"),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -449,7 +465,7 @@ pub async fn update_download_client(
     }
 
     if let Some(password) = request.password {
-        client.password = normalize_optional(Some(password));
+        client.password_encrypted = normalize_optional(Some(password));
     }
 
     if let Some(category) = request.category {
@@ -497,30 +513,59 @@ pub async fn delete_download_client(
 ) -> impl IntoResponse {
     match state
         .download_client_definition_repository
-        .delete(id.clone())
+        .get_by_id(id.clone())
         .await
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => match state
-            .download_client_definition_repository
-            .get_by_id(id.clone())
-            .await
-        {
-            Ok(None) => (
-                StatusCode::NOT_FOUND,
-                Json(DownloadClientErrorResponse {
-                    error: format!("Download client {} not found", id),
-                }),
-            )
-                .into_response(),
-            Ok(Some(_)) | Err(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(DownloadClientErrorResponse {
-                    error: format!("failed to delete download client {}", id),
-                }),
-            )
-                .into_response(),
-        },
+        Ok(Some(_)) => {
+            match state
+                .download_client_definition_repository
+                .delete(id.clone())
+                .await
+            {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(delete_error) => {
+                    // Recheck existence to distinguish concurrent deletion (404)
+                    // from a transient delete failure (500).
+                    match state
+                        .download_client_definition_repository
+                        .get_by_id(id.clone())
+                        .await
+                    {
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            Json(DownloadClientErrorResponse {
+                                error: format!("Download client {} not found", id),
+                            }),
+                        )
+                            .into_response(),
+                        Ok(Some(_)) | Err(_) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(DownloadClientErrorResponse {
+                                error: format!(
+                                    "failed to delete download client {}: {}",
+                                    id, delete_error
+                                ),
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(DownloadClientErrorResponse {
+                error: format!("Download client {} not found", id),
+            }),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(DownloadClientErrorResponse {
+                error: format!("failed to fetch download client {} before delete: {}", id, error),
+            }),
+        )
+            .into_response(),
     }
 }
 
