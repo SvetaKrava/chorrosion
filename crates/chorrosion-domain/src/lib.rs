@@ -134,6 +134,31 @@ impl std::fmt::Display for ProfileId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct IndexerDefinitionId(pub Uuid);
+
+impl IndexerDefinitionId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for IndexerDefinitionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for IndexerDefinitionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackFileId(pub Uuid);
 
 impl TrackFileId {
@@ -621,7 +646,7 @@ impl MetadataProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerDefinition {
-    pub id: ProfileId,
+    pub id: IndexerDefinitionId,
     pub name: String,
     pub base_url: String,
     pub protocol: String,
@@ -639,7 +664,7 @@ impl IndexerDefinition {
     ) -> Self {
         let now = Utc::now();
         Self {
-            id: ProfileId::new(),
+            id: IndexerDefinitionId::new(),
             name: name.into(),
             base_url: base_url.into(),
             protocol: protocol.into(),
