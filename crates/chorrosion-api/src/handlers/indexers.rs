@@ -509,14 +509,22 @@ pub async fn delete_indexer(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.indexer_definition_repository.get_by_id(id.clone()).await {
+    match state
+        .indexer_definition_repository
+        .get_by_id(id.clone())
+        .await
+    {
         Ok(Some(_)) => {
             match state.indexer_definition_repository.delete(id.clone()).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Recheck existence to distinguish concurrent deletion (404)
                     // from a transient delete failure (500).
-                    match state.indexer_definition_repository.get_by_id(id.clone()).await {
+                    match state
+                        .indexer_definition_repository
+                        .get_by_id(id.clone())
+                        .await
+                    {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(IndexerErrorResponse {
@@ -660,8 +668,9 @@ mod tests {
     use axum::extract::State;
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
-        SqliteAlbumRepository, SqliteArtistRepository, SqliteIndexerDefinitionRepository,
-        SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTrackRepository,
     };
     use std::sync::Arc;
 
@@ -683,7 +692,8 @@ mod tests {
             Arc::new(SqliteTrackRepository::new(pool.clone())),
             Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
-            Arc::new(SqliteIndexerDefinitionRepository::new(pool)),
+            Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
         )
     }
 

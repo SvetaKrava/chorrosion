@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::sqlite_adapters::{
-    SqliteAlbumRepository, SqliteArtistRepository, SqliteIndexerDefinitionRepository,
-    SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+    SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+    SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+    SqliteQualityProfileRepository, SqliteTrackRepository,
 };
 use std::sync::Arc;
 pub mod download_clients;
@@ -74,6 +75,7 @@ pub struct AppState {
     pub quality_profile_repository: Arc<SqliteQualityProfileRepository>,
     pub metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
     pub indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
+    pub download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
 }
 
 impl AppState {
@@ -85,6 +87,7 @@ impl AppState {
         quality_profile_repository: Arc<SqliteQualityProfileRepository>,
         metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
         indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
+        download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
     ) -> Self {
         Self {
             config,
@@ -94,6 +97,7 @@ impl AppState {
             quality_profile_repository,
             metadata_profile_repository,
             indexer_definition_repository,
+            download_client_definition_repository,
         }
     }
 

@@ -9,8 +9,9 @@ use chorrosion_config::load as load_config;
 use chorrosion_infrastructure::{
     init_database,
     sqlite_adapters::{
-        SqliteAlbumRepository, SqliteArtistRepository, SqliteIndexerDefinitionRepository,
-        SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTrackRepository,
     },
 };
 use chorrosion_scheduler::Scheduler;
@@ -30,7 +31,10 @@ async fn main() -> Result<()> {
     let track_repository = Arc::new(SqliteTrackRepository::new(pool.clone()));
     let quality_profile_repository = Arc::new(SqliteQualityProfileRepository::new(pool.clone()));
     let metadata_profile_repository = Arc::new(SqliteMetadataProfileRepository::new(pool.clone()));
-    let indexer_definition_repository = Arc::new(SqliteIndexerDefinitionRepository::new(pool));
+    let indexer_definition_repository =
+        Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone()));
+    let download_client_definition_repository =
+        Arc::new(SqliteDownloadClientDefinitionRepository::new(pool));
 
     let state = AppState::new(
         config.clone(),
@@ -40,6 +44,7 @@ async fn main() -> Result<()> {
         quality_profile_repository,
         metadata_profile_repository,
         indexer_definition_repository,
+        download_client_definition_repository,
     );
     state.on_start();
 
