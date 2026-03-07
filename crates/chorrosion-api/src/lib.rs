@@ -31,6 +31,13 @@ use handlers::artists::{
     __path_create_artist, __path_delete_artist, __path_get_artist, __path_list_artists,
     __path_update_artist,
 };
+use handlers::download_clients::{
+    create_download_client, delete_download_client, get_download_client, list_download_clients,
+    update_download_client, CreateDownloadClientRequest, DownloadClientErrorResponse,
+    DownloadClientResponse, ListDownloadClientsResponse, UpdateDownloadClientRequest,
+    __path_create_download_client, __path_delete_download_client, __path_get_download_client,
+    __path_list_download_clients, __path_update_download_client,
+};
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
     update_indexer, CreateIndexerRequest, IndexerCapabilitiesResponse, IndexerErrorResponse,
@@ -126,6 +133,11 @@ async fn health() -> Json<HealthResponse> {
         create_metadata_profile,
         update_metadata_profile,
         delete_metadata_profile,
+        list_download_clients,
+        get_download_client,
+        create_download_client,
+        update_download_client,
+        delete_download_client,
         list_indexers,
         get_indexer,
         create_indexer,
@@ -165,6 +177,11 @@ async fn health() -> Json<HealthResponse> {
             CreateMetadataProfileRequest,
             UpdateMetadataProfileRequest,
             MetadataProfileErrorResponse,
+            ListDownloadClientsResponse,
+            DownloadClientResponse,
+            CreateDownloadClientRequest,
+            UpdateDownloadClientRequest,
+            DownloadClientErrorResponse,
             ListIndexersResponse,
             IndexerResponse,
             CreateIndexerRequest,
@@ -236,6 +253,16 @@ pub fn router(state: AppState) -> Router {
             get(get_metadata_profile)
                 .put(update_metadata_profile)
                 .delete(delete_metadata_profile),
+        )
+        .route(
+            "/settings/download-clients",
+            get(list_download_clients).post(create_download_client),
+        )
+        .route(
+            "/settings/download-clients/:id",
+            get(get_download_client)
+                .put(update_download_client)
+                .delete(delete_download_client),
         )
         .route(
             "/settings/indexers",

@@ -2,8 +2,9 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
-    ArtistStatus, IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId,
-    QualityProfile, Track, TrackFile, TrackFileId, TrackId,
+    ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, IndexerDefinition,
+    IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile, TrackFileId,
+    TrackId,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -12,9 +13,9 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::repositories::{
-    AlbumRepository, ArtistRelationshipRepository, ArtistRepository, IndexerDefinitionRepository,
-    MetadataProfileRepository, QualityProfileRepository, Repository, TrackFileRepository,
-    TrackRepository,
+    AlbumRepository, ArtistRelationshipRepository, ArtistRepository,
+    DownloadClientDefinitionRepository, IndexerDefinitionRepository, MetadataProfileRepository,
+    QualityProfileRepository, Repository, TrackFileRepository, TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -948,6 +949,34 @@ fn row_to_indexer_definition(row: &sqlx::sqlite::SqliteRow) -> Result<IndexerDef
     })
 }
 
+fn row_to_download_client_definition(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<DownloadClientDefinition> {
+    let id: String = row.get("id");
+    let name: String = row.get("name");
+    let client_type: String = row.get("client_type");
+    let base_url: String = row.get("base_url");
+    let username: Option<String> = row.get("username");
+    let password: Option<String> = row.get("password");
+    let category: Option<String> = row.get("category");
+    let enabled: bool = row.get("enabled");
+
+    let client_id = DownloadClientDefinitionId::from_uuid(uuid::Uuid::parse_str(&id)?);
+
+    Ok(DownloadClientDefinition {
+        id: client_id,
+        name,
+        client_type,
+        base_url,
+        username,
+        password,
+        category,
+        enabled,
+        created_at: parse_dt(row.get("created_at"))?,
+        updated_at: parse_dt(row.get("updated_at"))?,
+    })
+}
+
 // ============================================================================
 
 /// SQLx-backed Quality Profile repository
@@ -1327,6 +1356,143 @@ impl IndexerDefinitionRepository for SqliteIndexerDefinitionRepository {
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_indexer_definition(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// ============================================================================
+
+/// SQLx-backed Download Client Definition repository
+#[allow(dead_code)]
+pub struct SqliteDownloadClientDefinitionRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteDownloadClientDefinitionRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepository {
+    async fn create(&self, entity: DownloadClientDefinition) -> Result<DownloadClientDefinition> {
+        debug!(target: "repository", download_client_definition_id = %entity.id, "creating download client definition");
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO download_client_definitions (
+                id, name, client_type, base_url, username, password, category, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(entity.id.to_string())
+        .bind(entity.name.clone())
+        .bind(entity.client_type.clone())
+        .bind(entity.base_url.clone())
+        .bind(entity.username.clone())
+        .bind(entity.password.clone())
+        .bind(entity.category.clone())
+        .bind(entity.enabled)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(entity)
+    }
+
+    async fn get_by_id(
+        &self,
+        id: impl Into<String> + Send,
+    ) -> Result<Option<DownloadClientDefinition>> {
+        let id = id.into();
+        debug!(target: "repository", %id, "fetching download client definition by id");
+        let row = sqlx::query("SELECT * FROM download_client_definitions WHERE id = ? LIMIT 1")
+            .bind(&id)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_download_client_definition(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<DownloadClientDefinition>> {
+        debug!(target: "repository", limit, offset, "listing download client definitions");
+        let rows =
+            sqlx::query("SELECT * FROM download_client_definitions ORDER BY name LIMIT ? OFFSET ?")
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_download_client_definition(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, entity: DownloadClientDefinition) -> Result<DownloadClientDefinition> {
+        debug!(target: "repository", download_client_definition_id = %entity.id, "updating download client definition");
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            UPDATE download_client_definitions SET
+                name = ?,
+                client_type = ?,
+                base_url = ?,
+                username = ?,
+                password = ?,
+                category = ?,
+                enabled = ?,
+                updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(entity.name.clone())
+        .bind(entity.client_type.clone())
+        .bind(entity.base_url.clone())
+        .bind(entity.username.clone())
+        .bind(entity.password.clone())
+        .bind(entity.category.clone())
+        .bind(entity.enabled)
+        .bind(updated_at)
+        .bind(entity.id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(entity)
+    }
+
+    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+        let id = id.into();
+        debug!(target: "repository", %id, "deleting download client definition");
+        let result = sqlx::query("DELETE FROM download_client_definitions WHERE id = ?")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("download client definition not found: {}", id));
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl DownloadClientDefinitionRepository for SqliteDownloadClientDefinitionRepository {
+    async fn get_by_name(&self, name: &str) -> Result<Option<DownloadClientDefinition>> {
+        debug!(target: "repository", name, "fetching download client definition by name");
+        let row = sqlx::query("SELECT * FROM download_client_definitions WHERE name = ? LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(r) = row {
+            Ok(Some(row_to_download_client_definition(&r)?))
         } else {
             Ok(None)
         }

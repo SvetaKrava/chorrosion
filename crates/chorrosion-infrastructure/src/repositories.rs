@@ -2,7 +2,8 @@
 use anyhow::Result;
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistStatus,
-    IndexerDefinition, MetadataProfile, QualityProfile, Track, TrackFile, TrackId,
+    DownloadClientDefinition, IndexerDefinition, MetadataProfile, QualityProfile, Track, TrackFile,
+    TrackId,
 };
 
 // ============================================================================
@@ -89,6 +90,12 @@ pub trait MetadataProfileRepository: Repository<MetadataProfile> {
 #[async_trait::async_trait]
 pub trait IndexerDefinitionRepository: Repository<IndexerDefinition> {
     async fn get_by_name(&self, name: &str) -> Result<Option<IndexerDefinition>>;
+}
+
+/// Download client definition repository
+#[async_trait::async_trait]
+pub trait DownloadClientDefinitionRepository: Repository<DownloadClientDefinition> {
+    async fn get_by_name(&self, name: &str) -> Result<Option<DownloadClientDefinition>>;
 }
 
 /// Track file repository for managing audio files
