@@ -100,6 +100,8 @@ Current implemented endpoints:
 - `DELETE /api/v1/tracks/{id}`
 - `GET /api/v1/system/status`
 - `GET /api/v1/system/version`
+- `GET /api/v1/system/tasks`
+- `GET /api/v1/system/logs`
 - `GET /api/v1/activity/queue`
 - `GET /api/v1/activity/history`
 - `GET /api/v1/activity/processing`
