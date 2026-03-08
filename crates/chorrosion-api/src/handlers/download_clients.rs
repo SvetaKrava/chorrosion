@@ -687,7 +687,7 @@ mod tests {
         assert_eq!(updated.base_url, "https://new-downloads.example");
         assert_eq!(updated.username.as_deref(), Some("operator"));
         assert_eq!(updated.category.as_deref(), Some("lossless"));
-        assert_eq!(updated.enabled, false);
+        assert!(!updated.enabled);
     }
 
     #[tokio::test]
