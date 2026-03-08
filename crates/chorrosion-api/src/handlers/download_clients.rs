@@ -714,4 +714,40 @@ mod tests {
             .into_response();
         assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn create_download_client_returns_conflict_for_duplicate_name() {
+        let state = make_test_state().await;
+        let first = create_download_client(
+            State(state.clone()),
+            Json(CreateDownloadClientRequest {
+                name: "Duplicate".to_string(),
+                client_type: "qbittorrent".to_string(),
+                base_url: "https://first.example".to_string(),
+                username: None,
+                password: None,
+                category: None,
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), StatusCode::CREATED);
+
+        let second = create_download_client(
+            State(state.clone()),
+            Json(CreateDownloadClientRequest {
+                name: "Duplicate".to_string(),
+                client_type: "qbittorrent".to_string(),
+                base_url: "https://second.example".to_string(),
+                username: None,
+                password: None,
+                category: None,
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(second.status(), StatusCode::CONFLICT);
+    }
 }
