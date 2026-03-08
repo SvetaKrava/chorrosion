@@ -159,6 +159,31 @@ impl std::fmt::Display for IndexerDefinitionId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DownloadClientDefinitionId(pub Uuid);
+
+impl DownloadClientDefinitionId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for DownloadClientDefinitionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for DownloadClientDefinitionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackFileId(pub Uuid);
 
 impl TrackFileId {
@@ -669,6 +694,44 @@ impl IndexerDefinition {
             base_url: base_url.into(),
             protocol: protocol.into(),
             api_key: None,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadClientDefinition {
+    pub id: DownloadClientDefinitionId,
+    pub name: String,
+    pub client_type: String,
+    pub base_url: String,
+    pub username: Option<String>,
+    /// NOTE: Despite the name, this field currently stores the password in plaintext.
+    /// TODO: Implement proper encryption or hashing before storing and update the name/usage accordingly.
+    pub password_encrypted: Option<String>,
+    pub category: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl DownloadClientDefinition {
+    pub fn new(
+        name: impl Into<String>,
+        client_type: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: DownloadClientDefinitionId::new(),
+            name: name.into(),
+            client_type: client_type.into(),
+            base_url: base_url.into(),
+            username: None,
+            password_encrypted: None,
+            category: None,
             enabled: true,
             created_at: now,
             updated_at: now,

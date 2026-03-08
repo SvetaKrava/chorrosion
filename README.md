@@ -113,6 +113,11 @@ Current implemented endpoints:
 - `POST /api/v1/settings/metadata-profiles`
 - `PUT /api/v1/settings/metadata-profiles/{id}`
 - `DELETE /api/v1/settings/metadata-profiles/{id}`
+- `GET /api/v1/settings/download-clients`
+- `GET /api/v1/settings/download-clients/{id}`
+- `POST /api/v1/settings/download-clients`
+- `PUT /api/v1/settings/download-clients/{id}`
+- `DELETE /api/v1/settings/download-clients/{id}`
 - `GET /api/v1/settings/indexers`
 - `GET /api/v1/settings/indexers/{id}`
 - `POST /api/v1/settings/indexers`

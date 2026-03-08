@@ -320,7 +320,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Quality profiles CRUD (`/api/v1/settings/quality-profiles`) ✓
   - [x] Metadata profiles CRUD (`/api/v1/settings/metadata-profiles`) ✓
   - [x] Indexer management (`/api/v1/settings/indexers`) ✓
-  - [ ] Download client management
+  - [x] Download client management (`/api/v1/settings/download-clients`) ✓
 
 ### 6.2 WebSocket/SSE Support
 
