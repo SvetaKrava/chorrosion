@@ -302,8 +302,8 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Album list and details ✓
   - [x] Album create/update/delete ✓
   - [x] Monitor toggle (via update endpoint) ✓
-  - [ ] List by artist
-  - [ ] Search trigger
+  - [x] List by artist (`GET /api/v1/artists/{artist_id}/albums`) ✓
+  - [x] Search trigger (`POST /api/v1/albums/{id}/search`) ✓
 - [x] Track endpoints (PR #178) ✓ PARTIALLY COMPLETE
   - [x] Track list and details ✓
   - [x] Track create/update/delete ✓

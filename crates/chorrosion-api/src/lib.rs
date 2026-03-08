@@ -20,10 +20,12 @@ use handlers::activity::{
     __path_get_activity_queue,
 };
 use handlers::albums::{
-    create_album, delete_album, get_album, list_albums, update_album, AlbumResponse,
-    CreateAlbumRequest, ErrorResponse as AlbumErrorResponse, ListAlbumsResponse,
+    create_album, delete_album, get_album, list_albums, list_albums_by_artist,
+    trigger_album_search, update_album, AlbumResponse, CreateAlbumRequest,
+    ErrorResponse as AlbumErrorResponse, ListAlbumsResponse, TriggerAlbumSearchResponse,
     UpdateAlbumRequest, __path_create_album, __path_delete_album, __path_get_album,
-    __path_list_albums, __path_update_album,
+    __path_list_albums, __path_list_albums_by_artist, __path_trigger_album_search,
+    __path_update_album,
 };
 use handlers::artists::{
     create_artist, delete_artist, get_artist, list_artists, update_artist, ArtistResponse,
@@ -111,10 +113,12 @@ async fn health() -> Json<HealthResponse> {
         update_artist,
         delete_artist,
         list_albums,
+        list_albums_by_artist,
         get_album,
         create_album,
         update_album,
         delete_album,
+        trigger_album_search,
         list_tracks,
         get_track,
         create_track,
@@ -161,6 +165,7 @@ async fn health() -> Json<HealthResponse> {
             AlbumResponse,
             CreateAlbumRequest,
             UpdateAlbumRequest,
+            TriggerAlbumSearchResponse,
             AlbumErrorResponse,
             ListTracksResponse,
             TrackResponse,
@@ -232,6 +237,8 @@ pub fn router(state: AppState) -> Router {
             "/albums/:id",
             get(get_album).put(update_album).delete(delete_album),
         )
+        .route("/albums/:id/search", post(trigger_album_search))
+        .route("/artists/:artist_id/albums", get(list_albums_by_artist))
         .route("/tracks", get(list_tracks).post(create_track))
         .route(
             "/tracks/:id",

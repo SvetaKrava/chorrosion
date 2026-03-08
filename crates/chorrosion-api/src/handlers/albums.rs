@@ -7,7 +7,7 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Album, AlbumStatus};
-use chorrosion_infrastructure::repositories::Repository;
+use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -42,6 +42,14 @@ pub struct ListAlbumsResponse {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TriggerAlbumSearchResponse {
+    pub album_id: String,
+    pub query: String,
+    pub status: String,
+    pub message: String,
 }
 
 impl From<Album> for AlbumResponse {
@@ -185,6 +193,97 @@ pub async fn list_albums(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/artists/{artist_id}/albums",
+    params(
+        ("artist_id" = String, Path, description = "Artist ID"),
+        ListAlbumsQuery
+    ),
+    responses(
+        (status = 200, description = "List of albums for artist", body = ListAlbumsResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "albums"
+)]
+pub async fn list_albums_by_artist(
+    State(state): State<AppState>,
+    Path(artist_id): Path<String>,
+    Query(query): Query<ListAlbumsQuery>,
+) -> Result<Json<ListAlbumsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", %artist_id, ?query, "listing albums by artist");
+
+    if !(1..=500).contains(&query.limit) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "limit must be between 1 and 500".to_string(),
+            }),
+        ));
+    }
+
+    if query.offset < 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset must be greater than or equal to 0".to_string(),
+            }),
+        ));
+    }
+
+    let artist = state
+        .artist_repository
+        .get_by_id(artist_id.clone())
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("invalid artist id: {artist_id}"),
+                }),
+            )
+        })?;
+
+    let all_albums = state
+        .album_repository
+        .get_by_artist(artist.id, 5000, 0)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to list albums by artist: {error}"),
+                }),
+            )
+        })?;
+
+    let total = all_albums.len() as i64;
+    let offset = usize::try_from(query.offset).unwrap_or(0);
+    let limit = usize::try_from(query.limit).unwrap_or(50);
+    let items = all_albums
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(AlbumResponse::from)
+        .collect();
+
+    Ok(Json(ListAlbumsResponse {
+        items,
+        total,
+        limit: query.limit,
+        offset: query.offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/albums/{id}",
     params(
         ("id" = String, Path, description = "Album ID")
@@ -216,6 +315,71 @@ pub async fn get_album(State(state): State<AppState>, Path(id): Path<String>) ->
         )
             .into_response(),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/albums/{id}/search",
+    params(
+        ("id" = String, Path, description = "Album ID")
+    ),
+    responses(
+        (status = 202, description = "Album search triggered", body = TriggerAlbumSearchResponse),
+        (status = 404, description = "Album not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "albums"
+)]
+pub async fn trigger_album_search(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    debug!(target: "api", %id, "triggering album search");
+
+    let album = match state.album_repository.get_by_id(id.clone()).await {
+        Ok(Some(album)) => album,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Album {} not found", id),
+                }),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch album: {error}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let artist_name = match state
+        .artist_repository
+        .get_by_id(album.artist_id.to_string())
+        .await
+    {
+        Ok(Some(artist)) => artist.name,
+        Ok(None) | Err(_) => "Unknown Artist".to_string(),
+    };
+    let query = format!("{} {}", artist_name, album.title)
+        .trim()
+        .to_string();
+
+    (
+        StatusCode::ACCEPTED,
+        Json(TriggerAlbumSearchResponse {
+            album_id: album.id.to_string(),
+            query,
+            status: "queued".to_string(),
+            message: "album search request accepted".to_string(),
+        }),
+    )
+        .into_response()
 }
 
 #[utoipa::path(
@@ -578,6 +742,91 @@ mod tests {
                 .create(Artist::new("Test Artist"))
                 .await
                 .expect("create test artist")
+        }
+
+        // --- list_albums_by_artist ---
+
+        #[tokio::test]
+        async fn list_albums_by_artist_returns_only_target_artist_items() {
+            let state = make_test_state().await;
+            let artist_one = create_test_artist(&state).await;
+            let artist_two = state
+                .artist_repository
+                .create(Artist::new("Another Artist"))
+                .await
+                .unwrap();
+            state
+                .album_repository
+                .create(Album::new(artist_one.id, "Album A"))
+                .await
+                .unwrap();
+            state
+                .album_repository
+                .create(Album::new(artist_two.id, "Album B"))
+                .await
+                .unwrap();
+
+            let Json(response) = list_albums_by_artist(
+                State(state),
+                Path(artist_one.id.to_string()),
+                Query(ListAlbumsQuery {
+                    limit: 50,
+                    offset: 0,
+                }),
+            )
+            .await
+            .expect("list by artist");
+
+            assert_eq!(response.total, 1);
+            assert_eq!(response.items.len(), 1);
+            assert_eq!(response.items[0].title, "Album A");
+        }
+
+        #[tokio::test]
+        async fn list_albums_by_artist_rejects_invalid_artist_id() {
+            let state = make_test_state().await;
+            let result = list_albums_by_artist(
+                State(state),
+                Path("bad-id".to_string()),
+                Query(ListAlbumsQuery {
+                    limit: 50,
+                    offset: 0,
+                }),
+            )
+            .await;
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        // --- trigger_album_search ---
+
+        #[tokio::test]
+        async fn trigger_album_search_returns_202_for_existing_album() {
+            let state = make_test_state().await;
+            let artist = create_test_artist(&state).await;
+            let album = state
+                .album_repository
+                .create(Album::new(artist.id, "Search Me"))
+                .await
+                .unwrap();
+
+            let response = trigger_album_search(State(state), Path(album.id.to_string()))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+        }
+
+        #[tokio::test]
+        async fn trigger_album_search_returns_404_for_unknown_album() {
+            let state = make_test_state().await;
+            let response = trigger_album_search(
+                State(state),
+                Path("00000000-0000-0000-0000-000000000000".to_string()),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
         // --- create_album ---
