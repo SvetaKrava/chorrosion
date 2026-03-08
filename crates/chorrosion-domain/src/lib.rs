@@ -708,7 +708,9 @@ pub struct DownloadClientDefinition {
     pub client_type: String,
     pub base_url: String,
     pub username: Option<String>,
-    pub password: Option<String>,
+    /// NOTE: Despite the name, this field currently stores the password in plaintext.
+    /// TODO: Implement proper encryption or hashing before storing and update the name/usage accordingly.
+    pub password_encrypted: Option<String>,
     pub category: Option<String>,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
@@ -728,7 +730,7 @@ impl DownloadClientDefinition {
             client_type: client_type.into(),
             base_url: base_url.into(),
             username: None,
-            password: None,
+            password_encrypted: None,
             category: None,
             enabled: true,
             created_at: now,
