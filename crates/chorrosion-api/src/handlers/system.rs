@@ -307,13 +307,15 @@ mod tests {
     #[tokio::test]
     async fn get_system_tasks_lastfm_enabled_when_api_key_configured() {
         use chorrosion_config::{LastFmConfig, MetadataConfig};
-        let mut config = AppConfig::default();
-        config.metadata = MetadataConfig {
-            lastfm: LastFmConfig {
-                api_key: Some("test-api-key".to_string()),
-                ..LastFmConfig::default()
+        let config = AppConfig {
+            metadata: MetadataConfig {
+                lastfm: LastFmConfig {
+                    api_key: Some("test-api-key".to_string()),
+                    ..LastFmConfig::default()
+                },
+                ..MetadataConfig::default()
             },
-            ..MetadataConfig::default()
+            ..AppConfig::default()
         };
         let state = make_test_state_with_config(config).await;
         let Json(resp) = get_system_tasks(State(state)).await;
@@ -329,13 +331,15 @@ mod tests {
     #[tokio::test]
     async fn get_system_tasks_discogs_enabled_when_seeds_configured() {
         use chorrosion_config::{DiscogsConfig, MetadataConfig};
-        let mut config = AppConfig::default();
-        config.metadata = MetadataConfig {
-            discogs: DiscogsConfig {
-                seed_artists: vec!["Massive Attack".to_string()],
-                ..DiscogsConfig::default()
+        let config = AppConfig {
+            metadata: MetadataConfig {
+                discogs: DiscogsConfig {
+                    seed_artists: vec!["Massive Attack".to_string()],
+                    ..DiscogsConfig::default()
+                },
+                ..MetadataConfig::default()
             },
-            ..MetadataConfig::default()
+            ..AppConfig::default()
         };
         let state = make_test_state_with_config(config).await;
         let Json(resp) = get_system_tasks(State(state)).await;
@@ -351,14 +355,16 @@ mod tests {
     #[tokio::test]
     async fn get_system_tasks_discogs_disabled_when_only_whitespace_seeds() {
         use chorrosion_config::{DiscogsConfig, MetadataConfig};
-        let mut config = AppConfig::default();
-        config.metadata = MetadataConfig {
-            discogs: DiscogsConfig {
-                // Whitespace-only seeds should not enable the job (matches scheduler logic)
-                seed_artists: vec!["   ".to_string()],
-                ..DiscogsConfig::default()
+        let config = AppConfig {
+            metadata: MetadataConfig {
+                discogs: DiscogsConfig {
+                    // Whitespace-only seeds should not enable the job (matches scheduler logic)
+                    seed_artists: vec!["   ".to_string()],
+                    ..DiscogsConfig::default()
+                },
+                ..MetadataConfig::default()
             },
-            ..MetadataConfig::default()
+            ..AppConfig::default()
         };
         let state = make_test_state_with_config(config).await;
         let Json(resp) = get_system_tasks(State(state)).await;
