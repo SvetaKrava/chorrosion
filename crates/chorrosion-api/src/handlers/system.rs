@@ -109,6 +109,9 @@ pub async fn get_system_version(State(_state): State<AppState>) -> Json<SystemVe
 pub async fn get_system_tasks(State(state): State<AppState>) -> Json<SystemTasksResponse> {
     debug!(target: "api", "fetching system task metadata");
 
+    // NOTE: These job definitions mirror the registrations in `Scheduler::register_jobs`
+    // (crates/chorrosion-scheduler/src/lib.rs). If a job is added, renamed, or its interval
+    // changes there, this list must be updated to stay in sync.
     let mut items = vec![
         SystemTaskResponse {
             id: "rss-sync".to_string(),
@@ -166,21 +169,23 @@ pub async fn get_system_tasks(State(state): State<AppState>) -> Json<SystemTasks
         },
     });
 
-    let has_discogs_tokens = state
-        .config
-        .metadata
-        .discogs
-        .token
-        .as_ref()
-        .is_some_and(|token| !token.trim().is_empty())
-        || !state.config.metadata.discogs.seed_artists.is_empty()
-        || !state.config.metadata.discogs.seed_albums.is_empty();
+    // Mirrors the seed-filtering logic in `DiscogsMetadataRefreshJob::from_config`:
+    // enabled only when at least one non-empty (trimmed) seed artist or seed album exists.
+    let discogs_config = &state.config.metadata.discogs;
+    let has_discogs_seeds = discogs_config
+        .seed_artists
+        .iter()
+        .any(|artist| !artist.trim().is_empty())
+        || discogs_config
+            .seed_albums
+            .iter()
+            .any(|album| !album.artist.trim().is_empty() && !album.album.trim().is_empty());
     items.push(SystemTaskResponse {
         id: "discogs-metadata-refresh".to_string(),
         name: "Discogs Metadata Refresh".to_string(),
         schedule_seconds: 6 * 60 * 60 + 30 * 60,
-        enabled: has_discogs_tokens,
-        status: if has_discogs_tokens {
+        enabled: has_discogs_seeds,
+        status: if has_discogs_seeds {
             "scheduled".to_string()
         } else {
             "disabled".to_string()
@@ -229,6 +234,10 @@ mod tests {
     use std::sync::Arc;
 
     async fn make_test_state() -> AppState {
+        make_test_state_with_config(AppConfig::default()).await
+    }
+
+    async fn make_test_state_with_config(config: AppConfig) -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -240,7 +249,7 @@ mod tests {
             .await
             .expect("migrations");
         AppState::new(
-            AppConfig::default(),
+            config,
             Arc::new(SqliteArtistRepository::new(pool.clone())),
             Arc::new(SqliteAlbumRepository::new(pool.clone())),
             Arc::new(SqliteTrackRepository::new(pool.clone())),
@@ -275,6 +284,94 @@ mod tests {
         assert!(resp.total >= 5);
         assert!(resp.items.iter().any(|item| item.id == "rss-sync"));
         assert!(resp.items.iter().any(|item| item.id == "housekeeping"));
+
+        // With default AppConfig, Last.fm and Discogs integrations are unconfigured,
+        // so their tasks should still be listed but marked as disabled.
+        let lastfm = resp
+            .items
+            .iter()
+            .find(|item| item.id == "lastfm-metadata-refresh")
+            .expect("lastfm-metadata-refresh task should be present");
+        assert!(!lastfm.enabled, "Last.fm task should be disabled by default");
+        assert_eq!(lastfm.status, "disabled");
+
+        let discogs = resp
+            .items
+            .iter()
+            .find(|item| item.id == "discogs-metadata-refresh")
+            .expect("discogs-metadata-refresh task should be present");
+        assert!(!discogs.enabled, "Discogs task should be disabled by default");
+        assert_eq!(discogs.status, "disabled");
+    }
+
+    #[tokio::test]
+    async fn get_system_tasks_lastfm_enabled_when_api_key_configured() {
+        use chorrosion_config::{LastFmConfig, MetadataConfig};
+        let mut config = AppConfig::default();
+        config.metadata = MetadataConfig {
+            lastfm: LastFmConfig {
+                api_key: Some("test-api-key".to_string()),
+                ..LastFmConfig::default()
+            },
+            ..MetadataConfig::default()
+        };
+        let state = make_test_state_with_config(config).await;
+        let Json(resp) = get_system_tasks(State(state)).await;
+        let lastfm = resp
+            .items
+            .iter()
+            .find(|item| item.id == "lastfm-metadata-refresh")
+            .expect("lastfm-metadata-refresh task should be present");
+        assert!(lastfm.enabled, "Last.fm task should be enabled when api_key is set");
+        assert_eq!(lastfm.status, "scheduled");
+    }
+
+    #[tokio::test]
+    async fn get_system_tasks_discogs_enabled_when_seeds_configured() {
+        use chorrosion_config::{DiscogsConfig, MetadataConfig};
+        let mut config = AppConfig::default();
+        config.metadata = MetadataConfig {
+            discogs: DiscogsConfig {
+                seed_artists: vec!["Massive Attack".to_string()],
+                ..DiscogsConfig::default()
+            },
+            ..MetadataConfig::default()
+        };
+        let state = make_test_state_with_config(config).await;
+        let Json(resp) = get_system_tasks(State(state)).await;
+        let discogs = resp
+            .items
+            .iter()
+            .find(|item| item.id == "discogs-metadata-refresh")
+            .expect("discogs-metadata-refresh task should be present");
+        assert!(discogs.enabled, "Discogs task should be enabled when seed_artists is set");
+        assert_eq!(discogs.status, "scheduled");
+    }
+
+    #[tokio::test]
+    async fn get_system_tasks_discogs_disabled_when_only_whitespace_seeds() {
+        use chorrosion_config::{DiscogsConfig, MetadataConfig};
+        let mut config = AppConfig::default();
+        config.metadata = MetadataConfig {
+            discogs: DiscogsConfig {
+                // Whitespace-only seeds should not enable the job (matches scheduler logic)
+                seed_artists: vec!["   ".to_string()],
+                ..DiscogsConfig::default()
+            },
+            ..MetadataConfig::default()
+        };
+        let state = make_test_state_with_config(config).await;
+        let Json(resp) = get_system_tasks(State(state)).await;
+        let discogs = resp
+            .items
+            .iter()
+            .find(|item| item.id == "discogs-metadata-refresh")
+            .expect("discogs-metadata-refresh task should be present");
+        assert!(
+            !discogs.enabled,
+            "Discogs task should be disabled when seeds are whitespace-only"
+        );
+        assert_eq!(discogs.status, "disabled");
     }
 
     #[tokio::test]
