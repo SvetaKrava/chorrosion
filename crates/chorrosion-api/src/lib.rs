@@ -62,8 +62,10 @@ use handlers::quality_profiles::{
     __path_update_quality_profile,
 };
 use handlers::system::{
-    get_system_status, get_system_version, SystemStatusResponse, SystemVersionResponse,
-    __path_get_system_status, __path_get_system_version,
+    get_system_logs, get_system_status, get_system_tasks, get_system_version,
+    SystemLogEntryResponse, SystemLogsResponse, SystemStatusResponse, SystemTaskResponse,
+    SystemTasksResponse, SystemVersionResponse, __path_get_system_logs, __path_get_system_status,
+    __path_get_system_tasks, __path_get_system_version,
 };
 use handlers::tracks::{
     create_track, delete_track, get_track, list_tracks, update_track, CreateTrackRequest,
@@ -120,6 +122,8 @@ async fn health() -> Json<HealthResponse> {
         delete_track,
         get_system_status,
         get_system_version,
+        get_system_tasks,
+        get_system_logs,
         get_activity_queue,
         get_activity_history,
         get_activity_processing,
@@ -165,6 +169,10 @@ async fn health() -> Json<HealthResponse> {
             TrackErrorResponse,
             SystemStatusResponse,
             SystemVersionResponse,
+            SystemTasksResponse,
+            SystemTaskResponse,
+            SystemLogsResponse,
+            SystemLogEntryResponse,
             ActivityItemResponse,
             ActivityListResponse,
             ListQualityProfilesResponse,
@@ -231,6 +239,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/system/status", get(get_system_status))
         .route("/system/version", get(get_system_version))
+        .route("/system/tasks", get(get_system_tasks))
+        .route("/system/logs", get(get_system_logs))
         .route("/activity/queue", get(get_activity_queue))
         .route("/activity/history", get(get_activity_history))
         .route("/activity/processing", get(get_activity_processing))

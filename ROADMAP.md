@@ -312,10 +312,10 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Download queue endpoint (`GET /api/v1/activity/queue`) ✓
   - [x] History endpoint (`GET /api/v1/activity/history`) ✓
   - [x] Currently processing endpoint (`GET /api/v1/activity/processing`) ✓
-- [x] System endpoints ✓ PARTIALLY COMPLETE
-  - [x] Status and version
-  - [ ] Tasks/jobs management
-  - [ ] Log viewing
+- [x] System endpoints ✓
+  - [x] Status and version ✓
+  - [x] Tasks/jobs management (`/api/v1/system/tasks`) ✓
+  - [x] Log viewing (`/api/v1/system/logs`) ✓
 - [x] Settings endpoints ✓ PARTIALLY COMPLETE
   - [x] Quality profiles CRUD (`/api/v1/settings/quality-profiles`) ✓
   - [x] Metadata profiles CRUD (`/api/v1/settings/metadata-profiles`) ✓
