@@ -70,10 +70,11 @@ use handlers::system::{
     __path_get_system_tasks, __path_get_system_version,
 };
 use handlers::tracks::{
-    create_track, delete_track, get_track, list_tracks, update_track, CreateTrackRequest,
-    ErrorResponse as TrackErrorResponse, ListTracksResponse, TrackResponse, UpdateTrackRequest,
-    __path_create_track, __path_delete_track, __path_get_track, __path_list_tracks,
-    __path_update_track,
+    create_track, delete_track, get_track, list_tracks, list_tracks_by_album,
+    list_tracks_by_artist, update_track, CreateTrackRequest, ErrorResponse as TrackErrorResponse,
+    ListTracksResponse, TrackResponse, UpdateTrackRequest, __path_create_track,
+    __path_delete_track, __path_get_track, __path_list_tracks, __path_list_tracks_by_album,
+    __path_list_tracks_by_artist, __path_update_track,
 };
 use middleware::auth::auth_middleware;
 use serde::Serialize;
@@ -120,6 +121,8 @@ async fn health() -> Json<HealthResponse> {
         delete_album,
         trigger_album_search,
         list_tracks,
+        list_tracks_by_album,
+        list_tracks_by_artist,
         get_track,
         create_track,
         update_track,
@@ -244,6 +247,8 @@ pub fn router(state: AppState) -> Router {
             "/tracks/:id",
             get(get_track).put(update_track).delete(delete_track),
         )
+        .route("/albums/:album_id/tracks", get(list_tracks_by_album))
+        .route("/artists/:artist_id/tracks", get(list_tracks_by_artist))
         .route("/system/status", get(get_system_status))
         .route("/system/version", get(get_system_version))
         .route("/system/tasks", get(get_system_tasks))
