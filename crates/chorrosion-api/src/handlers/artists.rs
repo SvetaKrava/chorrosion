@@ -461,9 +461,15 @@ pub async fn get_artist_statistics(
             break;
         }
 
-        total_tracks += page.len() as i64;
-        monitored_tracks += page.iter().filter(|track| track.monitored).count() as i64;
-        tracks_with_files += page.iter().filter(|track| track.has_file).count() as i64;
+        for track in &page {
+            total_tracks += 1;
+            if track.monitored {
+                monitored_tracks += 1;
+            }
+            if track.has_file {
+                tracks_with_files += 1;
+            }
+        }
 
         if page.len() < PAGE_SIZE as usize {
             break;
