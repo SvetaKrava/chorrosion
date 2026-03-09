@@ -396,52 +396,91 @@ pub async fn get_artist_statistics(
         }
     };
 
-    let albums = match state
-        .album_repository
-        .get_by_artist(artist.id, 5000, 0)
-        .await
-    {
-        Ok(albums) => albums,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to fetch albums for artist: {error}"),
-                }),
-            )
-                .into_response();
-        }
-    };
+    const PAGE_SIZE: i64 = 5000;
 
-    let tracks = match state
-        .track_repository
-        .get_by_artist(artist.id, 5000, 0)
-        .await
-    {
-        Ok(tracks) => tracks,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to fetch tracks for artist: {error}"),
-                }),
-            )
-                .into_response();
-        }
-    };
+    let mut total_albums: i64 = 0;
+    let mut monitored_albums: i64 = 0;
+    let mut album_offset: i64 = 0;
 
-    let monitored_albums = albums.iter().filter(|album| album.monitored).count() as i64;
-    let monitored_tracks = tracks.iter().filter(|track| track.monitored).count() as i64;
-    let tracks_with_files = tracks.iter().filter(|track| track.has_file).count() as i64;
-    let tracks_without_files = tracks.len() as i64 - tracks_with_files;
+    loop {
+        let page = match state
+            .album_repository
+            .get_by_artist(artist.id, PAGE_SIZE, album_offset)
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("failed to fetch albums for artist: {error}"),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if page.is_empty() {
+            break;
+        }
+
+        total_albums += page.len() as i64;
+        monitored_albums += page.iter().filter(|album| album.monitored).count() as i64;
+
+        if page.len() < PAGE_SIZE as usize {
+            break;
+        }
+
+        album_offset += PAGE_SIZE;
+    }
+
+    let mut total_tracks: i64 = 0;
+    let mut monitored_tracks: i64 = 0;
+    let mut tracks_with_files: i64 = 0;
+    let mut track_offset: i64 = 0;
+
+    loop {
+        let page = match state
+            .track_repository
+            .get_by_artist(artist.id, PAGE_SIZE, track_offset)
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("failed to fetch tracks for artist: {error}"),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if page.is_empty() {
+            break;
+        }
+
+        total_tracks += page.len() as i64;
+        monitored_tracks += page.iter().filter(|track| track.monitored).count() as i64;
+        tracks_with_files += page.iter().filter(|track| track.has_file).count() as i64;
+
+        if page.len() < PAGE_SIZE as usize {
+            break;
+        }
+
+        track_offset += PAGE_SIZE;
+    }
+
+    let tracks_without_files = total_tracks - tracks_with_files;
 
     (
         StatusCode::OK,
         Json(ArtistStatisticsResponse {
             artist_id: artist.id.to_string(),
-            total_albums: albums.len() as i64,
+            total_albums,
             monitored_albums,
-            total_tracks: tracks.len() as i64,
+            total_tracks,
             monitored_tracks,
             tracks_with_files,
             tracks_without_files,
@@ -1047,14 +1086,17 @@ mod tests {
                 .await
                 .unwrap();
 
+            // 1 unmonitored album
             let mut album = Album::new(artist.id, "Stats Album");
             album.monitored = false;
             let album = state.album_repository.create(album).await.unwrap();
 
+            // track_1: monitored=true (default), has_file=true
             let mut track_1 = Track::new(album.id, artist.id, "Song A");
             track_1.has_file = true;
             state.track_repository.create(track_1).await.unwrap();
 
+            // track_2: monitored=false, has_file=false (default)
             let mut track_2 = Track::new(album.id, artist.id, "Song B");
             track_2.monitored = false;
             state.track_repository.create(track_2).await.unwrap();
@@ -1063,6 +1105,20 @@ mod tests {
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::OK);
+
+            let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let stats: ArtistStatisticsResponse =
+                serde_json::from_slice(&body_bytes).unwrap();
+
+            assert_eq!(stats.artist_id, artist.id.to_string());
+            assert_eq!(stats.total_albums, 1);
+            assert_eq!(stats.monitored_albums, 0); // album is unmonitored
+            assert_eq!(stats.total_tracks, 2);
+            assert_eq!(stats.monitored_tracks, 1); // only track_1 is monitored
+            assert_eq!(stats.tracks_with_files, 1); // only track_1 has a file
+            assert_eq!(stats.tracks_without_files, 1); // track_2 has no file
         }
 
         #[tokio::test]
