@@ -174,10 +174,14 @@ pub async fn list_albums(
         })?;
 
     let total = all_albums.len() as i64;
-    let offset = match usize::try_from(query.offset) {
-        Ok(value) => value,
-        Err(_) => all_albums.len(),
-    };
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset out of range".to_string(),
+            }),
+        )
+    })?;
     let limit = usize::try_from(query.limit).unwrap_or(50);
     let items = all_albums
         .into_iter()
@@ -269,10 +273,14 @@ pub async fn list_albums_by_artist(
         })?;
 
     let total = all_albums.len() as i64;
-    let offset = match usize::try_from(query.offset) {
-        Ok(value) => value,
-        Err(_) => all_albums.len(),
-    };
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset out of range".to_string(),
+            }),
+        )
+    })?;
     let limit = usize::try_from(query.limit).unwrap_or(50);
     let items = all_albums
         .into_iter()
