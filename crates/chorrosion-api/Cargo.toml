@@ -13,12 +13,15 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 url = "2.5"
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
+futures-util = "0.3"
 
 [dev-dependencies]
 uuid = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 chorrosion-config = { path = "../chorrosion-config" }
+http-body-util = "0.1"

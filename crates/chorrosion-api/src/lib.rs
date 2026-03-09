@@ -40,6 +40,7 @@ use handlers::download_clients::{
     __path_create_download_client, __path_delete_download_client, __path_get_download_client,
     __path_list_download_clients, __path_update_download_client,
 };
+use handlers::events::{__path_stream_events, stream_events};
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
     update_indexer, CreateIndexerRequest, IndexerCapabilitiesResponse, IndexerErrorResponse,
@@ -135,6 +136,7 @@ async fn health() -> Json<HealthResponse> {
         get_activity_queue,
         get_activity_history,
         get_activity_processing,
+        stream_events,
         list_quality_profiles,
         get_quality_profile,
         create_quality_profile,
@@ -259,6 +261,7 @@ pub fn router(state: AppState) -> Router {
         .route("/activity/queue", get(get_activity_queue))
         .route("/activity/history", get(get_activity_history))
         .route("/activity/processing", get(get_activity_processing))
+        .route("/events", get(stream_events))
         .route(
             "/settings/quality-profiles",
             get(list_quality_profiles).post(create_quality_profile),
