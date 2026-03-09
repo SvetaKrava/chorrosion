@@ -7,7 +7,7 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{ArtistId, Track};
-use chorrosion_infrastructure::repositories::Repository;
+use chorrosion_infrastructure::repositories::{Repository, TrackRepository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -157,6 +157,208 @@ pub async fn list_tracks(
         }
     };
     // limit is validated to be in [1, 500], so the cast is always safe.
+    let limit = query.limit as usize;
+    let items = all_tracks
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(TrackResponse::from)
+        .collect();
+
+    Ok(Json(ListTracksResponse {
+        items,
+        total,
+        limit: query.limit,
+        offset: query.offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/albums/{album_id}/tracks",
+    params(
+        ("album_id" = String, Path, description = "Album ID"),
+        ListTracksQuery
+    ),
+    responses(
+        (status = 200, description = "List tracks for album", body = ListTracksResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "tracks"
+)]
+pub async fn list_tracks_by_album(
+    State(state): State<AppState>,
+    Path(album_id): Path<String>,
+    Query(query): Query<ListTracksQuery>,
+) -> Result<Json<ListTracksResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", %album_id, ?query, "listing tracks by album");
+
+    if !(1..=500).contains(&query.limit) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "limit must be between 1 and 500".to_string(),
+            }),
+        ));
+    }
+
+    if query.offset < 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset must be greater than or equal to 0".to_string(),
+            }),
+        ));
+    }
+
+    let album = state
+        .album_repository
+        .get_by_id(album_id.clone())
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch album: {error}"),
+                }),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("invalid album id: {album_id}"),
+                }),
+            )
+        })?;
+
+    let all_tracks = state
+        .track_repository
+        .get_by_album(album.id, 5000, 0)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to list tracks by album: {error}"),
+                }),
+            )
+        })?;
+
+    let total = all_tracks.len() as i64;
+    let offset = match usize::try_from(query.offset) {
+        Ok(o) => o,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "offset is out of range".to_string(),
+                }),
+            ));
+        }
+    };
+    let limit = query.limit as usize;
+    let items = all_tracks
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(TrackResponse::from)
+        .collect();
+
+    Ok(Json(ListTracksResponse {
+        items,
+        total,
+        limit: query.limit,
+        offset: query.offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/artists/{artist_id}/tracks",
+    params(
+        ("artist_id" = String, Path, description = "Artist ID"),
+        ListTracksQuery
+    ),
+    responses(
+        (status = 200, description = "List tracks for artist", body = ListTracksResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "tracks"
+)]
+pub async fn list_tracks_by_artist(
+    State(state): State<AppState>,
+    Path(artist_id): Path<String>,
+    Query(query): Query<ListTracksQuery>,
+) -> Result<Json<ListTracksResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", %artist_id, ?query, "listing tracks by artist");
+
+    if !(1..=500).contains(&query.limit) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "limit must be between 1 and 500".to_string(),
+            }),
+        ));
+    }
+
+    if query.offset < 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset must be greater than or equal to 0".to_string(),
+            }),
+        ));
+    }
+
+    let artist = state
+        .artist_repository
+        .get_by_id(artist_id.clone())
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("invalid artist id: {artist_id}"),
+                }),
+            )
+        })?;
+
+    let all_tracks = state
+        .track_repository
+        .get_by_artist(artist.id, 5000, 0)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to list tracks by artist: {error}"),
+                }),
+            )
+        })?;
+
+    let total = all_tracks.len() as i64;
+    let offset = match usize::try_from(query.offset) {
+        Ok(o) => o,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "offset is out of range".to_string(),
+                }),
+            ));
+        }
+    };
     let limit = query.limit as usize;
     let items = all_tracks
         .into_iter()
@@ -683,6 +885,85 @@ mod tests {
             let result = list_tracks(State(state), Query(query)).await.unwrap();
             assert_eq!(result.total, 3);
             assert_eq!(result.items.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn list_tracks_by_album_filters_results() {
+            let state = make_test_state().await;
+            let artist = create_test_artist(&state).await;
+            let album_one = create_test_album(&state, &artist).await;
+            let album_two = state
+                .album_repository
+                .create(Album::new(artist.id, "Second Album"))
+                .await
+                .unwrap();
+            state
+                .track_repository
+                .create(Track::new(album_one.id, artist.id, "Track A"))
+                .await
+                .unwrap();
+            state
+                .track_repository
+                .create(Track::new(album_two.id, artist.id, "Track B"))
+                .await
+                .unwrap();
+
+            let result = list_tracks_by_album(
+                State(state),
+                Path(album_one.id.to_string()),
+                Query(ListTracksQuery {
+                    limit: 10,
+                    offset: 0,
+                }),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(result.total, 1);
+            assert_eq!(result.items.len(), 1);
+            assert_eq!(result.items[0].title, "Track A");
+        }
+
+        #[tokio::test]
+        async fn list_tracks_by_artist_filters_results() {
+            let state = make_test_state().await;
+            let artist_one = create_test_artist(&state).await;
+            let artist_two = state
+                .artist_repository
+                .create(Artist::new("Another Artist"))
+                .await
+                .unwrap();
+            let album_one = create_test_album(&state, &artist_one).await;
+            let album_two = state
+                .album_repository
+                .create(Album::new(artist_two.id, "Other Album"))
+                .await
+                .unwrap();
+            state
+                .track_repository
+                .create(Track::new(album_one.id, artist_one.id, "Track A"))
+                .await
+                .unwrap();
+            state
+                .track_repository
+                .create(Track::new(album_two.id, artist_two.id, "Track B"))
+                .await
+                .unwrap();
+
+            let result = list_tracks_by_artist(
+                State(state),
+                Path(artist_one.id.to_string()),
+                Query(ListTracksQuery {
+                    limit: 10,
+                    offset: 0,
+                }),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(result.total, 1);
+            assert_eq!(result.items.len(), 1);
+            assert_eq!(result.items[0].title, "Track A");
         }
 
         // --- get_track ---

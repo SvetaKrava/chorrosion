@@ -307,7 +307,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Track endpoints (PR #178) ✓ PARTIALLY COMPLETE
   - [x] Track list and details ✓
   - [x] Track create/update/delete ✓
-  - [ ] Album/artist filtered listing endpoints
+  - [x] Album/artist filtered listing endpoints (`GET /api/v1/albums/{album_id}/tracks`, `GET /api/v1/artists/{artist_id}/tracks`) ✓
 - [x] Queue/Activity endpoints ✓ PARTIALLY COMPLETE
   - [x] Download queue endpoint (`GET /api/v1/activity/queue`) ✓
   - [x] History endpoint (`GET /api/v1/activity/history`) ✓
