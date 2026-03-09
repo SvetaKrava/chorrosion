@@ -7,7 +7,7 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Artist, ArtistStatus};
-use chorrosion_infrastructure::repositories::Repository;
+use chorrosion_infrastructure::repositories::{AlbumRepository, Repository, TrackRepository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -48,6 +48,17 @@ pub struct ListArtistsResponse {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ArtistStatisticsResponse {
+    pub artist_id: String,
+    pub total_albums: i64,
+    pub monitored_albums: i64,
+    pub total_tracks: i64,
+    pub monitored_tracks: i64,
+    pub tracks_with_files: i64,
+    pub tracks_without_files: i64,
 }
 
 impl From<Artist> for ArtistResponse {
@@ -341,6 +352,147 @@ pub async fn get_artist(
         )
             .into_response(),
     }
+}
+
+/// Get aggregate statistics for a single artist.
+#[utoipa::path(
+    get,
+    path = "/api/v1/artists/{id}/statistics",
+    params(
+        ("id" = String, Path, description = "Artist ID")
+    ),
+    responses(
+        (status = 200, description = "Artist statistics", body = ArtistStatisticsResponse),
+        (status = 404, description = "Artist not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "artists"
+)]
+pub async fn get_artist_statistics(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    debug!(target: "api", %id, "fetching artist statistics");
+
+    let artist = match state.artist_repository.get_by_id(id.clone()).await {
+        Ok(Some(artist)) => artist,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Artist {} not found", id),
+                }),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    const PAGE_SIZE: i64 = 5000;
+
+    let mut total_albums: i64 = 0;
+    let mut monitored_albums: i64 = 0;
+    let mut album_offset: i64 = 0;
+
+    loop {
+        let page = match state
+            .album_repository
+            .get_by_artist(artist.id, PAGE_SIZE, album_offset)
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("failed to fetch albums for artist: {error}"),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if page.is_empty() {
+            break;
+        }
+
+        total_albums += page.len() as i64;
+        monitored_albums += page.iter().filter(|album| album.monitored).count() as i64;
+
+        if page.len() < PAGE_SIZE as usize {
+            break;
+        }
+
+        album_offset += PAGE_SIZE;
+    }
+
+    let mut total_tracks: i64 = 0;
+    let mut monitored_tracks: i64 = 0;
+    let mut tracks_with_files: i64 = 0;
+    let mut track_offset: i64 = 0;
+
+    loop {
+        let page = match state
+            .track_repository
+            .get_by_artist(artist.id, PAGE_SIZE, track_offset)
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("failed to fetch tracks for artist: {error}"),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if page.is_empty() {
+            break;
+        }
+
+        for track in &page {
+            total_tracks += 1;
+            if track.monitored {
+                monitored_tracks += 1;
+            }
+            if track.has_file {
+                tracks_with_files += 1;
+            }
+        }
+
+        if page.len() < PAGE_SIZE as usize {
+            break;
+        }
+
+        track_offset += PAGE_SIZE;
+    }
+
+    let tracks_without_files = total_tracks - tracks_with_files;
+
+    (
+        StatusCode::OK,
+        Json(ArtistStatisticsResponse {
+            artist_id: artist.id.to_string(),
+            total_albums,
+            monitored_albums,
+            total_tracks,
+            monitored_tracks,
+            tracks_with_files,
+            tracks_without_files,
+        }),
+    )
+        .into_response()
 }
 
 /// Create a new artist
@@ -758,6 +910,7 @@ mod tests {
         use axum::extract::{Path, State};
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
+        use chorrosion_domain::{Album, Track};
         use chorrosion_infrastructure::sqlite_adapters::{
             SqliteAlbumRepository, SqliteArtistRepository,
             SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
@@ -924,6 +1077,65 @@ mod tests {
             let response = delete_artist(State(state), Path(unknown_id))
                 .await
                 .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        // --- get_artist_statistics ---
+
+        #[tokio::test]
+        async fn get_artist_statistics_returns_200_for_existing_artist() {
+            let state = make_test_state().await;
+
+            let artist = state
+                .artist_repository
+                .create(Artist::new("Stats Artist"))
+                .await
+                .unwrap();
+
+            // 1 unmonitored album
+            let mut album = Album::new(artist.id, "Stats Album");
+            album.monitored = false;
+            let album = state.album_repository.create(album).await.unwrap();
+
+            // track_1: monitored=true (default), has_file=true
+            let mut track_1 = Track::new(album.id, artist.id, "Song A");
+            track_1.has_file = true;
+            state.track_repository.create(track_1).await.unwrap();
+
+            // track_2: monitored=false, has_file=false (default)
+            let mut track_2 = Track::new(album.id, artist.id, "Song B");
+            track_2.monitored = false;
+            state.track_repository.create(track_2).await.unwrap();
+
+            let response = get_artist_statistics(State(state), Path(artist.id.to_string()))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let stats: ArtistStatisticsResponse =
+                serde_json::from_slice(&body_bytes).unwrap();
+
+            assert_eq!(stats.artist_id, artist.id.to_string());
+            assert_eq!(stats.total_albums, 1);
+            assert_eq!(stats.monitored_albums, 0); // album is unmonitored
+            assert_eq!(stats.total_tracks, 2);
+            assert_eq!(stats.monitored_tracks, 1); // only track_1 is monitored
+            assert_eq!(stats.tracks_with_files, 1); // only track_1 has a file
+            assert_eq!(stats.tracks_without_files, 1); // track_2 has no file
+        }
+
+        #[tokio::test]
+        async fn get_artist_statistics_returns_404_for_unknown_artist() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+
+            let response = get_artist_statistics(State(state), Path(unknown_id))
+                .await
+                .into_response();
+
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }

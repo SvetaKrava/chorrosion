@@ -293,11 +293,11 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 6.1 API Completion
 
-- [x] Artist endpoints (Issue #9, PR #169, PR #172) ✓ PARTIALLY COMPLETE
+- [x] Artist endpoints (Issue #9, PR #169, PR #172) ✓
   - [x] List with pagination and sorting ✓
   - [x] Detailed artist view ✓
   - [x] Update monitored status (via update endpoint) ✓
-  - [ ] Artist statistics
+  - [x] Artist statistics (`GET /api/v1/artists/{id}/statistics`) ✓
 - [x] Album endpoints (PR #175) ✓ PARTIALLY COMPLETE
   - [x] Album list and details ✓
   - [x] Album create/update/delete ✓

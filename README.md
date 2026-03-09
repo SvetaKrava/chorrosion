@@ -85,6 +85,7 @@ Current implemented endpoints:
 - `GET /health`
 - `GET /api/v1/artists`
 - `GET /api/v1/artists/{id}`
+- `GET /api/v1/artists/{id}/statistics`
 - `POST /api/v1/artists`
 - `PUT /api/v1/artists/{id}`
 - `DELETE /api/v1/artists/{id}`
