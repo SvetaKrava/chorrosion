@@ -7,7 +7,7 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Artist, ArtistStatus};
-use chorrosion_infrastructure::repositories::Repository;
+use chorrosion_infrastructure::repositories::{AlbumRepository, Repository, TrackRepository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -48,6 +48,17 @@ pub struct ListArtistsResponse {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ArtistStatisticsResponse {
+    pub artist_id: String,
+    pub total_albums: i64,
+    pub monitored_albums: i64,
+    pub total_tracks: i64,
+    pub monitored_tracks: i64,
+    pub tracks_with_files: i64,
+    pub tracks_without_files: i64,
 }
 
 impl From<Artist> for ArtistResponse {
@@ -341,6 +352,102 @@ pub async fn get_artist(
         )
             .into_response(),
     }
+}
+
+/// Get aggregate statistics for a single artist.
+#[utoipa::path(
+    get,
+    path = "/api/v1/artists/{id}/statistics",
+    params(
+        ("id" = String, Path, description = "Artist ID")
+    ),
+    responses(
+        (status = 200, description = "Artist statistics", body = ArtistStatisticsResponse),
+        (status = 404, description = "Artist not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "artists"
+)]
+pub async fn get_artist_statistics(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    debug!(target: "api", %id, "fetching artist statistics");
+
+    let artist = match state.artist_repository.get_by_id(id.clone()).await {
+        Ok(Some(artist)) => artist,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Artist {} not found", id),
+                }),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let albums = match state
+        .album_repository
+        .get_by_artist(artist.id, 5000, 0)
+        .await
+    {
+        Ok(albums) => albums,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch albums for artist: {error}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let tracks = match state
+        .track_repository
+        .get_by_artist(artist.id, 5000, 0)
+        .await
+    {
+        Ok(tracks) => tracks,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch tracks for artist: {error}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let monitored_albums = albums.iter().filter(|album| album.monitored).count() as i64;
+    let monitored_tracks = tracks.iter().filter(|track| track.monitored).count() as i64;
+    let tracks_with_files = tracks.iter().filter(|track| track.has_file).count() as i64;
+    let tracks_without_files = tracks.len() as i64 - tracks_with_files;
+
+    (
+        StatusCode::OK,
+        Json(ArtistStatisticsResponse {
+            artist_id: artist.id.to_string(),
+            total_albums: albums.len() as i64,
+            monitored_albums,
+            total_tracks: tracks.len() as i64,
+            monitored_tracks,
+            tracks_with_files,
+            tracks_without_files,
+        }),
+    )
+        .into_response()
 }
 
 /// Create a new artist
@@ -758,6 +865,7 @@ mod tests {
         use axum::extract::{Path, State};
         use axum::response::IntoResponse;
         use chorrosion_config::AppConfig;
+        use chorrosion_domain::{Album, Track};
         use chorrosion_infrastructure::sqlite_adapters::{
             SqliteAlbumRepository, SqliteArtistRepository,
             SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
@@ -924,6 +1032,48 @@ mod tests {
             let response = delete_artist(State(state), Path(unknown_id))
                 .await
                 .into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        // --- get_artist_statistics ---
+
+        #[tokio::test]
+        async fn get_artist_statistics_returns_200_for_existing_artist() {
+            let state = make_test_state().await;
+
+            let artist = state
+                .artist_repository
+                .create(Artist::new("Stats Artist"))
+                .await
+                .unwrap();
+
+            let mut album = Album::new(artist.id, "Stats Album");
+            album.monitored = false;
+            let album = state.album_repository.create(album).await.unwrap();
+
+            let mut track_1 = Track::new(album.id, artist.id, "Song A");
+            track_1.has_file = true;
+            state.track_repository.create(track_1).await.unwrap();
+
+            let mut track_2 = Track::new(album.id, artist.id, "Song B");
+            track_2.monitored = false;
+            state.track_repository.create(track_2).await.unwrap();
+
+            let response = get_artist_statistics(State(state), Path(artist.id.to_string()))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        #[tokio::test]
+        async fn get_artist_statistics_returns_404_for_unknown_artist() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+
+            let response = get_artist_statistics(State(state), Path(unknown_id))
+                .await
+                .into_response();
+
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }

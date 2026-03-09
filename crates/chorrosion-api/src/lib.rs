@@ -28,10 +28,10 @@ use handlers::albums::{
     __path_update_album,
 };
 use handlers::artists::{
-    create_artist, delete_artist, get_artist, list_artists, update_artist, ArtistResponse,
-    CreateArtistRequest, ErrorResponse, ListArtistsResponse, UpdateArtistRequest,
-    __path_create_artist, __path_delete_artist, __path_get_artist, __path_list_artists,
-    __path_update_artist,
+    create_artist, delete_artist, get_artist, get_artist_statistics, list_artists, update_artist,
+    ArtistResponse, ArtistStatisticsResponse, CreateArtistRequest, ErrorResponse,
+    ListArtistsResponse, UpdateArtistRequest, __path_create_artist, __path_delete_artist,
+    __path_get_artist, __path_get_artist_statistics, __path_list_artists, __path_update_artist,
 };
 use handlers::download_clients::{
     create_download_client, delete_download_client, get_download_client, list_download_clients,
@@ -110,6 +110,7 @@ async fn health() -> Json<HealthResponse> {
         health,
         list_artists,
         get_artist,
+        get_artist_statistics,
         create_artist,
         update_artist,
         delete_artist,
@@ -161,6 +162,7 @@ async fn health() -> Json<HealthResponse> {
             HealthResponse,
             ListArtistsResponse,
             ArtistResponse,
+            ArtistStatisticsResponse,
             CreateArtistRequest,
             UpdateArtistRequest,
             ErrorResponse,
@@ -235,6 +237,7 @@ pub fn router(state: AppState) -> Router {
             "/artists/:id",
             get(get_artist).put(update_artist).delete(delete_artist),
         )
+        .route("/artists/:id/statistics", get(get_artist_statistics))
         .route("/albums", get(list_albums).post(create_album))
         .route(
             "/albums/:id",
