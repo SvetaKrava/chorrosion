@@ -174,7 +174,14 @@ pub async fn list_albums(
         })?;
 
     let total = all_albums.len() as i64;
-    let offset = usize::try_from(query.offset).unwrap_or(0);
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset out of range".to_string(),
+            }),
+        )
+    })?;
     let limit = usize::try_from(query.limit).unwrap_or(50);
     let items = all_albums
         .into_iter()
@@ -201,6 +208,7 @@ pub async fn list_albums(
     responses(
         (status = 200, description = "List of albums for artist", body = ListAlbumsResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Artist not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "albums"
@@ -244,9 +252,9 @@ pub async fn list_albums_by_artist(
         })?
         .ok_or_else(|| {
             (
-                StatusCode::BAD_REQUEST,
+                StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
-                    error: format!("invalid artist id: {artist_id}"),
+                    error: format!("Artist {artist_id} not found"),
                 }),
             )
         })?;
@@ -265,7 +273,14 @@ pub async fn list_albums_by_artist(
         })?;
 
     let total = all_albums.len() as i64;
-    let offset = usize::try_from(query.offset).unwrap_or(0);
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "offset out of range".to_string(),
+            }),
+        )
+    })?;
     let limit = usize::try_from(query.limit).unwrap_or(50);
     let items = all_albums
         .into_iter()
@@ -364,7 +379,16 @@ pub async fn trigger_album_search(
         .await
     {
         Ok(Some(artist)) => artist.name,
-        Ok(None) | Err(_) => "Unknown Artist".to_string(),
+        Ok(None) => "Unknown Artist".to_string(),
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to fetch artist: {error}"),
+                }),
+            )
+                .into_response();
+        }
     };
     let query = format!("{} {}", artist_name, album.title)
         .trim()
@@ -783,7 +807,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn list_albums_by_artist_rejects_invalid_artist_id() {
+        async fn list_albums_by_artist_returns_404_for_missing_artist() {
             let state = make_test_state().await;
             let result = list_albums_by_artist(
                 State(state),
@@ -796,7 +820,24 @@ mod tests {
             .await;
             assert!(result.is_err());
             let (status, _) = result.unwrap_err();
-            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(status, StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn list_albums_by_artist_returns_404_for_unknown_artist_id() {
+            let state = make_test_state().await;
+            let result = list_albums_by_artist(
+                State(state),
+                Path("00000000-0000-0000-0000-000000000000".to_string()),
+                Query(ListAlbumsQuery {
+                    limit: 50,
+                    offset: 0,
+                }),
+            )
+            .await;
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
         }
 
         // --- trigger_album_search ---
