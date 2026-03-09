@@ -89,7 +89,9 @@ Current implemented endpoints:
 - `PUT /api/v1/artists/{id}`
 - `DELETE /api/v1/artists/{id}`
 - `GET /api/v1/albums`
+- `GET /api/v1/artists/{artist_id}/albums`
 - `GET /api/v1/albums/{id}`
+- `POST /api/v1/albums/{id}/search`
 - `POST /api/v1/albums`
 - `PUT /api/v1/albums/{id}`
 - `DELETE /api/v1/albums/{id}`
