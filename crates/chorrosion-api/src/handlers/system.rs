@@ -292,7 +292,10 @@ mod tests {
             .iter()
             .find(|item| item.id == "lastfm-metadata-refresh")
             .expect("lastfm-metadata-refresh task should be present");
-        assert!(!lastfm.enabled, "Last.fm task should be disabled by default");
+        assert!(
+            !lastfm.enabled,
+            "Last.fm task should be disabled by default"
+        );
         assert_eq!(lastfm.status, "disabled");
 
         let discogs = resp
@@ -300,7 +303,10 @@ mod tests {
             .iter()
             .find(|item| item.id == "discogs-metadata-refresh")
             .expect("discogs-metadata-refresh task should be present");
-        assert!(!discogs.enabled, "Discogs task should be disabled by default");
+        assert!(
+            !discogs.enabled,
+            "Discogs task should be disabled by default"
+        );
         assert_eq!(discogs.status, "disabled");
     }
 
@@ -324,7 +330,10 @@ mod tests {
             .iter()
             .find(|item| item.id == "lastfm-metadata-refresh")
             .expect("lastfm-metadata-refresh task should be present");
-        assert!(lastfm.enabled, "Last.fm task should be enabled when api_key is set");
+        assert!(
+            lastfm.enabled,
+            "Last.fm task should be enabled when api_key is set"
+        );
         assert_eq!(lastfm.status, "scheduled");
     }
 
@@ -348,7 +357,10 @@ mod tests {
             .iter()
             .find(|item| item.id == "discogs-metadata-refresh")
             .expect("discogs-metadata-refresh task should be present");
-        assert!(discogs.enabled, "Discogs task should be enabled when seed_artists is set");
+        assert!(
+            discogs.enabled,
+            "Discogs task should be enabled when seed_artists is set"
+        );
         assert_eq!(discogs.status, "scheduled");
     }
 

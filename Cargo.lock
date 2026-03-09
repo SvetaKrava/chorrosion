@@ -381,6 +381,7 @@ dependencies = [
  "chorrosion-infrastructure",
  "chrono",
  "futures-util",
+ "http-body-util",
  "serde",
  "serde_json",
  "sqlx",

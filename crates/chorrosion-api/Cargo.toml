@@ -22,5 +22,6 @@ futures-util = "0.3"
 
 [dev-dependencies]
 uuid = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 chorrosion-config = { path = "../chorrosion-config" }
+http-body-util = "0.1"
