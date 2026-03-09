@@ -3,6 +3,7 @@ pub mod activity;
 pub mod albums;
 pub mod artists;
 pub mod download_clients;
+pub mod events;
 pub mod indexers;
 pub mod metadata_profiles;
 pub mod quality_profiles;

@@ -324,6 +324,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 6.2 WebSocket/SSE Support
 
+- [x] SSE event stream baseline (`GET /api/v1/events`) ✓
 - [ ] Real-time updates implementation
   - [ ] Download progress
   - [ ] Import progress
