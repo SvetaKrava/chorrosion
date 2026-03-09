@@ -927,6 +927,25 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn list_tracks_by_album_returns_404_for_unknown_album() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let result = list_tracks_by_album(
+                State(state),
+                Path(unknown_id.clone()),
+                Query(ListTracksQuery {
+                    limit: 10,
+                    offset: 0,
+                }),
+            )
+            .await;
+            assert!(result.is_err());
+            let (status, Json(body)) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(body.error, format!("Album {unknown_id} not found"));
+        }
+
+        #[tokio::test]
         async fn list_tracks_by_artist_filters_results() {
             let state = make_test_state().await;
             let artist_one = create_test_artist(&state).await;
@@ -966,6 +985,25 @@ mod tests {
             assert_eq!(result.total, 1);
             assert_eq!(result.items.len(), 1);
             assert_eq!(result.items[0].title, "Track A");
+        }
+
+        #[tokio::test]
+        async fn list_tracks_by_artist_returns_404_for_unknown_artist() {
+            let state = make_test_state().await;
+            let unknown_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let result = list_tracks_by_artist(
+                State(state),
+                Path(unknown_id.clone()),
+                Query(ListTracksQuery {
+                    limit: 10,
+                    offset: 0,
+                }),
+            )
+            .await;
+            assert!(result.is_err());
+            let (status, Json(body)) = result.unwrap_err();
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(body.error, format!("Artist {unknown_id} not found"));
         }
 
         // --- get_track ---
