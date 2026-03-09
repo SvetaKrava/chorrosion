@@ -562,7 +562,10 @@ pub async fn delete_download_client(
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(DownloadClientErrorResponse {
-                error: format!("failed to fetch download client {} before delete: {}", id, error),
+                error: format!(
+                    "failed to fetch download client {} before delete: {}",
+                    id, error
+                ),
             }),
         )
             .into_response(),

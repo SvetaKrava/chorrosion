@@ -1115,8 +1115,7 @@ mod tests {
             let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
-            let stats: ArtistStatisticsResponse =
-                serde_json::from_slice(&body_bytes).unwrap();
+            let stats: ArtistStatisticsResponse = serde_json::from_slice(&body_bytes).unwrap();
 
             assert_eq!(stats.artist_id, artist.id.to_string());
             assert_eq!(stats.total_albums, 1);
