@@ -183,6 +183,7 @@ pub async fn list_tracks(
     responses(
         (status = 200, description = "List tracks for album", body = ListTracksResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Album not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "tracks"
@@ -226,9 +227,9 @@ pub async fn list_tracks_by_album(
         })?
         .ok_or_else(|| {
             (
-                StatusCode::BAD_REQUEST,
+                StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
-                    error: format!("invalid album id: {album_id}"),
+                    error: format!("Album {album_id} not found"),
                 }),
             )
         })?;
@@ -284,6 +285,7 @@ pub async fn list_tracks_by_album(
     responses(
         (status = 200, description = "List tracks for artist", body = ListTracksResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Artist not found", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "tracks"
@@ -327,9 +329,9 @@ pub async fn list_tracks_by_artist(
         })?
         .ok_or_else(|| {
             (
-                StatusCode::BAD_REQUEST,
+                StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
-                    error: format!("invalid artist id: {artist_id}"),
+                    error: format!("Artist {artist_id} not found"),
                 }),
             )
         })?;
