@@ -328,7 +328,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Real-time updates implementation
   - [x] Download progress (`GET /api/v1/events/download-progress`) ✓
   - [x] Import progress (`GET /api/v1/events/import-progress`) ✓
-  - [ ] Job status
+  - [x] Job status (`GET /api/v1/events/job-status`) ✓
 - [ ] Event broadcasting
 - [ ] Client connection management
 
