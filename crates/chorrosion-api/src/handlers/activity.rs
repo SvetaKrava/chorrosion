@@ -75,8 +75,8 @@ pub async fn get_activity_history(State(_state): State<AppState>) -> Json<Activi
     ),
     tag = "activity"
 )]
-pub async fn get_activity_processing(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+pub async fn get_activity_processing(State(state): State<AppState>) -> Json<ActivityListResponse> {
     debug!(target: "api", "fetching currently processing items");
 
-    Json(activity_import_snapshot(&_state).await)
+    Json(activity_import_snapshot(&state).await)
 }
