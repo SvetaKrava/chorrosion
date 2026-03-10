@@ -332,6 +332,17 @@ pub async fn stream_job_status_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    /// Global mutex serializing all tests that read or write the global SSE connection counters.
+    /// Rust tests run in parallel by default, and several tests in this module create SSE streams
+    /// (each of which increments a counter via `ConnectionGuard`). Without serialization the
+    /// lifecycle test's exact +1 / return-to-initial assertions would be non-deterministic.
+    static COUNTER_TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    fn counter_test_mutex() -> &'static tokio::sync::Mutex<()> {
+        COUNTER_TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
 
     #[test]
     fn event_name_cycles_across_supported_types() {
@@ -399,6 +410,7 @@ mod tests {
     #[tokio::test]
     async fn stream_events_content_type_initial_event_and_rotation() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         // Build state before pausing time. If time is paused first, SQLite pool
         // initialization (which uses spawn_blocking internally) may time out due to
@@ -458,6 +470,7 @@ mod tests {
     #[tokio::test]
     async fn stream_download_progress_emits_download_event_with_queue_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -490,6 +503,7 @@ mod tests {
     #[tokio::test]
     async fn stream_import_progress_emits_import_event_with_processing_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -522,6 +536,7 @@ mod tests {
     #[tokio::test]
     async fn stream_job_status_emits_job_status_event_with_tasks_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -553,6 +568,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_sse_connections_tracks_event_connection_lifecycle() {
+        let _lock = counter_test_mutex().lock().await;
+
         // Take an initial snapshot of the SSE connection counts.
         let Json(initial) = get_sse_connections().await;
 
