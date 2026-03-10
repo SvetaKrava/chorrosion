@@ -51,19 +51,24 @@ struct JobStatusEventPayload {
 #[derive(Debug, Clone)]
 struct BroadcastEvent {
     event: String,
-    payload: String,
+    payload: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct BroadcastEventRequest {
     pub event: String,
-    pub payload: String,
+    pub payload: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BroadcastEventResponse {
     pub accepted: bool,
     pub delivered_to: usize,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BroadcastErrorResponse {
+    pub error: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -155,16 +160,30 @@ pub async fn get_sse_connections() -> Json<SseConnectionsResponse> {
     request_body = BroadcastEventRequest,
     responses(
         (status = 202, description = "Broadcast event accepted", body = BroadcastEventResponse),
-        (status = 400, description = "Invalid broadcast event payload")
+        (status = 400, description = "Invalid broadcast event payload", body = BroadcastErrorResponse)
     ),
     tag = "activity"
 )]
 pub async fn post_broadcast_event(
     Json(request): Json<BroadcastEventRequest>,
-) -> Result<(StatusCode, Json<BroadcastEventResponse>), StatusCode> {
+) -> Result<(StatusCode, Json<BroadcastEventResponse>), (StatusCode, Json<BroadcastErrorResponse>)>
+{
     let event = request.event.trim();
     if event.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(BroadcastErrorResponse {
+                error: "event name must not be empty".to_string(),
+            }),
+        ));
+    }
+    if event.contains('\n') || event.contains('\r') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(BroadcastErrorResponse {
+                error: "event name must not contain control characters".to_string(),
+            }),
+        ));
     }
 
     let delivered_to = event_broadcaster()
@@ -225,7 +244,7 @@ pub async fn stream_events(
             let event = tokio::select! {
                 recv_result = receiver.recv() => {
                     match recv_result {
-                        Ok(message) => Event::default().event(message.event).data(message.payload),
+                        Ok(message) => Event::default().event(message.event).data(message.payload.to_string()),
                         Err(broadcast::error::RecvError::Lagged(_)) => {
                             Event::default().event("broadcast_lagged").data("{\"status\":\"lagged\"}")
                         }
@@ -691,11 +710,53 @@ mod tests {
     async fn post_broadcast_event_rejects_empty_event_name() {
         let result = post_broadcast_event(Json(BroadcastEventRequest {
             event: "   ".to_string(),
-            payload: "{}".to_string(),
+            payload: serde_json::json!({}),
         }))
         .await;
 
-        assert!(matches!(result, Err(StatusCode::BAD_REQUEST)));
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+        let Err((_, Json(err))) = result else {
+            panic!("expected error")
+        };
+        assert!(!err.error.is_empty(), "error body should contain a message");
+    }
+
+    #[tokio::test]
+    async fn post_broadcast_event_rejects_event_name_with_newline() {
+        let result = post_broadcast_event(Json(BroadcastEventRequest {
+            event: "bad\nevent".to_string(),
+            payload: serde_json::json!({}),
+        }))
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+        let Err((_, Json(err))) = result else {
+            panic!("expected error")
+        };
+        assert!(
+            err.error.contains("control characters"),
+            "expected control character error, got: {}",
+            err.error
+        );
+    }
+
+    #[tokio::test]
+    async fn post_broadcast_event_rejects_event_name_with_carriage_return() {
+        let result = post_broadcast_event(Json(BroadcastEventRequest {
+            event: "bad\revent".to_string(),
+            payload: serde_json::json!({}),
+        }))
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+        let Err((_, Json(err))) = result else {
+            panic!("expected error")
+        };
+        assert!(
+            err.error.contains("control characters"),
+            "expected control character error, got: {}",
+            err.error
+        );
     }
 
     #[tokio::test]
@@ -713,7 +774,7 @@ mod tests {
 
         let publish = post_broadcast_event(Json(BroadcastEventRequest {
             event: "custom_broadcast".to_string(),
-            payload: "{\"kind\":\"test\"}".to_string(),
+            payload: serde_json::json!({"kind": "test"}),
         }))
         .await
         .expect("broadcast should be accepted");

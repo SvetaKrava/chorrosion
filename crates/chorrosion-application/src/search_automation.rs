@@ -484,13 +484,10 @@ mod tests {
             already_owned: false,
         }];
 
-        let decisions = automatic_search_missing_albums(
-            &indexer,
-            &targets,
-            &ReleaseFilterOptions::default(),
-        )
-        .await
-        .expect("automatic search should succeed even with no results");
+        let decisions =
+            automatic_search_missing_albums(&indexer, &targets, &ReleaseFilterOptions::default())
+                .await
+                .expect("automatic search should succeed even with no results");
 
         assert_eq!(decisions.len(), 1);
         assert!(
