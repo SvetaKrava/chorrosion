@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,12 +74,8 @@ impl Default for TagEmbeddingOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TagEmbeddingOutcome {
-    Embedded {
-        format: TagFormat,
-    },
-    Skipped {
-        reason: String,
-    },
+    Embedded { format: TagFormat },
+    Skipped { reason: String },
 }
 
 #[derive(Debug, Error)]
@@ -246,8 +242,10 @@ impl TagEmbeddingService {
                 reason: "read-only mode enabled".to_string(),
             });
         }
-        if !quality_allowed(request.quality_name.as_deref(), options.allowed_quality_names.as_ref())
-        {
+        if !quality_allowed(
+            request.quality_name.as_deref(),
+            options.allowed_quality_names.as_ref(),
+        ) {
             return Ok(TagEmbeddingOutcome::Skipped {
                 reason: "quality profile is not configured for tag embedding".to_string(),
             });
@@ -427,7 +425,11 @@ where
     }
 }
 
-fn upsert_fingerprint_item(tag: &mut Tag, fingerprint_hash: Option<&str>, overwrite_existing: bool) {
+fn upsert_fingerprint_item(
+    tag: &mut Tag,
+    fingerprint_hash: Option<&str>,
+    overwrite_existing: bool,
+) {
     let Some(fingerprint_hash) = fingerprint_hash else {
         return;
     };
@@ -568,10 +570,7 @@ mod tests {
         // Store the TempDir so it is not dropped immediately; it will be
         // cleaned up automatically when the test process exits.
         let registry = TEMP_DIRS.get_or_init(|| std::sync::Mutex::new(Vec::new()));
-        registry
-            .lock()
-            .expect("TEMP_DIRS lock")
-            .push(dir);
+        registry.lock().expect("TEMP_DIRS lock").push(dir);
         file_path
     }
 
@@ -677,15 +676,21 @@ mod tests {
 
     #[test]
     fn returns_clear_error_for_missing_extension() {
-        let err = detect_tag_format(Path::new("trackname")).expect_err("should fail without extension");
+        let err =
+            detect_tag_format(Path::new("trackname")).expect_err("should fail without extension");
         assert!(matches!(err, TagEmbeddingError::UnsupportedFormat(_)));
-        assert!(err.to_string().contains("missing or invalid file extension"));
+        assert!(err
+            .to_string()
+            .contains("missing or invalid file extension"));
     }
 
     // ── upsert_artwork unit tests ─────────────────────────────────────────────
 
     fn make_artwork(bytes: Vec<u8>) -> ArtworkData {
-        ArtworkData { mime_type: "image/jpeg".to_string(), bytes }
+        ArtworkData {
+            mime_type: "image/jpeg".to_string(),
+            bytes,
+        }
     }
 
     #[test]
@@ -720,8 +725,14 @@ mod tests {
 
         // Should now have both the artist picture and the new CoverFront
         assert_eq!(tag.pictures().len(), 2);
-        assert!(tag.pictures().iter().any(|p| p.pic_type() == PictureType::CoverFront));
-        assert!(tag.pictures().iter().any(|p| p.pic_type() == PictureType::Artist));
+        assert!(tag
+            .pictures()
+            .iter()
+            .any(|p| p.pic_type() == PictureType::CoverFront));
+        assert!(tag
+            .pictures()
+            .iter()
+            .any(|p| p.pic_type() == PictureType::Artist));
     }
 
     #[test]
@@ -775,13 +786,20 @@ mod tests {
         const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
         let mut b = [0u8; 218];
         // ID3v2.4 header at offset 0 (10 bytes, empty tag – size field = 0)
-        b[0] = b'I'; b[1] = b'D'; b[2] = b'3'; b[3] = 4;
+        b[0] = b'I';
+        b[1] = b'D';
+        b[2] = b'3';
+        b[3] = 4;
         // Frame 1 header at offset 10 (frame_length = 104 bytes)
-        b[10] = FRAME_HDR[0]; b[11] = FRAME_HDR[1];
-        b[12] = FRAME_HDR[2]; b[13] = FRAME_HDR[3];
+        b[10] = FRAME_HDR[0];
+        b[11] = FRAME_HDR[1];
+        b[12] = FRAME_HDR[2];
+        b[13] = FRAME_HDR[3];
         // Frame 2 header at offset 10 + 104 = 114
-        b[114] = FRAME_HDR[0]; b[115] = FRAME_HDR[1];
-        b[116] = FRAME_HDR[2]; b[117] = FRAME_HDR[3];
+        b[114] = FRAME_HDR[0];
+        b[115] = FRAME_HDR[1];
+        b[116] = FRAME_HDR[2];
+        b[117] = FRAME_HDR[3];
         b
     };
 
@@ -793,14 +811,14 @@ mod tests {
     /// lofty's FLAC writer when it tries to add padding to a file whose only
     /// existing block is STREAMINFO.
     const MINIMAL_FLAC: &[u8] = &[
-        b'f', b'L', b'a', b'C',                                   // stream marker
-        0x00, 0x00, 0x00, 0x22,                                    // NOT last block + STREAMINFO type 0 + size=34
-        0x00, 0x10, 0x00, 0x10,                                    // min/max block size = 16
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                        // min/max frame size = 0 (unknown)
-        0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x00, 0x00,           // 44100 Hz, 1ch, 16-bit, 0 samples
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,           // MD5 signature (bytes 1–8)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,           // MD5 signature (bytes 9–16)
-        0x81, 0x00, 0x00, 0x00,                                    // last block + PADDING type 1 + size=0
+        b'f', b'L', b'a', b'C', // stream marker
+        0x00, 0x00, 0x00, 0x22, // NOT last block + STREAMINFO type 0 + size=34
+        0x00, 0x10, 0x00, 0x10, // min/max block size = 16
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // min/max frame size = 0 (unknown)
+        0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x00, 0x00, // 44100 Hz, 1ch, 16-bit, 0 samples
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MD5 signature (bytes 1–8)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MD5 signature (bytes 9–16)
+        0x81, 0x00, 0x00, 0x00, // last block + PADDING type 1 + size=0
     ];
 
     fn write_fixture(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {

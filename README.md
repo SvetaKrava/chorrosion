@@ -112,6 +112,7 @@ Current implemented endpoints:
 - `GET /api/v1/activity/processing`
 - `GET /api/v1/events` (SSE)
 - `GET /api/v1/events/connections`
+- `POST /api/v1/events/broadcast`
 - `GET /api/v1/events/download-progress` (SSE)
 - `GET /api/v1/events/import-progress` (SSE)
 - `GET /api/v1/events/job-status` (SSE)

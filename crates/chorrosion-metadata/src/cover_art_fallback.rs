@@ -46,7 +46,10 @@ impl CoverArtFallbackClient {
         Self::new_with_order_and_limits(
             fanart_client,
             cover_art_archive_base_url,
-            vec![CoverArtProvider::FanartTv, CoverArtProvider::CoverArtArchive],
+            vec![
+                CoverArtProvider::FanartTv,
+                CoverArtProvider::CoverArtArchive,
+            ],
             1,
         )
     }
@@ -99,7 +102,8 @@ impl CoverArtFallbackClient {
                                     image_url: image.url.clone(),
                                     provider: CoverArtProvider::FanartTv,
                                 };
-                                self.cache.insert(release_group_mbid.to_string(), result.clone());
+                                self.cache
+                                    .insert(release_group_mbid.to_string(), result.clone());
                                 return Ok(result);
                             }
                             debug!(target: "cover-art", provider = provider.as_str(), "no cover returned from provider");
@@ -125,7 +129,8 @@ impl CoverArtFallbackClient {
                                 image_url,
                                 provider: CoverArtProvider::CoverArtArchive,
                             };
-                            self.cache.insert(release_group_mbid.to_string(), result.clone());
+                            self.cache
+                                .insert(release_group_mbid.to_string(), result.clone());
                             return Ok(result);
                         }
                         Ok(None) => {
@@ -218,12 +223,7 @@ impl CoverArtArchiveClient {
                     .or_else(|| image.thumbnails.small.clone())
                     .or_else(|| Some(image.image.clone()))
             })
-            .or_else(|| {
-                payload
-                    .images
-                    .first()
-                    .map(|image| image.image.clone())
-            });
+            .or_else(|| payload.images.first().map(|image| image.image.clone()));
 
         Ok(image)
     }

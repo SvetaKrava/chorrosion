@@ -242,4 +242,3 @@ async fn test_fetch_artist_metadata_deserialization_error() {
         DiscogsError::Deserialization(_)
     ));
 }
-

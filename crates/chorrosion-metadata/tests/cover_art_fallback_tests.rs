@@ -37,10 +37,7 @@ async fn test_fetch_album_cover_uses_fanart_first() {
         Some(fanart_server.uri()),
     );
 
-    let client = CoverArtFallbackClient::new(
-        Some(fanart_client),
-        Some(cover_art_server.uri()),
-    );
+    let client = CoverArtFallbackClient::new(Some(fanart_client), Some(cover_art_server.uri()));
 
     let result = client.fetch_album_cover("rg-1").await;
 
@@ -83,10 +80,7 @@ async fn test_fetch_album_cover_falls_back_to_cover_art_archive() {
         Some(fanart_server.uri()),
     );
 
-    let client = CoverArtFallbackClient::new(
-        Some(fanart_client),
-        Some(cover_art_server.uri()),
-    );
+    let client = CoverArtFallbackClient::new(Some(fanart_client), Some(cover_art_server.uri()));
 
     let result = client.fetch_album_cover("rg-2").await;
 
@@ -123,10 +117,7 @@ async fn test_fetch_album_cover_result_is_cached() {
         Some(fanart_server.uri()),
     );
 
-    let client = CoverArtFallbackClient::new(
-        Some(fanart_client),
-        Some(cover_art_server.uri()),
-    );
+    let client = CoverArtFallbackClient::new(Some(fanart_client), Some(cover_art_server.uri()));
 
     let first = client.fetch_album_cover("rg-cache").await;
     let second = client.fetch_album_cover("rg-cache").await;
@@ -189,10 +180,7 @@ async fn test_fetch_album_cover_returns_error_when_all_providers_fail() {
         Some(fanart_server.uri()),
     );
 
-    let client = CoverArtFallbackClient::new(
-        Some(fanart_client),
-        Some(cover_art_server.uri()),
-    );
+    let client = CoverArtFallbackClient::new(Some(fanart_client), Some(cover_art_server.uri()));
 
     let result = client.fetch_album_cover("rg-fail").await;
 
@@ -200,7 +188,9 @@ async fn test_fetch_album_cover_returns_error_when_all_providers_fail() {
     match result.unwrap_err() {
         CoverArtFallbackError::ProvidersFailed(errors) => {
             assert_eq!(errors.len(), 2);
-            assert!(errors.iter().any(|error| error.provider == CoverArtProvider::FanartTv));
+            assert!(errors
+                .iter()
+                .any(|error| error.provider == CoverArtProvider::FanartTv));
             assert!(errors
                 .iter()
                 .any(|error| error.provider == CoverArtProvider::CoverArtArchive));

@@ -60,7 +60,11 @@ async fn test_fetch_album_metadata() {
         assert_eq!(
             metadata.tracks.as_deref(),
             Some(
-                &["Track 1".to_string(), "Track 2".to_string(), "Track 3".to_string()][..]
+                &[
+                    "Track 1".to_string(),
+                    "Track 2".to_string(),
+                    "Track 3".to_string()
+                ][..]
             )
         );
     }
@@ -132,7 +136,11 @@ async fn test_fetch_album_metadata_with_query_params() {
         assert_eq!(
             metadata.tracks.as_deref(),
             Some(
-                &["Track 1".to_string(), "Track 2".to_string(), "Track 3".to_string()][..]
+                &[
+                    "Track 1".to_string(),
+                    "Track 2".to_string(),
+                    "Track 3".to_string()
+                ][..]
             )
         );
     }
