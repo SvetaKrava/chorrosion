@@ -143,7 +143,7 @@ pub async fn stream_events(
 
     // Emit an initial connection event, then rotate through event types on a fixed interval.
     let events = stream::unfold(
-        (true, 0_u64, Some(ConnectionGuard::new(StreamKind::Events))),
+        (true, 0_u64, ConnectionGuard::new(StreamKind::Events)),
         |(connected, tick, guard)| async move {
             if connected {
                 let event = Event::default()
@@ -191,7 +191,7 @@ pub async fn stream_download_progress_events(
             state,
             true,
             0_u64,
-            Some(ConnectionGuard::new(StreamKind::DownloadProgress)),
+            ConnectionGuard::new(StreamKind::DownloadProgress),
         ),
         |(state, connected, sequence, guard)| async move {
             if connected {
@@ -242,7 +242,7 @@ pub async fn stream_import_progress_events(
             state,
             true,
             0_u64,
-            Some(ConnectionGuard::new(StreamKind::ImportProgress)),
+            ConnectionGuard::new(StreamKind::ImportProgress),
         ),
         |(state, connected, sequence, guard)| async move {
             if connected {
@@ -296,7 +296,7 @@ pub async fn stream_job_status_events(
             state,
             true,
             0_u64,
-            Some(ConnectionGuard::new(StreamKind::JobStatus)),
+            ConnectionGuard::new(StreamKind::JobStatus),
         ),
         |(state, connected, sequence, guard)| async move {
             if connected {
@@ -552,11 +552,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_sse_connections_returns_consistent_counts() {
-        let Json(resp) = get_sse_connections().await;
-        assert!(resp.total >= resp.events);
-        assert!(resp.total >= resp.download_progress);
-        assert!(resp.total >= resp.import_progress);
-        assert!(resp.total >= resp.job_status);
+    async fn get_sse_connections_tracks_event_connection_lifecycle() {
+        // Take an initial snapshot of the SSE connection counts.
+        let Json(initial) = get_sse_connections().await;
+
+        {
+            // Create a ConnectionGuard for an Events stream and verify it increments counts.
+            let _guard = super::ConnectionGuard::new(super::StreamKind::Events);
+
+            let Json(with_event) = get_sse_connections().await;
+
+            assert_eq!(
+                with_event.events,
+                initial.events + 1,
+                "expected events count to increase by 1 while ConnectionGuard is held"
+            );
+            assert_eq!(
+                with_event.total,
+                initial.total + 1,
+                "expected total count to increase by 1 while ConnectionGuard is held"
+            );
+        }
+
+        // After the guard is dropped, counts should return to their initial values.
+        let Json(after) = get_sse_connections().await;
+
+        assert_eq!(
+            after.events, initial.events,
+            "expected events count to return to initial value after ConnectionGuard is dropped"
+        );
+        assert_eq!(
+            after.total, initial.total,
+            "expected total count to return to initial value after ConnectionGuard is dropped"
+        );
     }
 }
