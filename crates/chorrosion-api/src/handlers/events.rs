@@ -51,7 +51,7 @@ struct JobStatusEventPayload {
 #[derive(Debug, Clone)]
 struct BroadcastEvent {
     event: String,
-    payload: serde_json::Value,
+    payload: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -177,7 +177,7 @@ pub async fn post_broadcast_event(
             }),
         ));
     }
-    if event.contains('\n') || event.contains('\r') {
+    if event.contains(char::is_control) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(BroadcastErrorResponse {
@@ -186,10 +186,11 @@ pub async fn post_broadcast_event(
         ));
     }
 
+    let payload = request.payload.to_string();
     let delivered_to = event_broadcaster()
         .send(BroadcastEvent {
             event: event.to_string(),
-            payload: request.payload,
+            payload,
         })
         .unwrap_or(0);
 
@@ -244,7 +245,7 @@ pub async fn stream_events(
             let event = tokio::select! {
                 recv_result = receiver.recv() => {
                     match recv_result {
-                        Ok(message) => Event::default().event(message.event).data(message.payload.to_string()),
+                        Ok(message) => Event::default().event(message.event).data(message.payload),
                         Err(broadcast::error::RecvError::Lagged(_)) => {
                             Event::default().event("broadcast_lagged").data("{\"status\":\"lagged\"}")
                         }
@@ -744,6 +745,25 @@ mod tests {
     async fn post_broadcast_event_rejects_event_name_with_carriage_return() {
         let result = post_broadcast_event(Json(BroadcastEventRequest {
             event: "bad\revent".to_string(),
+            payload: serde_json::json!({}),
+        }))
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+        let Err((_, Json(err))) = result else {
+            panic!("expected error")
+        };
+        assert!(
+            err.error.contains("control characters"),
+            "expected control character error, got: {}",
+            err.error
+        );
+    }
+
+    #[tokio::test]
+    async fn post_broadcast_event_rejects_event_name_with_other_control_char() {
+        let result = post_broadcast_event(Json(BroadcastEventRequest {
+            event: "bad\x00event".to_string(),
             payload: serde_json::json!({}),
         }))
         .await;
