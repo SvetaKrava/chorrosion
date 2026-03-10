@@ -101,15 +101,11 @@ pub async fn stream_download_progress_events(
 
             let queue = activity_queue_snapshot(&state).await;
             let payload = DownloadProgressEventPayload { sequence, queue };
-            let data = serde_json::to_string(&payload).unwrap_or_else(|_| {
-                format!(
-                    "{{\"sequence\":{},\"queue\":{{\"items\":[],\"total\":0}}}}",
-                    sequence
-                )
-            });
+            let data = serde_json::to_string(&payload)
+                .expect("DownloadProgressEventPayload is always serializable");
 
             let event = Event::default()
-                .event("download_progress")
+                .event("download_queue_snapshot")
                 .id(sequence.to_string())
                 .data(data);
 
@@ -269,8 +265,8 @@ mod tests {
 
         let text = read_next_sse_event(&mut data_stream).await;
         assert!(
-            text.contains("event: download_progress"),
-            "expected download_progress event, got: {text}"
+            text.contains("event: download_queue_snapshot"),
+            "expected download_queue_snapshot event, got: {text}"
         );
         assert!(
             text.contains("\"queue\""),
