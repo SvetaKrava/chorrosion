@@ -8,9 +8,8 @@ use thiserror::Error;
 use tracing::trace;
 
 lazy_static! {
-    static ref TOKEN_REGEX: Regex =
-        Regex::new(r"\{(?P<token>[a-z]+(?::\d+)?)\}")
-            .expect("failed to compile token replacement regex pattern");
+    static ref TOKEN_REGEX: Regex = Regex::new(r"\{(?P<token>[a-z]+(?::\d+)?)\}")
+        .expect("failed to compile token replacement regex pattern");
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,7 +53,10 @@ pub fn render_naming_pattern(
 
     let rendered = TOKEN_REGEX
         .replace_all(pattern, |captures: &regex::Captures| {
-            resolve_token(captures.name("token").map(|m| m.as_str()).unwrap_or(""), context)
+            resolve_token(
+                captures.name("token").map(|m| m.as_str()).unwrap_or(""),
+                context,
+            )
         })
         .into_owned();
 
@@ -151,8 +153,9 @@ pub fn apply_file_operation(
         }
         FileOperationMode::Move => {
             if let Err(rename_error) = fs::rename(source, destination) {
-                fs::copy(source, destination)
-                    .map_err(|copy_error| FileOrganizationError::FileOperation(copy_error.to_string()))?;
+                fs::copy(source, destination).map_err(|copy_error| {
+                    FileOrganizationError::FileOperation(copy_error.to_string())
+                })?;
                 fs::remove_file(source).map_err(|remove_error| {
                     FileOrganizationError::FileOperation(format!(
                         "failed to remove source after move fallback (rename error: {}, remove error: {})",
@@ -172,12 +175,18 @@ fn resolve_token(token: &str, context: &TrackPathContext) -> String {
         "album" => sanitize_component(&context.album),
         "title" => sanitize_component(&context.title),
         "ext" => context.extension.trim_start_matches('.').to_string(),
-        "track" => context.track_number.map(|number| number.to_string()).unwrap_or_default(),
+        "track" => context
+            .track_number
+            .map(|number| number.to_string())
+            .unwrap_or_default(),
         "track:02" => context
             .track_number
             .map(|number| format!("{:02}", number))
             .unwrap_or_default(),
-        "disc" => context.disc_number.map(|number| number.to_string()).unwrap_or_default(),
+        "disc" => context
+            .disc_number
+            .map(|number| number.to_string())
+            .unwrap_or_default(),
         "disc:02" => context
             .disc_number
             .map(|number| format!("{:02}", number))
@@ -192,7 +201,13 @@ fn sanitize_component(input: &str) -> String {
     // Replace banned characters with spaces and normalize whitespace.
     let sanitized = input
         .chars()
-        .map(|character| if banned.contains(&character) { ' ' } else { character })
+        .map(|character| {
+            if banned.contains(&character) {
+                ' '
+            } else {
+                character
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -217,11 +232,28 @@ fn sanitize_component(input: &str) -> String {
         let lower_stem = stem.to_ascii_lowercase();
         let is_reserved = matches!(
             lower_stem.as_str(),
-            "con" | "prn" | "aux" | "nul"
-                | "com1" | "com2" | "com3" | "com4" | "com5"
-                | "com6" | "com7" | "com8" | "com9"
-                | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5"
-                | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+            "con"
+                | "prn"
+                | "aux"
+                | "nul"
+                | "com1"
+                | "com2"
+                | "com3"
+                | "com4"
+                | "com5"
+                | "com6"
+                | "com7"
+                | "com8"
+                | "com9"
+                | "lpt1"
+                | "lpt2"
+                | "lpt3"
+                | "lpt4"
+                | "lpt5"
+                | "lpt6"
+                | "lpt7"
+                | "lpt8"
+                | "lpt9"
         );
         if is_reserved {
             // Insert '_' after the stem to make "con" → "con_" and "con.txt" → "con_.txt".
@@ -268,13 +300,9 @@ mod tests {
         context.disc_number = Some(2);
         let base = PathBuf::from("/music");
 
-        let path = build_organized_file_path(
-            &base,
-            "{artist}/{album}",
-            "{track:02} - {title}",
-            &context,
-        )
-        .expect("path build should succeed");
+        let path =
+            build_organized_file_path(&base, "{artist}/{album}", "{track:02} - {title}", &context)
+                .expect("path build should succeed");
 
         let expected_suffix = PathBuf::from("Boards of Canada")
             .join("Music Has the Right to Children")
@@ -334,6 +362,9 @@ mod tests {
         fs::write(&destination, b"existing").expect("dest should be written");
 
         let result = apply_file_operation(&source, &destination, FileOperationMode::Copy, false);
-        assert!(matches!(result, Err(FileOrganizationError::TargetExists(_))));
+        assert!(matches!(
+            result,
+            Err(FileOrganizationError::TargetExists(_))
+        ));
     }
 }

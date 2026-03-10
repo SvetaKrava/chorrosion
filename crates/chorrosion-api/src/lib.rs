@@ -45,8 +45,8 @@ use handlers::events::{
     __path_stream_download_progress_events, __path_stream_events,
     __path_stream_import_progress_events, __path_stream_job_status_events, get_sse_connections,
     post_broadcast_event, stream_download_progress_events, stream_events,
-    stream_import_progress_events, stream_job_status_events, BroadcastEventRequest,
-    BroadcastEventResponse, SseConnectionsResponse,
+    stream_import_progress_events, stream_job_status_events, BroadcastErrorResponse,
+    BroadcastEventRequest, BroadcastEventResponse, SseConnectionsResponse,
 };
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
@@ -201,6 +201,7 @@ async fn health() -> Json<HealthResponse> {
             ActivityListResponse,
             BroadcastEventRequest,
             BroadcastEventResponse,
+            BroadcastErrorResponse,
             SseConnectionsResponse,
             ListQualityProfilesResponse,
             QualityProfileResponse,

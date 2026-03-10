@@ -248,9 +248,7 @@ impl DownloadClient for QBittorrentClient {
                 hash: torrent.hash,
                 name: torrent.name,
                 progress_percent: (torrent.progress * 100.0).round().clamp(0.0, 100.0) as u8,
-                category: torrent
-                    .category
-                    .filter(|v| !v.trim().is_empty()),
+                category: torrent.category.filter(|v| !v.trim().is_empty()),
                 state: map_qbittorrent_state(&torrent.state),
             })
             .collect())
@@ -284,7 +282,8 @@ fn map_qbittorrent_state(state: &str) -> DownloadState {
         DownloadState::Paused
     } else if state.contains("uploading") || state.contains("completed") {
         DownloadState::Completed
-    } else if state.contains("downloading") || state.contains("meta") || state.contains("forceddl") {
+    } else if state.contains("downloading") || state.contains("meta") || state.contains("forceddl")
+    {
         DownloadState::Downloading
     } else if state.contains("queued") {
         DownloadState::Queued
@@ -321,7 +320,9 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path_regex("/api/v2/torrents/add|/api/v2/torrents/add/"))
-            .and(body_string_contains("urls=magnet%3A%3Fxt%3Durn%3Abtih%3Atest"))
+            .and(body_string_contains(
+                "urls=magnet%3A%3Fxt%3Durn%3Abtih%3Atest",
+            ))
             .respond_with(ResponseTemplate::new(200))
             .mount(&server)
             .await;
@@ -484,10 +485,7 @@ mod tests {
         use super::map_qbittorrent_state;
 
         assert_eq!(map_qbittorrent_state("error"), DownloadState::Error);
-        assert_eq!(
-            map_qbittorrent_state("missingFiles"),
-            DownloadState::Error
-        );
+        assert_eq!(map_qbittorrent_state("missingFiles"), DownloadState::Error);
     }
 
     #[test]
@@ -532,14 +530,8 @@ mod tests {
     fn state_mapping_unknown_state() {
         use super::map_qbittorrent_state;
 
-        assert_eq!(
-            map_qbittorrent_state("forcedUP"),
-            DownloadState::Unknown
-        );
-        assert_eq!(
-            map_qbittorrent_state("checkingUP"),
-            DownloadState::Unknown
-        );
+        assert_eq!(map_qbittorrent_state("forcedUP"), DownloadState::Unknown);
+        assert_eq!(map_qbittorrent_state("checkingUP"), DownloadState::Unknown);
         assert_eq!(
             map_qbittorrent_state("something_unexpected"),
             DownloadState::Unknown

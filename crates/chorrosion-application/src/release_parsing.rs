@@ -152,7 +152,10 @@ fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -
         AudioQuality::Unknown => 20,
     };
 
-    let bitrate_score = release.bitrate_kbps.map(|value| (value / 10) as i32).unwrap_or(0);
+    let bitrate_score = release
+        .bitrate_kbps
+        .map(|value| (value / 10) as i32)
+        .unwrap_or(0);
 
     let group_score = release
         .release_group
@@ -244,10 +247,9 @@ fn extract_artist_album(title: &str) -> (Option<String>, Option<String>) {
 
 fn strip_quality_bitrate_tokens(value: &str) -> String {
     lazy_static! {
-        static ref QUALITY_TOKEN_REGEX: Regex = Regex::new(
-            r"(?i)\b(flac|alac|mp3|aac|m4a|v0|v2)\b|\b\d{2,4}\s?(?:kbps|k)\b"
-        )
-        .expect("valid quality token regex");
+        static ref QUALITY_TOKEN_REGEX: Regex =
+            Regex::new(r"(?i)\b(flac|alac|mp3|aac|m4a|v0|v2)\b|\b\d{2,4}\s?(?:kbps|k)\b")
+                .expect("valid quality token regex");
     }
 
     normalize_whitespace(QUALITY_TOKEN_REGEX.replace_all(value, "").trim())
@@ -356,10 +358,9 @@ mod tests {
 
         let filtered = filter_releases(&releases, &options);
         assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().all(|r| matches!(
-            r.quality,
-            AudioQuality::Flac | AudioQuality::Alac
-        )));
+        assert!(filtered
+            .iter()
+            .all(|r| matches!(r.quality, AudioQuality::Flac | AudioQuality::Alac)));
     }
 
     #[test]
@@ -436,13 +437,15 @@ mod tests {
         let deduped = deduplicate_releases(&releases);
 
         assert_eq!(deduped.len(), 2);
-        assert!(deduped
-            .iter()
-            .any(|release| release.quality == AudioQuality::Mp3 && release.bitrate_kbps == Some(320)));
-        assert!(deduped
-            .iter()
-            .filter(|release| release.quality == AudioQuality::Flac)
-            .count()
-            == 1);
+        assert!(deduped.iter().any(
+            |release| release.quality == AudioQuality::Mp3 && release.bitrate_kbps == Some(320)
+        ));
+        assert!(
+            deduped
+                .iter()
+                .filter(|release| release.quality == AudioQuality::Flac)
+                .count()
+                == 1
+        );
     }
 }

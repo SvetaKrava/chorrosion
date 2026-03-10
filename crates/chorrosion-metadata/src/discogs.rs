@@ -101,10 +101,7 @@ impl DiscogsClient {
             token,
             client,
             // Discogs allows 60 authenticated requests/min (~1/sec); enforce that interval.
-            rate_limiter: DiscogsRateLimiter::new(
-                max_concurrent_requests,
-                Duration::from_secs(1),
-            ),
+            rate_limiter: DiscogsRateLimiter::new(max_concurrent_requests, Duration::from_secs(1)),
             cache_artist: Cache::new(10_000),
             cache_album: Cache::new(10_000),
             // Trim trailing slash once at construction so every URL format is clean.

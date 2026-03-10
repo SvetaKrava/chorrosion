@@ -102,10 +102,14 @@ pub struct ImportEvaluation {
     pub decision: ImportDecision,
 }
 
-pub fn scan_audio_files(root: impl AsRef<Path>) -> Result<Vec<ScannedAudioFile>, ImportMatchingError> {
+pub fn scan_audio_files(
+    root: impl AsRef<Path>,
+) -> Result<Vec<ScannedAudioFile>, ImportMatchingError> {
     let root = root.as_ref();
     if !root.exists() {
-        return Err(ImportMatchingError::PathNotFound(root.display().to_string()));
+        return Err(ImportMatchingError::PathNotFound(
+            root.display().to_string(),
+        ));
     }
 
     let mut scanned = Vec::new();
@@ -114,7 +118,9 @@ pub fn scan_audio_files(root: impl AsRef<Path>) -> Result<Vec<ScannedAudioFile>,
     Ok(scanned)
 }
 
-pub fn parse_track_metadata(raw: &RawTrackMetadata) -> Result<ParsedTrackMetadata, ImportMatchingError> {
+pub fn parse_track_metadata(
+    raw: &RawTrackMetadata,
+) -> Result<ParsedTrackMetadata, ImportMatchingError> {
     if !raw.file_path.exists() {
         return Err(ImportMatchingError::PathNotFound(
             raw.file_path.display().to_string(),
@@ -125,7 +131,9 @@ pub fn parse_track_metadata(raw: &RawTrackMetadata) -> Result<ParsedTrackMetadat
     let embedded_album = normalize_optional(raw.embedded_album.as_deref());
     let embedded_title = normalize_optional(raw.embedded_title.as_deref());
 
-    if let (Some(artist), Some(album), Some(title)) = (embedded_artist, embedded_album, embedded_title) {
+    if let (Some(artist), Some(album), Some(title)) =
+        (embedded_artist, embedded_album, embedded_title)
+    {
         return Ok(ParsedTrackMetadata {
             file_path: raw.file_path.clone(),
             artist,
@@ -165,15 +173,21 @@ pub fn parse_track_metadata(raw: &RawTrackMetadata) -> Result<ParsedTrackMetadat
     let artist = parsed
         .artist
         .and_then(|value| normalize_optional(Some(&value)))
-        .ok_or_else(|| ImportMatchingError::MetadataParsing("artist missing from metadata".to_string()))?;
+        .ok_or_else(|| {
+            ImportMatchingError::MetadataParsing("artist missing from metadata".to_string())
+        })?;
     let album = parsed
         .album
         .and_then(|value| normalize_optional(Some(&value)))
-        .ok_or_else(|| ImportMatchingError::MetadataParsing("album missing from metadata".to_string()))?;
+        .ok_or_else(|| {
+            ImportMatchingError::MetadataParsing("album missing from metadata".to_string())
+        })?;
     let title = parsed
         .title
         .and_then(|value| normalize_optional(Some(&value)))
-        .ok_or_else(|| ImportMatchingError::MetadataParsing("title missing from metadata".to_string()))?;
+        .ok_or_else(|| {
+            ImportMatchingError::MetadataParsing("title missing from metadata".to_string())
+        })?;
 
     Ok(ParsedTrackMetadata {
         file_path: raw.file_path.clone(),
@@ -195,7 +209,8 @@ pub fn evaluate_import_match(
     auto_import_threshold: f32,
 ) -> ImportEvaluation {
     let fuzzy_threshold = clamp_threshold("fuzzy_threshold", fuzzy_threshold, 0.0);
-    let auto_import_threshold = clamp_threshold("auto_import_threshold", auto_import_threshold, 1.0);
+    let auto_import_threshold =
+        clamp_threshold("auto_import_threshold", auto_import_threshold, 1.0);
 
     if catalog.is_empty() {
         return ImportEvaluation {
@@ -208,11 +223,13 @@ pub fn evaluate_import_match(
 
     let best_match = find_best_catalog_match(metadata, catalog, fuzzy_threshold);
     let decision = match &best_match {
-        Some(candidate) if candidate.confidence >= auto_import_threshold => ImportDecision::Import {
-            artist_id: candidate.artist_id,
-            album_id: candidate.album_id,
-            confidence: candidate.confidence,
-        },
+        Some(candidate) if candidate.confidence >= auto_import_threshold => {
+            ImportDecision::Import {
+                artist_id: candidate.artist_id,
+                album_id: candidate.album_id,
+                confidence: candidate.confidence,
+            }
+        }
         Some(candidate) => ImportDecision::NeedsReview {
             reason: "match confidence below auto-import threshold".to_string(),
             confidence: candidate.confidence,
@@ -222,7 +239,10 @@ pub fn evaluate_import_match(
         },
     };
 
-    ImportEvaluation { best_match, decision }
+    ImportEvaluation {
+        best_match,
+        decision,
+    }
 }
 
 fn clamp_threshold(name: &str, value: f32, non_finite_default: f32) -> f32 {
@@ -264,7 +284,11 @@ fn find_best_catalog_match(
                 *confidence >= fuzzy_threshold
             }
         })
-        .max_by(|left, right| left.1.partial_cmp(&right.1).unwrap_or(std::cmp::Ordering::Equal))
+        .max_by(|left, right| {
+            left.1
+                .partial_cmp(&right.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
         .map(|(candidate, confidence, strategy)| CatalogAlbumMatch {
             artist_id: candidate.artist_id,
             album_id: candidate.album_id,
@@ -277,7 +301,8 @@ fn visit_directory(
     directory: &Path,
     scanned: &mut Vec<ScannedAudioFile>,
 ) -> Result<(), ImportMatchingError> {
-    let entries = fs::read_dir(directory).map_err(|err| ImportMatchingError::Io(err.to_string()))?;
+    let entries =
+        fs::read_dir(directory).map_err(|err| ImportMatchingError::Io(err.to_string()))?;
 
     for entry in entries {
         let entry = entry.map_err(|err| ImportMatchingError::Io(err.to_string()))?;
@@ -305,7 +330,8 @@ fn visit_directory(
             continue;
         }
 
-        let metadata = fs::metadata(&path).map_err(|err| ImportMatchingError::Io(err.to_string()))?;
+        let metadata =
+            fs::metadata(&path).map_err(|err| ImportMatchingError::Io(err.to_string()))?;
         scanned.push(ScannedAudioFile {
             path,
             extension: normalized_extension,
@@ -517,6 +543,9 @@ mod tests {
         }];
 
         let result = evaluate_import_match(&metadata, &catalog, 0.10, 0.95);
-        assert!(matches!(result.decision, ImportDecision::NeedsReview { .. }));
+        assert!(matches!(
+            result.decision,
+            ImportDecision::NeedsReview { .. }
+        ));
     }
 }
