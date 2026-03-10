@@ -38,77 +38,7 @@ pub struct SystemTasksResponse {
     pub max_concurrent_jobs: usize,
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListSystemLogsQuery {
-    #[serde(default = "default_log_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-}
-
-fn default_log_limit() -> i64 {
-    100
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SystemLogEntryResponse {
-    pub id: String,
-    pub level: String,
-    pub target: String,
-    pub message: String,
-    pub timestamp: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SystemLogsResponse {
-    pub items: Vec<SystemLogEntryResponse>,
-    pub total: i64,
-    pub source: String,
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/system/status",
-    responses(
-        (status = 200, description = "System status", body = SystemStatusResponse)
-    ),
-    tag = "system"
-)]
-pub async fn get_system_status(State(_state): State<AppState>) -> Json<SystemStatusResponse> {
-    debug!(target: "api", "fetching system status");
-    Json(SystemStatusResponse {
-        status: "ok",
-        api_base: API_V1_BASE,
-    })
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/system/version",
-    responses(
-        (status = 200, description = "System version", body = SystemVersionResponse)
-    ),
-    tag = "system"
-)]
-pub async fn get_system_version(State(_state): State<AppState>) -> Json<SystemVersionResponse> {
-    debug!(target: "api", "fetching system version");
-    Json(SystemVersionResponse {
-        name: "chorrosion",
-        version: APP_VERSION,
-    })
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/system/tasks",
-    responses(
-        (status = 200, description = "Registered system tasks", body = SystemTasksResponse)
-    ),
-    tag = "system"
-)]
-pub async fn get_system_tasks(State(state): State<AppState>) -> Json<SystemTasksResponse> {
-    debug!(target: "api", "fetching system task metadata");
-
+pub(crate) async fn system_tasks_snapshot(state: &AppState) -> SystemTasksResponse {
     // NOTE: These job definitions mirror the registrations in `Scheduler::register_jobs`
     // (crates/chorrosion-scheduler/src/lib.rs). If a job is added, renamed, or its interval
     // changes there, this list must be updated to stay in sync.
@@ -192,11 +122,85 @@ pub async fn get_system_tasks(State(state): State<AppState>) -> Json<SystemTasks
         },
     });
 
-    Json(SystemTasksResponse {
+    SystemTasksResponse {
         total: items.len() as i64,
         items,
         max_concurrent_jobs: state.config.scheduler.max_concurrent_jobs,
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListSystemLogsQuery {
+    #[serde(default = "default_log_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_log_limit() -> i64 {
+    100
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SystemLogEntryResponse {
+    pub id: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SystemLogsResponse {
+    pub items: Vec<SystemLogEntryResponse>,
+    pub total: i64,
+    pub source: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/status",
+    responses(
+        (status = 200, description = "System status", body = SystemStatusResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_system_status(State(_state): State<AppState>) -> Json<SystemStatusResponse> {
+    debug!(target: "api", "fetching system status");
+    Json(SystemStatusResponse {
+        status: "ok",
+        api_base: API_V1_BASE,
     })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/version",
+    responses(
+        (status = 200, description = "System version", body = SystemVersionResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_system_version(State(_state): State<AppState>) -> Json<SystemVersionResponse> {
+    debug!(target: "api", "fetching system version");
+    Json(SystemVersionResponse {
+        name: "chorrosion",
+        version: APP_VERSION,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/tasks",
+    responses(
+        (status = 200, description = "Registered system tasks", body = SystemTasksResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_system_tasks(State(state): State<AppState>) -> Json<SystemTasksResponse> {
+    debug!(target: "api", "fetching system task metadata");
+
+    Json(system_tasks_snapshot(&state).await)
 }
 
 #[utoipa::path(

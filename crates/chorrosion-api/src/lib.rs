@@ -42,8 +42,9 @@ use handlers::download_clients::{
 };
 use handlers::events::{
     __path_stream_download_progress_events, __path_stream_events,
-    __path_stream_import_progress_events, stream_download_progress_events, stream_events,
-    stream_import_progress_events,
+    __path_stream_import_progress_events, __path_stream_job_status_events,
+    stream_download_progress_events, stream_events, stream_import_progress_events,
+    stream_job_status_events,
 };
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
@@ -143,6 +144,7 @@ async fn health() -> Json<HealthResponse> {
         stream_events,
         stream_download_progress_events,
         stream_import_progress_events,
+        stream_job_status_events,
         list_quality_profiles,
         get_quality_profile,
         create_quality_profile,
@@ -276,6 +278,7 @@ pub fn router(state: AppState) -> Router {
             "/events/import-progress",
             get(stream_import_progress_events),
         )
+        .route("/events/job-status", get(stream_job_status_events))
         .route(
             "/settings/quality-profiles",
             get(list_quality_profiles).post(create_quality_profile),
