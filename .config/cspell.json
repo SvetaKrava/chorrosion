@@ -30,6 +30,7 @@
     "avformat",
     "axum",
     "backpressure",
+    "badproto",
     "Bindgen",
     "Bnzbd",
     "Brainz",
