@@ -6,12 +6,18 @@ use crate::handlers::system::{system_tasks_snapshot, SystemTasksResponse};
 use axum::{
     extract::State,
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use chorrosion_application::AppState;
 use futures_util::stream;
 use serde::Serialize;
-use std::{convert::Infallible, time::Duration};
+use std::{
+    convert::Infallible,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use tracing::debug;
+use utoipa::ToSchema;
 
 const SSE_EVENT_INTERVAL_SECS: u64 = 5;
 
@@ -39,6 +45,81 @@ struct JobStatusEventPayload {
     tasks: SystemTasksResponse,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SseConnectionsResponse {
+    pub total: usize,
+    pub events: usize,
+    pub download_progress: usize,
+    pub import_progress: usize,
+    pub job_status: usize,
+}
+
+#[derive(Clone, Copy)]
+enum StreamKind {
+    Events,
+    DownloadProgress,
+    ImportProgress,
+    JobStatus,
+}
+
+static EVENTS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static DOWNLOAD_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static IMPORT_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static JOB_STATUS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+
+fn counter_for(kind: StreamKind) -> &'static AtomicUsize {
+    match kind {
+        StreamKind::Events => &EVENTS_CONNECTIONS,
+        StreamKind::DownloadProgress => &DOWNLOAD_PROGRESS_CONNECTIONS,
+        StreamKind::ImportProgress => &IMPORT_PROGRESS_CONNECTIONS,
+        StreamKind::JobStatus => &JOB_STATUS_CONNECTIONS,
+    }
+}
+
+fn sse_connections_snapshot() -> SseConnectionsResponse {
+    let events = EVENTS_CONNECTIONS.load(Ordering::Relaxed);
+    let download_progress = DOWNLOAD_PROGRESS_CONNECTIONS.load(Ordering::Relaxed);
+    let import_progress = IMPORT_PROGRESS_CONNECTIONS.load(Ordering::Relaxed);
+    let job_status = JOB_STATUS_CONNECTIONS.load(Ordering::Relaxed);
+
+    SseConnectionsResponse {
+        total: events + download_progress + import_progress + job_status,
+        events,
+        download_progress,
+        import_progress,
+        job_status,
+    }
+}
+
+struct ConnectionGuard {
+    kind: StreamKind,
+}
+
+impl ConnectionGuard {
+    fn new(kind: StreamKind) -> Self {
+        counter_for(kind).fetch_add(1, Ordering::Relaxed);
+        Self { kind }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        counter_for(self.kind).fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/connections",
+    responses(
+        (status = 200, description = "Current SSE connection counts", body = SseConnectionsResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_sse_connections() -> Json<SseConnectionsResponse> {
+    Json(sse_connections_snapshot())
+}
+
 fn event_name_for_tick(tick: u64) -> &'static str {
     match tick % 3 {
         0 => "download_progress",
@@ -61,26 +142,29 @@ pub async fn stream_events(
     debug!(target: "api", "opening realtime event stream");
 
     // Emit an initial connection event, then rotate through event types on a fixed interval.
-    let events = stream::unfold((true, 0_u64), |(connected, tick)| async move {
-        if connected {
-            let event = Event::default()
-                .event("connected")
-                .data("{\"status\":\"connected\"}");
-            return Some((Ok(event), (false, tick)));
-        }
+    let events = stream::unfold(
+        (true, 0_u64, ConnectionGuard::new(StreamKind::Events)),
+        |(connected, tick, guard)| async move {
+            if connected {
+                let event = Event::default()
+                    .event("connected")
+                    .data("{\"status\":\"connected\"}");
+                return Some((Ok(event), (false, tick, guard)));
+            }
 
-        tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
+            tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
 
-        let payload = RealtimeEventPayload {
-            status: "idle",
-            tick,
-        };
-        let data =
-            serde_json::to_string(&payload).unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
+            let payload = RealtimeEventPayload {
+                status: "idle",
+                tick,
+            };
+            let data = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
 
-        let event = Event::default().event(event_name_for_tick(tick)).data(data);
-        Some((Ok(event), (false, tick + 1)))
-    });
+            let event = Event::default().event(event_name_for_tick(tick)).data(data);
+            Some((Ok(event), (false, tick + 1, guard)))
+        },
+    );
 
     Sse::new(events).keep_alive(
         KeepAlive::new()
@@ -103,13 +187,18 @@ pub async fn stream_download_progress_events(
     debug!(target: "api", "opening download progress event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            ConnectionGuard::new(StreamKind::DownloadProgress),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -124,7 +213,7 @@ pub async fn stream_download_progress_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -149,13 +238,18 @@ pub async fn stream_import_progress_events(
     debug!(target: "api", "opening import progress event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            ConnectionGuard::new(StreamKind::ImportProgress),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -173,7 +267,7 @@ pub async fn stream_import_progress_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -198,13 +292,18 @@ pub async fn stream_job_status_events(
     debug!(target: "api", "opening job status event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            ConnectionGuard::new(StreamKind::JobStatus),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -219,7 +318,7 @@ pub async fn stream_job_status_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -233,6 +332,17 @@ pub async fn stream_job_status_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    /// Global mutex serializing all tests that read or write the global SSE connection counters.
+    /// Rust tests run in parallel by default, and several tests in this module create SSE streams
+    /// (each of which increments a counter via `ConnectionGuard`). Without serialization the
+    /// lifecycle test's exact +1 / return-to-initial assertions would be non-deterministic.
+    static COUNTER_TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    fn counter_test_mutex() -> &'static tokio::sync::Mutex<()> {
+        COUNTER_TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
 
     #[test]
     fn event_name_cycles_across_supported_types() {
@@ -300,6 +410,7 @@ mod tests {
     #[tokio::test]
     async fn stream_events_content_type_initial_event_and_rotation() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         // Build state before pausing time. If time is paused first, SQLite pool
         // initialization (which uses spawn_blocking internally) may time out due to
@@ -359,6 +470,7 @@ mod tests {
     #[tokio::test]
     async fn stream_download_progress_emits_download_event_with_queue_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -391,6 +503,7 @@ mod tests {
     #[tokio::test]
     async fn stream_import_progress_emits_import_event_with_processing_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -423,6 +536,7 @@ mod tests {
     #[tokio::test]
     async fn stream_job_status_emits_job_status_event_with_tasks_payload() {
         use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
 
         let state = make_test_state().await;
         tokio::time::pause();
@@ -449,6 +563,44 @@ mod tests {
         assert!(
             text.contains("\"rss-sync\""),
             "expected rss-sync job in payload, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_sse_connections_tracks_event_connection_lifecycle() {
+        let _lock = counter_test_mutex().lock().await;
+
+        // Take an initial snapshot of the SSE connection counts.
+        let Json(initial) = get_sse_connections().await;
+
+        {
+            // Create a ConnectionGuard for an Events stream and verify it increments counts.
+            let _guard = super::ConnectionGuard::new(super::StreamKind::Events);
+
+            let Json(with_event) = get_sse_connections().await;
+
+            assert_eq!(
+                with_event.events,
+                initial.events + 1,
+                "expected events count to increase by 1 while ConnectionGuard is held"
+            );
+            assert_eq!(
+                with_event.total,
+                initial.total + 1,
+                "expected total count to increase by 1 while ConnectionGuard is held"
+            );
+        }
+
+        // After the guard is dropped, counts should return to their initial values.
+        let Json(after) = get_sse_connections().await;
+
+        assert_eq!(
+            after.events, initial.events,
+            "expected events count to return to initial value after ConnectionGuard is dropped"
+        );
+        assert_eq!(
+            after.total, initial.total,
+            "expected total count to return to initial value after ConnectionGuard is dropped"
         );
     }
 }
