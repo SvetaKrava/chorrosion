@@ -41,10 +41,10 @@ use handlers::download_clients::{
     __path_list_download_clients, __path_update_download_client,
 };
 use handlers::events::{
-    __path_stream_download_progress_events, __path_stream_events,
-    __path_stream_import_progress_events, __path_stream_job_status_events,
+    __path_get_sse_connections, __path_stream_download_progress_events, __path_stream_events,
+    __path_stream_import_progress_events, __path_stream_job_status_events, get_sse_connections,
     stream_download_progress_events, stream_events, stream_import_progress_events,
-    stream_job_status_events,
+    stream_job_status_events, SseConnectionsResponse,
 };
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
@@ -142,6 +142,7 @@ async fn health() -> Json<HealthResponse> {
         get_activity_history,
         get_activity_processing,
         stream_events,
+        get_sse_connections,
         stream_download_progress_events,
         stream_import_progress_events,
         stream_job_status_events,
@@ -195,6 +196,7 @@ async fn health() -> Json<HealthResponse> {
             SystemLogEntryResponse,
             ActivityItemResponse,
             ActivityListResponse,
+            SseConnectionsResponse,
             ListQualityProfilesResponse,
             QualityProfileResponse,
             CreateQualityProfileRequest,
@@ -270,6 +272,7 @@ pub fn router(state: AppState) -> Router {
         .route("/activity/history", get(get_activity_history))
         .route("/activity/processing", get(get_activity_processing))
         .route("/events", get(stream_events))
+        .route("/events/connections", get(get_sse_connections))
         .route(
             "/events/download-progress",
             get(stream_download_progress_events),

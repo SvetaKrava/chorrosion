@@ -330,7 +330,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Import progress (`GET /api/v1/events/import-progress`) ✓
   - [x] Job status (`GET /api/v1/events/job-status`) ✓
 - [ ] Event broadcasting
-- [ ] Client connection management
+- [x] Client connection management (`GET /api/v1/events/connections`) ✓
 
 ### 6.3 Authentication & Authorization
 

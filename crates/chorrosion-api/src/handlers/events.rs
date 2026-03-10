@@ -6,12 +6,18 @@ use crate::handlers::system::{system_tasks_snapshot, SystemTasksResponse};
 use axum::{
     extract::State,
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use chorrosion_application::AppState;
 use futures_util::stream;
 use serde::Serialize;
-use std::{convert::Infallible, time::Duration};
+use std::{
+    convert::Infallible,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use tracing::debug;
+use utoipa::ToSchema;
 
 const SSE_EVENT_INTERVAL_SECS: u64 = 5;
 
@@ -39,6 +45,81 @@ struct JobStatusEventPayload {
     tasks: SystemTasksResponse,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SseConnectionsResponse {
+    pub total: usize,
+    pub events: usize,
+    pub download_progress: usize,
+    pub import_progress: usize,
+    pub job_status: usize,
+}
+
+#[derive(Clone, Copy)]
+enum StreamKind {
+    Events,
+    DownloadProgress,
+    ImportProgress,
+    JobStatus,
+}
+
+static EVENTS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static DOWNLOAD_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static IMPORT_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static JOB_STATUS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+
+fn counter_for(kind: StreamKind) -> &'static AtomicUsize {
+    match kind {
+        StreamKind::Events => &EVENTS_CONNECTIONS,
+        StreamKind::DownloadProgress => &DOWNLOAD_PROGRESS_CONNECTIONS,
+        StreamKind::ImportProgress => &IMPORT_PROGRESS_CONNECTIONS,
+        StreamKind::JobStatus => &JOB_STATUS_CONNECTIONS,
+    }
+}
+
+fn sse_connections_snapshot() -> SseConnectionsResponse {
+    let events = EVENTS_CONNECTIONS.load(Ordering::Relaxed);
+    let download_progress = DOWNLOAD_PROGRESS_CONNECTIONS.load(Ordering::Relaxed);
+    let import_progress = IMPORT_PROGRESS_CONNECTIONS.load(Ordering::Relaxed);
+    let job_status = JOB_STATUS_CONNECTIONS.load(Ordering::Relaxed);
+
+    SseConnectionsResponse {
+        total: events + download_progress + import_progress + job_status,
+        events,
+        download_progress,
+        import_progress,
+        job_status,
+    }
+}
+
+struct ConnectionGuard {
+    kind: StreamKind,
+}
+
+impl ConnectionGuard {
+    fn new(kind: StreamKind) -> Self {
+        counter_for(kind).fetch_add(1, Ordering::Relaxed);
+        Self { kind }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        counter_for(self.kind).fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/connections",
+    responses(
+        (status = 200, description = "Current SSE connection counts", body = SseConnectionsResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_sse_connections() -> Json<SseConnectionsResponse> {
+    Json(sse_connections_snapshot())
+}
+
 fn event_name_for_tick(tick: u64) -> &'static str {
     match tick % 3 {
         0 => "download_progress",
@@ -61,26 +142,29 @@ pub async fn stream_events(
     debug!(target: "api", "opening realtime event stream");
 
     // Emit an initial connection event, then rotate through event types on a fixed interval.
-    let events = stream::unfold((true, 0_u64), |(connected, tick)| async move {
-        if connected {
-            let event = Event::default()
-                .event("connected")
-                .data("{\"status\":\"connected\"}");
-            return Some((Ok(event), (false, tick)));
-        }
+    let events = stream::unfold(
+        (true, 0_u64, Some(ConnectionGuard::new(StreamKind::Events))),
+        |(connected, tick, guard)| async move {
+            if connected {
+                let event = Event::default()
+                    .event("connected")
+                    .data("{\"status\":\"connected\"}");
+                return Some((Ok(event), (false, tick, guard)));
+            }
 
-        tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
+            tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
 
-        let payload = RealtimeEventPayload {
-            status: "idle",
-            tick,
-        };
-        let data =
-            serde_json::to_string(&payload).unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
+            let payload = RealtimeEventPayload {
+                status: "idle",
+                tick,
+            };
+            let data = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
 
-        let event = Event::default().event(event_name_for_tick(tick)).data(data);
-        Some((Ok(event), (false, tick + 1)))
-    });
+            let event = Event::default().event(event_name_for_tick(tick)).data(data);
+            Some((Ok(event), (false, tick + 1, guard)))
+        },
+    );
 
     Sse::new(events).keep_alive(
         KeepAlive::new()
@@ -103,13 +187,18 @@ pub async fn stream_download_progress_events(
     debug!(target: "api", "opening download progress event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            Some(ConnectionGuard::new(StreamKind::DownloadProgress)),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -124,7 +213,7 @@ pub async fn stream_download_progress_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -149,13 +238,18 @@ pub async fn stream_import_progress_events(
     debug!(target: "api", "opening import progress event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            Some(ConnectionGuard::new(StreamKind::ImportProgress)),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -173,7 +267,7 @@ pub async fn stream_import_progress_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -198,13 +292,18 @@ pub async fn stream_job_status_events(
     debug!(target: "api", "opening job status event stream");
 
     let events = stream::unfold(
-        (state, true, 0_u64),
-        |(state, connected, sequence)| async move {
+        (
+            state,
+            true,
+            0_u64,
+            Some(ConnectionGuard::new(StreamKind::JobStatus)),
+        ),
+        |(state, connected, sequence, guard)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (state, false, sequence)));
+                return Some((Ok(event), (state, false, sequence, guard)));
             }
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
@@ -219,7 +318,7 @@ pub async fn stream_job_status_events(
                 .id(sequence.to_string())
                 .data(data);
 
-            Some((Ok(event), (state, false, sequence + 1)))
+            Some((Ok(event), (state, false, sequence + 1, guard)))
         },
     );
 
@@ -450,5 +549,14 @@ mod tests {
             text.contains("\"rss-sync\""),
             "expected rss-sync job in payload, got: {text}"
         );
+    }
+
+    #[tokio::test]
+    async fn get_sse_connections_returns_consistent_counts() {
+        let Json(resp) = get_sse_connections().await;
+        assert!(resp.total >= resp.events);
+        assert!(resp.total >= resp.download_progress);
+        assert!(resp.total >= resp.import_progress);
+        assert!(resp.total >= resp.job_status);
     }
 }
