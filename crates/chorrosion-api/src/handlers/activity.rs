@@ -27,6 +27,14 @@ pub(crate) async fn activity_queue_snapshot(_state: &AppState) -> ActivityListRe
     }
 }
 
+pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListResponse {
+    // Placeholder until import pipeline progress reporting is wired.
+    ActivityListResponse {
+        items: vec![],
+        total: 0,
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/activity/queue",
@@ -67,12 +75,8 @@ pub async fn get_activity_history(State(_state): State<AppState>) -> Json<Activi
     ),
     tag = "activity"
 )]
-pub async fn get_activity_processing(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+pub async fn get_activity_processing(State(state): State<AppState>) -> Json<ActivityListResponse> {
     debug!(target: "api", "fetching currently processing items");
 
-    // Placeholder until scheduler job tracking is exposed via API.
-    Json(ActivityListResponse {
-        items: vec![],
-        total: 0,
-    })
+    Json(activity_import_snapshot(&state).await)
 }

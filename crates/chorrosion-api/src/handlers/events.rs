@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::handlers::activity::{activity_queue_snapshot, ActivityListResponse};
+use crate::handlers::activity::{
+    activity_import_snapshot, activity_queue_snapshot, ActivityListResponse,
+};
 use axum::{
     extract::State,
     response::sse::{Event, KeepAlive, Sse},
@@ -22,6 +24,12 @@ struct RealtimeEventPayload {
 struct DownloadProgressEventPayload {
     sequence: u64,
     queue: ActivityListResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct ImportProgressEventPayload {
+    sequence: u64,
+    processing: ActivityListResponse,
 }
 
 fn event_name_for_tick(tick: u64) -> &'static str {
@@ -106,6 +114,55 @@ pub async fn stream_download_progress_events(
 
             let event = Event::default()
                 .event("download_queue_snapshot")
+                .id(sequence.to_string())
+                .data(data);
+
+            Some((Ok(event), (state, false, sequence + 1)))
+        },
+    );
+
+    Sse::new(events).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keepalive"),
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/import-progress",
+    responses(
+        (status = 200, description = "Server-sent import progress event stream", content_type = "text/event-stream")
+    ),
+    tag = "activity"
+)]
+pub async fn stream_import_progress_events(
+    State(state): State<AppState>,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    debug!(target: "api", "opening import progress event stream");
+
+    let events = stream::unfold(
+        (state, true, 0_u64),
+        |(state, connected, sequence)| async move {
+            if connected {
+                let event = Event::default()
+                    .event("connected")
+                    .data("{\"status\":\"connected\"}");
+                return Some((Ok(event), (state, false, sequence)));
+            }
+
+            tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
+
+            let processing = activity_import_snapshot(&state).await;
+            let payload = ImportProgressEventPayload {
+                sequence,
+                processing,
+            };
+            let data = serde_json::to_string(&payload)
+                .expect("ImportProgressEventPayload is always serializable");
+
+            let event = Event::default()
+                .event("import_progress_snapshot")
                 .id(sequence.to_string())
                 .data(data);
 
@@ -275,6 +332,38 @@ mod tests {
         assert!(
             text.contains("\"total\":0"),
             "expected empty queue total in payload, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_import_progress_emits_import_event_with_processing_payload() {
+        use axum::response::IntoResponse;
+
+        let state = make_test_state().await;
+        tokio::time::pause();
+
+        let sse = stream_import_progress_events(State(state)).await;
+        let response = sse.into_response();
+        let mut data_stream = Box::pin(response.into_body().into_data_stream());
+
+        let connected = read_next_sse_event(&mut data_stream).await;
+        assert!(
+            connected.contains("event: connected"),
+            "expected connected event, got: {connected}"
+        );
+
+        let text = read_next_sse_event(&mut data_stream).await;
+        assert!(
+            text.contains("event: import_progress_snapshot"),
+            "expected import_progress_snapshot event, got: {text}"
+        );
+        assert!(
+            text.contains("\"processing\""),
+            "expected processing payload, got: {text}"
+        );
+        assert!(
+            text.contains("\"total\":0"),
+            "expected empty processing total in payload, got: {text}"
         );
     }
 }
