@@ -5,17 +5,20 @@ use crate::handlers::activity::{
 use crate::handlers::system::{system_tasks_snapshot, SystemTasksResponse};
 use axum::{
     extract::State,
+    http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
 use chorrosion_application::AppState;
 use futures_util::stream;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     convert::Infallible,
     sync::atomic::{AtomicUsize, Ordering},
+    sync::OnceLock,
     time::Duration,
 };
+use tokio::sync::broadcast;
 use tracing::debug;
 use utoipa::ToSchema;
 
@@ -45,6 +48,24 @@ struct JobStatusEventPayload {
     tasks: SystemTasksResponse,
 }
 
+#[derive(Debug, Clone)]
+struct BroadcastEvent {
+    event: String,
+    payload: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BroadcastEventRequest {
+    pub event: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BroadcastEventResponse {
+    pub accepted: bool,
+    pub delivered_to: usize,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SseConnectionsResponse {
     pub total: usize,
@@ -66,6 +87,7 @@ static EVENTS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 static DOWNLOAD_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 static IMPORT_PROGRESS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 static JOB_STATUS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static EVENT_BROADCASTER: OnceLock<broadcast::Sender<BroadcastEvent>> = OnceLock::new();
 
 fn counter_for(kind: StreamKind) -> &'static AtomicUsize {
     match kind {
@@ -108,6 +130,13 @@ impl Drop for ConnectionGuard {
     }
 }
 
+fn event_broadcaster() -> &'static broadcast::Sender<BroadcastEvent> {
+    EVENT_BROADCASTER.get_or_init(|| {
+        let (sender, _receiver) = broadcast::channel(256);
+        sender
+    })
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/events/connections",
@@ -118,6 +147,40 @@ impl Drop for ConnectionGuard {
 )]
 pub async fn get_sse_connections() -> Json<SseConnectionsResponse> {
     Json(sse_connections_snapshot())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/events/broadcast",
+    request_body = BroadcastEventRequest,
+    responses(
+        (status = 202, description = "Broadcast event accepted", body = BroadcastEventResponse),
+        (status = 400, description = "Invalid broadcast event payload")
+    ),
+    tag = "activity"
+)]
+pub async fn post_broadcast_event(
+    Json(request): Json<BroadcastEventRequest>,
+) -> Result<(StatusCode, Json<BroadcastEventResponse>), StatusCode> {
+    let event = request.event.trim();
+    if event.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let delivered_to = event_broadcaster()
+        .send(BroadcastEvent {
+            event: event.to_string(),
+            payload: request.payload,
+        })
+        .unwrap_or(0);
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(BroadcastEventResponse {
+            accepted: true,
+            delivered_to,
+        }),
+    ))
 }
 
 fn event_name_for_tick(tick: u64) -> &'static str {
@@ -141,28 +204,48 @@ pub async fn stream_events(
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
     debug!(target: "api", "opening realtime event stream");
 
+    let receiver = event_broadcaster().subscribe();
+
     // Emit an initial connection event, then rotate through event types on a fixed interval.
     let events = stream::unfold(
-        (true, 0_u64, ConnectionGuard::new(StreamKind::Events)),
-        |(connected, tick, guard)| async move {
+        (
+            true,
+            0_u64,
+            ConnectionGuard::new(StreamKind::Events),
+            receiver,
+        ),
+        |(connected, tick, guard, mut receiver)| async move {
             if connected {
                 let event = Event::default()
                     .event("connected")
                     .data("{\"status\":\"connected\"}");
-                return Some((Ok(event), (false, tick, guard)));
+                return Some((Ok(event), (false, tick, guard, receiver)));
             }
 
-            tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
-
-            let payload = RealtimeEventPayload {
-                status: "idle",
-                tick,
+            let event = tokio::select! {
+                recv_result = receiver.recv() => {
+                    match recv_result {
+                        Ok(message) => Event::default().event(message.event).data(message.payload),
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            Event::default().event("broadcast_lagged").data("{\"status\":\"lagged\"}")
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            Event::default().event("broadcast_closed").data("{\"status\":\"closed\"}")
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)) => {
+                    let payload = RealtimeEventPayload {
+                        status: "idle",
+                        tick,
+                    };
+                    let data = serde_json::to_string(&payload)
+                        .unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
+                    Event::default().event(event_name_for_tick(tick)).data(data)
+                }
             };
-            let data = serde_json::to_string(&payload)
-                .unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
 
-            let event = Event::default().event(event_name_for_tick(tick)).data(data);
-            Some((Ok(event), (false, tick + 1, guard)))
+            Some((Ok(event), (false, tick + 1, guard, receiver)))
         },
     );
 
@@ -601,6 +684,50 @@ mod tests {
         assert_eq!(
             after.total, initial.total,
             "expected total count to return to initial value after ConnectionGuard is dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_broadcast_event_rejects_empty_event_name() {
+        let result = post_broadcast_event(Json(BroadcastEventRequest {
+            event: "   ".to_string(),
+            payload: "{}".to_string(),
+        }))
+        .await;
+
+        assert!(matches!(result, Err(StatusCode::BAD_REQUEST)));
+    }
+
+    #[tokio::test]
+    async fn stream_events_receives_custom_broadcast_event() {
+        use axum::response::IntoResponse;
+        let _lock = counter_test_mutex().lock().await;
+
+        let state = make_test_state().await;
+        let sse = stream_events(State(state)).await;
+        let response = sse.into_response();
+        let mut data_stream = Box::pin(response.into_body().into_data_stream());
+
+        let connected = read_next_sse_event(&mut data_stream).await;
+        assert!(connected.contains("event: connected"));
+
+        let publish = post_broadcast_event(Json(BroadcastEventRequest {
+            event: "custom_broadcast".to_string(),
+            payload: "{\"kind\":\"test\"}".to_string(),
+        }))
+        .await
+        .expect("broadcast should be accepted");
+
+        assert_eq!(publish.0, StatusCode::ACCEPTED);
+
+        let text = read_next_sse_event(&mut data_stream).await;
+        assert!(
+            text.contains("event: custom_broadcast"),
+            "expected custom broadcast event, got: {text}"
+        );
+        assert!(
+            text.contains("{\"kind\":\"test\"}"),
+            "expected custom payload, got: {text}"
         );
     }
 }
