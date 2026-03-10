@@ -1,37 +1,60 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::handlers::auth::validate_api_key_and_touch;
 use axum::{
     extract::Request,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use tracing::debug;
 
-/// Authentication middleware stub - validates API key or bearer token
-pub async fn auth_middleware(headers: HeaderMap, request: Request, next: Next) -> Response {
-    // Check for API key header or Authorization bearer token
-    if let Some(api_key) = headers.get("X-Api-Key") {
-        debug!(target: "auth", "API key authentication: {:?}", api_key.to_str().ok());
-        // TODO: Validate against stored API keys in database
-        return next.run(request).await;
-    }
+fn is_auth_bootstrap_path(path: &str) -> bool {
+    path == "/api/v1/auth/api-keys" || path.starts_with("/api/v1/auth/api-keys/")
+}
 
-    if let Some(auth_header) = headers.get("Authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                debug!(target: "auth", "Bearer token authentication");
-                // TODO: Validate JWT or session token
-                return next.run(request).await;
+fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
+    if let Some(api_key) = headers.get("X-Api-Key") {
+        if let Ok(value) = api_key.to_str() {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
             }
         }
     }
 
-    // For now, allow all requests (stub mode)
-    // TODO: Uncomment to enforce authentication
-    // (StatusCode::UNAUTHORIZED, "Missing or invalid authentication").into_response()
+    if let Some(auth_header) = headers.get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(rest) = auth_str.strip_prefix("Bearer ") {
+                let trimmed = rest.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
 
-    debug!(target: "auth", "No authentication provided, allowing request (stub mode)");
-    next.run(request).await
+    None
+}
+
+/// API key authentication middleware.
+pub async fn auth_middleware(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    if is_auth_bootstrap_path(&path) {
+        debug!(target: "auth", %path, "auth bootstrap path bypassed");
+        return next.run(request).await;
+    }
+
+    if let Some(api_key) = extract_api_key(request.headers()) {
+        if validate_api_key_and_touch(&api_key).await {
+            debug!(target: "auth", %path, "API key authentication successful");
+            return next.run(request).await;
+        }
+        debug!(target: "auth", %path, "API key authentication failed");
+        return unauthorized().await.into_response();
+    }
+
+    debug!(target: "auth", %path, "missing API key or bearer token");
+    unauthorized().await.into_response()
 }
 
 /// Response for unauthorized requests
