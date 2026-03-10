@@ -19,6 +19,14 @@ pub struct ActivityListResponse {
     pub total: i64,
 }
 
+pub(crate) async fn activity_queue_snapshot(_state: &AppState) -> ActivityListResponse {
+    // Placeholder until queue integration is wired from download clients.
+    ActivityListResponse {
+        items: vec![],
+        total: 0,
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/activity/queue",
@@ -27,14 +35,10 @@ pub struct ActivityListResponse {
     ),
     tag = "activity"
 )]
-pub async fn get_activity_queue(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+pub async fn get_activity_queue(State(state): State<AppState>) -> Json<ActivityListResponse> {
     debug!(target: "api", "fetching activity queue");
 
-    // Placeholder until queue integration is wired from download clients.
-    Json(ActivityListResponse {
-        items: vec![],
-        total: 0,
-    })
+    Json(activity_queue_snapshot(&state).await)
 }
 
 #[utoipa::path(

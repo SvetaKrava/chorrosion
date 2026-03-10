@@ -326,7 +326,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 - [x] SSE event stream baseline (`GET /api/v1/events`) ✓
 - [ ] Real-time updates implementation
-  - [ ] Download progress
+  - [x] Download progress (`GET /api/v1/events/download-progress`) ✓
   - [ ] Import progress
   - [ ] Job status
 - [ ] Event broadcasting
