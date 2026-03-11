@@ -27,3 +27,4 @@ uuid = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 chorrosion-config = { path = "../chorrosion-config" }
 http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
