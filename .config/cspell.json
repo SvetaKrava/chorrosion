@@ -126,6 +126,7 @@
     "taiki",
     "thiserror",
     "tlsv",
+    "TOCTOU",
     "Tokio",
     "Torznab",
     "trackfile",
