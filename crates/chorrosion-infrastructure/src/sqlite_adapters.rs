@@ -656,10 +656,11 @@ impl AlbumRepository for SqliteAlbumRepository {
         debug!(target: "repository", limit, offset, "listing wanted albums without tracks");
         let rows = sqlx::query(
             "SELECT * FROM albums \
-             WHERE status = 'wanted' \
+             WHERE status = ? \
              AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id) \
              ORDER BY title LIMIT ? OFFSET ?",
         )
+        .bind(AlbumStatus::Wanted.to_string())
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
