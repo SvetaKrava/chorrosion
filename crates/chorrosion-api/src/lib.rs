@@ -33,6 +33,11 @@ use handlers::artists::{
     ListArtistsResponse, UpdateArtistRequest, __path_create_artist, __path_delete_artist,
     __path_get_artist, __path_get_artist_statistics, __path_list_artists, __path_update_artist,
 };
+use handlers::auth::{
+    create_api_key, delete_api_key, list_api_keys, ApiKeyMetadataResponse, ApiKeyResponse,
+    AuthErrorResponse, CreateApiKeyRequest, DeleteApiKeyResponse, ListApiKeysResponse,
+    __path_create_api_key, __path_delete_api_key, __path_list_api_keys,
+};
 use handlers::download_clients::{
     create_download_client, delete_download_client, get_download_client, list_download_clients,
     update_download_client, CreateDownloadClientRequest, DownloadClientErrorResponse,
@@ -87,8 +92,40 @@ use handlers::tracks::{
 use middleware::auth::auth_middleware;
 use serde::Serialize;
 use tracing::info;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+/// OpenAPI modifier that registers the API key / Bearer security schemes and
+/// applies a default global security requirement for all operations.
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi
+            .components
+            .get_or_insert_with(utoipa::openapi::Components::new);
+        components.add_security_scheme(
+            "ApiKeyAuth",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Api-Key"))),
+        );
+        components.add_security_scheme(
+            "BearerAuth",
+            SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+        );
+        // Apply a default global security requirement (api key OR bearer).
+        openapi.security = Some(vec![
+            utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+                "ApiKeyAuth",
+                [],
+            ),
+            utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+                "BearerAuth",
+                [],
+            ),
+        ]);
+    }
+}
 
 #[derive(Serialize, utoipa::ToSchema)]
 struct HealthResponse {
@@ -105,6 +142,7 @@ async fn health_handler() -> Json<HealthResponse> {
     responses(
         (status = 200, description = "Service is healthy", body = HealthResponse)
     ),
+    security(()),
     tag = "system"
 )]
 #[allow(dead_code)]
@@ -116,6 +154,9 @@ async fn health() -> Json<HealthResponse> {
 #[openapi(
     paths(
         health,
+        list_api_keys,
+        create_api_key,
+        delete_api_key,
         list_artists,
         get_artist,
         get_artist_statistics,
@@ -174,6 +215,14 @@ async fn health() -> Json<HealthResponse> {
     components(
         schemas(
             HealthResponse,
+            ListApiKeysResponse,
+            ApiKeyResponse,
+            ApiKeyMetadataResponse,
+            CreateApiKeyRequest,
+            DeleteApiKeyResponse,
+            AuthErrorResponse,
+            BroadcastEventRequest,
+            BroadcastEventResponse,
             ListArtistsResponse,
             ArtistResponse,
             ArtistStatisticsResponse,
@@ -199,8 +248,6 @@ async fn health() -> Json<HealthResponse> {
             SystemLogEntryResponse,
             ActivityItemResponse,
             ActivityListResponse,
-            BroadcastEventRequest,
-            BroadcastEventResponse,
             BroadcastErrorResponse,
             SseConnectionsResponse,
             ListQualityProfilesResponse,
@@ -235,9 +282,11 @@ async fn health() -> Json<HealthResponse> {
         (name = "albums", description = "Album management endpoints"),
         (name = "tracks", description = "Track management endpoints"),
         (name = "activity", description = "Queue and activity endpoints"),
+        (name = "auth", description = "Authentication and API key management endpoints"),
         (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
+    modifiers(&SecurityAddon),
     info(
         title = "Chorrosion API",
         version = "0.1.0",
@@ -250,6 +299,8 @@ pub fn router(state: AppState) -> Router {
     info!(target: "api", "building router");
 
     let api_v1 = Router::new()
+        .route("/auth/api-keys", get(list_api_keys).post(create_api_key))
+        .route("/auth/api-keys/:id", axum::routing::delete(delete_api_key))
         .route("/artists", get(list_artists).post(create_artist))
         .route(
             "/artists/:id",

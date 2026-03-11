@@ -2,6 +2,7 @@
 pub mod activity;
 pub mod albums;
 pub mod artists;
+pub mod auth;
 pub mod download_clients;
 pub mod events;
 pub mod indexers;
