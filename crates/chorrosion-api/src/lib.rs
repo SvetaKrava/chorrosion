@@ -142,6 +142,7 @@ async fn health_handler() -> Json<HealthResponse> {
     responses(
         (status = 200, description = "Service is healthy", body = HealthResponse)
     ),
+    security(()),
     tag = "system"
 )]
 #[allow(dead_code)]
