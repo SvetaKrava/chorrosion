@@ -197,6 +197,62 @@ pub async fn list_missing_albums(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/wanted/cutoff",
+    params(WantedQuery),
+    responses(
+        (status = 200, description = "Paginated list of albums with files below quality cutoff", body = WantedAlbumsResponse),
+        (status = 400, description = "Invalid query parameters", body = WantedErrorResponse),
+        (status = 500, description = "Internal server error", body = WantedErrorResponse),
+    ),
+    tag = "wanted"
+)]
+pub async fn list_cutoff_unmet_albums(
+    State(state): State<AppState>,
+    Query(query): Query<WantedQuery>,
+) -> Result<Json<WantedAlbumsResponse>, (StatusCode, Json<WantedErrorResponse>)> {
+    debug!(target: "api", ?query, "listing cutoff-unmet albums");
+    validate_query(&query)?;
+
+    let all = state
+        .album_repository
+        .list_cutoff_unmet_albums(5000, 0)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WantedErrorResponse {
+                    error: format!("failed to list cutoff-unmet albums: {e}"),
+                }),
+            )
+        })?;
+
+    let total = all.len() as i64;
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(WantedErrorResponse {
+                error: "offset is out of range".to_string(),
+            }),
+        )
+    })?;
+    let limit = query.limit as usize;
+    let items = all
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(WantedAlbumResponse::from)
+        .collect();
+
+    Ok(Json(WantedAlbumsResponse {
+        items,
+        total,
+        limit: query.limit,
+        offset: query.offset,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,6 +443,31 @@ mod tests {
                 limit: 50,
                 offset: -1,
             }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_returns_empty_when_none() {
+        let state = make_test_state().await;
+        let result = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery { limit: 50, offset: 0 }),
+        )
+        .await
+        .expect("should succeed");
+        assert_eq!(result.0.total, 0);
+        assert!(result.0.items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_rejects_invalid_limit() {
+        let state = make_test_state().await;
+        let err = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery { limit: 0, offset: 0 }),
         )
         .await
         .unwrap_err();
