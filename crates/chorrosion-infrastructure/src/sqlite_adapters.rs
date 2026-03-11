@@ -651,6 +651,25 @@ impl AlbumRepository for SqliteAlbumRepository {
         }
         Ok(out)
     }
+
+    async fn list_wanted_without_tracks(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
+        debug!(target: "repository", limit, offset, "listing wanted albums without tracks");
+        let rows = sqlx::query(
+            "SELECT * FROM albums \
+             WHERE status = 'wanted' \
+             AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id) \
+             ORDER BY title LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
+    }
 }
 
 // ============================================================================

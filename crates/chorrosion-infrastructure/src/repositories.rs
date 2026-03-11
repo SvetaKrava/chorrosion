@@ -57,6 +57,8 @@ pub trait AlbumRepository: Repository<Album> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Album>>;
+    /// Return wanted albums that have no associated track records.
+    async fn list_wanted_without_tracks(&self, limit: i64, offset: i64) -> Result<Vec<Album>>;
 }
 
 /// Track repository with specialized queries
