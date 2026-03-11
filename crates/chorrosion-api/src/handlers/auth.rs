@@ -275,7 +275,7 @@ mod tests {
         let deleted = delete_api_key(State(state), Path(created.id.clone()))
             .await
             .expect("delete should succeed");
-        assert_eq!(deleted.0.deleted, true);
+        assert!(deleted.0.deleted);
     }
 
     /// Tests the TOCTOU branch in `validate_api_key_and_touch` where the key is
