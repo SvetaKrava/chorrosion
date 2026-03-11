@@ -109,6 +109,14 @@ Current implemented endpoints:
 - `POST /api/v1/auth/api-keys`
 - `DELETE /api/v1/auth/api-keys/{id}`
 - `GET /api/v1/artists`
+
+Authentication options:
+
+- API key: `X-Api-Key: <key>` or `Authorization: Bearer <key>`
+- Basic auth (when configured): `Authorization: Basic <base64(username:password)>`
+- Configure basic auth via env vars:
+  - `CHORROSION_AUTH__BASIC_USERNAME`
+  - `CHORROSION_AUTH__BASIC_PASSWORD`
 - `GET /api/v1/artists/{id}`
 - `GET /api/v1/artists/{id}/statistics`
 - `POST /api/v1/artists`

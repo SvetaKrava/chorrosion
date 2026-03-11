@@ -20,6 +20,7 @@ url = "2.5"
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 futures-util = "0.3"
+base64 = "0.22"
 
 [dev-dependencies]
 uuid = { workspace = true }
