@@ -87,6 +87,16 @@ All `/api/v1` endpoints require a valid API key. Provide the key using one of:
 - **Header:** `X-Api-Key: <key>`
 - **Bearer token:** `Authorization: Bearer <key>`
 
+#### HTTP Basic auth (optional)
+
+When both `CHORROSION_AUTH__BASIC_USERNAME` and `CHORROSION_AUTH__BASIC_PASSWORD` are set, HTTP Basic authentication is also accepted:
+
+```
+Authorization: Basic <base64(username:password)>
+```
+
+When Basic auth is configured, API key auth remains supported alongside it.
+
 #### Bootstrap flow (first-time setup)
 
 When no API keys exist, `POST /api/v1/auth/api-keys` is accessible without authentication so the first key can be created:
@@ -109,14 +119,6 @@ Current implemented endpoints:
 - `POST /api/v1/auth/api-keys`
 - `DELETE /api/v1/auth/api-keys/{id}`
 - `GET /api/v1/artists`
-
-Authentication options:
-
-- API key: `X-Api-Key: <key>` or `Authorization: Bearer <key>`
-- Basic auth (when configured): `Authorization: Basic <base64(username:password)>`
-- Configure basic auth via env vars:
-  - `CHORROSION_AUTH__BASIC_USERNAME`
-  - `CHORROSION_AUTH__BASIC_PASSWORD`
 - `GET /api/v1/artists/{id}`
 - `GET /api/v1/artists/{id}/statistics`
 - `POST /api/v1/artists`

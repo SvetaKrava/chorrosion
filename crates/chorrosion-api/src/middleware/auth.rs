@@ -2,12 +2,13 @@
 use crate::handlers::auth::{api_key_count, validate_api_key_and_touch};
 use crate::API_V1_BASE;
 use axum::{
-    extract::{Request, State},
+    extract::Request,
     http::{Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use subtle::ConstantTimeEq;
 use tracing::debug;
 
 fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
@@ -53,29 +54,48 @@ fn extract_basic_credentials(headers: &axum::http::HeaderMap) -> Option<(String,
     Some((username.to_string(), password.to_string()))
 }
 
-fn basic_auth_is_configured(state: &chorrosion_application::AppState) -> bool {
-    state
-        .config
-        .auth
-        .basic_username
-        .as_ref()
-        .is_some_and(|v| !v.trim().is_empty())
-        && state
-            .config
-            .auth
-            .basic_password
-            .as_ref()
-            .is_some_and(|v| !v.trim().is_empty())
+/// Constant-time byte-slice equality to prevent timing attacks during credential comparison.
+///
+/// Uses `subtle::ConstantTimeEq` for the byte content and a constant-time length check,
+/// ensuring the comparison time does not reveal information about the expected credential.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    // Build padded slices so the content comparison always runs the same number of iterations,
+    // regardless of the lengths supplied. The length equality flag is combined via bitwise AND
+    // to avoid short-circuit branching.
+    let max_len = a.len().max(b.len()).max(1);
+    let mut pa = vec![0u8; max_len];
+    let mut pb = vec![0u8; max_len];
+    pa[..a.len()].copy_from_slice(a);
+    pb[..b.len()].copy_from_slice(b);
+
+    let lengths_equal = subtle::Choice::from((a.len() == b.len()) as u8);
+    let contents_equal = pa.ct_eq(&pb);
+    bool::from(lengths_equal & contents_equal)
 }
 
-/// API key authentication middleware.
-pub async fn auth_middleware(
-    State(state): State<chorrosion_application::AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
+/// Authentication middleware supporting API key and optional HTTP Basic auth.
+pub async fn auth_middleware(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let method = request.method().clone();
+
+    // Borrow auth config fields from the shared state without cloning the full AppState.
+    let (basic_username_opt, basic_password_opt) = {
+        let state = request
+            .extensions()
+            .get::<chorrosion_application::AppState>()
+            .expect("AppState missing from request extensions");
+        (
+            state.config.auth.basic_username.clone(),
+            state.config.auth.basic_password.clone(),
+        )
+    };
+
+    let basic_configured = basic_username_opt
+        .as_ref()
+        .is_some_and(|v| !v.trim().is_empty())
+        && basic_password_opt
+            .as_ref()
+            .is_some_and(|v| !v.trim().is_empty());
 
     // Bootstrap bypass: allow POST /api/v1/auth/api-keys only when no keys exist yet,
     // so the first key can be created without requiring prior authentication.
@@ -87,22 +107,14 @@ pub async fn auth_middleware(
         return next.run(request).await;
     }
 
-    if basic_auth_is_configured(&state) {
+    if basic_configured {
         if let Some((username, password)) = extract_basic_credentials(request.headers()) {
-            let expected_username = state
-                .config
-                .auth
-                .basic_username
-                .as_deref()
-                .unwrap_or_default();
-            let expected_password = state
-                .config
-                .auth
-                .basic_password
-                .as_deref()
-                .unwrap_or_default();
+            let expected_username = basic_username_opt.as_deref().unwrap_or_default();
+            let expected_password = basic_password_opt.as_deref().unwrap_or_default();
 
-            if username == expected_username && password == expected_password {
+            if constant_time_eq(username.as_bytes(), expected_username.as_bytes())
+                && constant_time_eq(password.as_bytes(), expected_password.as_bytes())
+            {
                 debug!(target: "auth", %path, "basic authentication successful");
                 return next.run(request).await;
             }
@@ -150,7 +162,10 @@ mod tests {
     fn extract_api_key_prefers_x_api_key_header() {
         let mut headers = HeaderMap::new();
         headers.insert("X-Api-Key", HeaderValue::from_static("direct-key"));
-        headers.insert("Authorization", HeaderValue::from_static("Bearer bearer-key"));
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Bearer bearer-key"),
+        );
 
         let extracted = extract_api_key(&headers);
         assert_eq!(extracted.as_deref(), Some("direct-key"));
@@ -159,7 +174,10 @@ mod tests {
     #[test]
     fn extract_api_key_accepts_bearer_authorization() {
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", HeaderValue::from_static("Bearer some-token"));
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Bearer some-token"),
+        );
 
         let extracted = extract_api_key(&headers);
         assert_eq!(extracted.as_deref(), Some("some-token"));
@@ -174,16 +192,16 @@ mod tests {
         );
 
         let extracted = extract_basic_credentials(&headers);
-        assert_eq!(
-            extracted,
-            Some(("user".to_string(), "pass".to_string()))
-        );
+        assert_eq!(extracted, Some(("user".to_string(), "pass".to_string())));
     }
 
     #[test]
     fn extract_basic_credentials_rejects_malformed_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", HeaderValue::from_static("Basic !not-base64!"));
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Basic !not-base64!"),
+        );
 
         let extracted = extract_basic_credentials(&headers);
         assert!(extracted.is_none());
@@ -204,7 +222,10 @@ mod tests {
     #[test]
     fn extract_basic_credentials_ignores_non_basic_authorization() {
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", HeaderValue::from_static("Bearer some-token"));
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Bearer some-token"),
+        );
 
         let extracted = extract_basic_credentials(&headers);
         assert!(extracted.is_none());
