@@ -117,8 +117,15 @@ pub async fn list_wanted_albums(
         })?;
 
     let total = all.len() as i64;
-    let offset = usize::try_from(query.offset).unwrap_or(0);
-    let limit = usize::try_from(query.limit).unwrap_or(50);
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(WantedErrorResponse {
+                error: "offset is out of range for this platform".to_string(),
+            }),
+        )
+    })?;
+    let limit = query.limit as usize;
     let items = all
         .into_iter()
         .skip(offset)
@@ -166,8 +173,15 @@ pub async fn list_missing_albums(
         })?;
 
     let total = all.len() as i64;
-    let offset = usize::try_from(query.offset).unwrap_or(0);
-    let limit = usize::try_from(query.limit).unwrap_or(50);
+    let offset = usize::try_from(query.offset).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(WantedErrorResponse {
+                error: "offset is out of range for this platform".to_string(),
+            }),
+        )
+    })?;
+    let limit = query.limit as usize;
     let items = all
         .into_iter()
         .skip(offset)
@@ -238,6 +252,18 @@ mod tests {
             .create(album)
             .await
             .expect("create album")
+    }
+
+    async fn create_test_track(
+        state: &AppState,
+        artist: &chorrosion_domain::Artist,
+        album: &chorrosion_domain::Album,
+    ) -> chorrosion_domain::Track {
+        state
+            .track_repository
+            .create(chorrosion_domain::Track::new(album.id, artist.id, "Test Track"))
+            .await
+            .expect("create track")
     }
 
     #[tokio::test]
@@ -312,6 +338,29 @@ mod tests {
         .expect("should succeed");
         assert_eq!(result.0.total, 1);
         assert_eq!(result.0.items[0].status, "wanted");
+    }
+
+    #[tokio::test]
+    async fn list_missing_albums_excludes_wanted_with_tracks() {
+        let state = make_test_state().await;
+        let artist = create_test_artist(&state).await;
+        // Create a wanted album that WILL have at least one track.
+        let album = create_test_album(&state, &artist, AlbumStatus::Wanted).await;
+        // Attach a track to the wanted album so it should NOT be considered "missing".
+        create_test_track(&state, &artist, &album).await;
+
+        let result = list_missing_albums(
+            State(state),
+            Query(WantedQuery {
+                limit: 50,
+                offset: 0,
+            }),
+        )
+        .await
+        .expect("should succeed");
+        // The wanted album has at least one track, so it must not be returned as "missing".
+        assert_eq!(result.0.total, 0);
+        assert!(result.0.items.is_empty());
     }
 
     #[tokio::test]
