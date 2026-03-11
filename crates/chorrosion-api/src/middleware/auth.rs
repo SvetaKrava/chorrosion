@@ -2,7 +2,7 @@
 use crate::handlers::auth::{api_key_count, validate_api_key_and_touch};
 use crate::API_V1_BASE;
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::{Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -56,16 +56,23 @@ fn extract_basic_credentials(headers: &axum::http::HeaderMap) -> Option<(String,
 
 /// Constant-time byte-slice equality to prevent timing attacks during credential comparison.
 ///
-/// Uses `subtle::ConstantTimeEq` for the byte content and a constant-time length check,
-/// ensuring the comparison time does not reveal information about the expected credential.
+/// Credentials are capped at `MAX_CREDENTIAL_BYTES` before comparison to prevent
+/// a DoS attack where an attacker sends a very long credential to force large allocations.
+/// Both length and content comparisons run in constant time via `subtle::ConstantTimeEq`.
+const MAX_CREDENTIAL_BYTES: usize = 256;
+
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    // Build padded slices so the content comparison always runs the same number of iterations,
-    // regardless of the lengths supplied. The length equality flag is combined via bitwise AND
-    // to avoid short-circuit branching.
-    let max_len = a.len().max(b.len()).max(1);
-    let mut pa = vec![0u8; max_len];
-    let mut pb = vec![0u8; max_len];
-    pa[..a.len()].copy_from_slice(a);
+    // Truncate inputs to cap allocation and CPU work regardless of attacker-controlled length.
+    let a = &a[..a.len().min(MAX_CREDENTIAL_BYTES)];
+    let b = &b[..b.len().min(MAX_CREDENTIAL_BYTES)];
+
+    // Pad both slices to the expected (b) length so the comparison always iterates the same
+    // number of bytes, preventing the attacker from learning the expected credential length.
+    let target_len = b.len().max(1);
+    let mut pa = vec![0u8; target_len];
+    let mut pb = vec![0u8; target_len];
+    let a_copy_len = a.len().min(target_len);
+    pa[..a_copy_len].copy_from_slice(&a[..a_copy_len]);
     pb[..b.len()].copy_from_slice(b);
 
     let lengths_equal = subtle::Choice::from((a.len() == b.len()) as u8);
@@ -74,21 +81,17 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Authentication middleware supporting API key and optional HTTP Basic auth.
-pub async fn auth_middleware(request: Request, next: Next) -> Response {
+pub async fn auth_middleware(
+    State(state): State<chorrosion_application::AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Extract only the auth config fields needed, then drop the AppState clone immediately.
+    let basic_username_opt = state.config.auth.basic_username.clone();
+    let basic_password_opt = state.config.auth.basic_password.clone();
+
     let path = request.uri().path().to_string();
     let method = request.method().clone();
-
-    // Borrow auth config fields from the shared state without cloning the full AppState.
-    let (basic_username_opt, basic_password_opt) = {
-        let state = request
-            .extensions()
-            .get::<chorrosion_application::AppState>()
-            .expect("AppState missing from request extensions");
-        (
-            state.config.auth.basic_username.clone(),
-            state.config.auth.basic_password.clone(),
-        )
-    };
 
     let basic_configured = basic_username_opt
         .as_ref()
@@ -143,7 +146,9 @@ pub async fn unauthorized() -> impl IntoResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_api_key, extract_basic_credentials};
+    use super::{
+        constant_time_eq, extract_api_key, extract_basic_credentials, MAX_CREDENTIAL_BYTES,
+    };
     use axum::{
         body::Body,
         http::{HeaderMap, HeaderValue, Request, StatusCode},
@@ -229,6 +234,48 @@ mod tests {
 
         let extracted = extract_basic_credentials(&headers);
         assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn constant_time_eq_returns_true_for_equal_slices() {
+        assert!(constant_time_eq(b"secret-key", b"secret-key"));
+    }
+
+    #[test]
+    fn constant_time_eq_returns_false_for_different_content() {
+        assert!(!constant_time_eq(b"secret-key-1", b"secret-key-2"));
+    }
+
+    #[test]
+    fn constant_time_eq_returns_false_for_different_lengths() {
+        assert!(!constant_time_eq(b"short", b"shorter"));
+    }
+
+    #[test]
+    fn constant_time_eq_handles_empty_slices() {
+        assert!(constant_time_eq(b"", b""));
+        assert!(!constant_time_eq(b"", b"nonempty"));
+        assert!(!constant_time_eq(b"nonempty", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_truncates_oversized_input() {
+        // Inputs longer than MAX_CREDENTIAL_BYTES are truncated.
+        // Two inputs that are identical in the first MAX_CREDENTIAL_BYTES bytes but differ
+        // after the cutoff must compare as equal (the tail is ignored).
+        let mut long_a: Vec<u8> = vec![b'x'; MAX_CREDENTIAL_BYTES + 10];
+        let mut long_b: Vec<u8> = vec![b'x'; MAX_CREDENTIAL_BYTES + 20];
+        // Make sure they differ after MAX_CREDENTIAL_BYTES but are identical up to it.
+        long_a[MAX_CREDENTIAL_BYTES + 5] = b'A';
+        long_b[MAX_CREDENTIAL_BYTES + 15] = b'B';
+        assert!(constant_time_eq(&long_a, &long_b));
+
+        // Inputs that differ BEFORE MAX_CREDENTIAL_BYTES must still compare as unequal.
+        let mut diff_a: Vec<u8> = vec![b'x'; MAX_CREDENTIAL_BYTES + 5];
+        let mut diff_b: Vec<u8> = vec![b'x'; MAX_CREDENTIAL_BYTES + 5];
+        diff_a[10] = b'A';
+        diff_b[10] = b'B';
+        assert!(!constant_time_eq(&diff_a, &diff_b));
     }
 
     async fn make_test_state(config: AppConfig) -> AppState {
