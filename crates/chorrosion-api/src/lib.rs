@@ -89,6 +89,10 @@ use handlers::tracks::{
     __path_delete_track, __path_get_track, __path_list_tracks, __path_list_tracks_by_album,
     __path_list_tracks_by_artist, __path_update_track,
 };
+use handlers::wanted::{
+    list_missing_albums, list_wanted_albums, WantedAlbumResponse, WantedAlbumsResponse,
+    WantedErrorResponse, __path_list_missing_albums, __path_list_wanted_albums,
+};
 use middleware::auth::auth_middleware;
 use serde::Serialize;
 use tracing::info;
@@ -211,6 +215,8 @@ async fn health() -> Json<HealthResponse> {
         update_indexer,
         delete_indexer,
         test_indexer_endpoint,
+        list_wanted_albums,
+        list_missing_albums,
     ),
     components(
         schemas(
@@ -274,6 +280,9 @@ async fn health() -> Json<HealthResponse> {
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
             IndexerTestErrorResponse,
+            WantedAlbumsResponse,
+            WantedAlbumResponse,
+            WantedErrorResponse,
         )
     ),
     tags(
@@ -284,7 +293,8 @@ async fn health() -> Json<HealthResponse> {
         (name = "activity", description = "Queue and activity endpoints"),
         (name = "auth", description = "Authentication and API key management endpoints"),
         (name = "settings", description = "Configuration and profile endpoints"),
-        (name = "indexers", description = "Indexer configuration and validation endpoints")
+        (name = "indexers", description = "Indexer configuration and validation endpoints"),
+        (name = "wanted", description = "Wanted and missing album tracking")
     ),
     modifiers(&SecurityAddon),
     info(
@@ -379,6 +389,8 @@ pub fn router(state: AppState) -> Router {
             get(get_indexer).put(update_indexer).delete(delete_indexer),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
+        .route("/wanted", get(list_wanted_albums))
+        .route("/wanted/missing", get(list_missing_albums))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

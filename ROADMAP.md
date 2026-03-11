@@ -345,8 +345,8 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 7.1 Wanted/Missing Management
 
-- [ ] Wanted album tracking
-- [ ] Missing album detection
+- [x] Wanted album tracking (Issue #223) ✓
+- [x] Missing album detection (Issue #223) ✓
 - [ ] Cutoff unmet detection
 - [ ] Automated search scheduling
 - [ ] Manual search interface
