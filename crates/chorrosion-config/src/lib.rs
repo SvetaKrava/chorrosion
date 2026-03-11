@@ -65,6 +65,12 @@ impl Default for SchedulerConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuthConfig {
+    pub basic_username: Option<String>,
+    pub basic_password: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastFmAlbumSeed {
     pub artist: String,
@@ -179,6 +185,7 @@ pub struct AppConfig {
     pub http: HttpConfig,
     pub telemetry: TelemetryConfig,
     pub scheduler: SchedulerConfig,
+    pub auth: AuthConfig,
     pub metadata: MetadataConfig,
 }
 

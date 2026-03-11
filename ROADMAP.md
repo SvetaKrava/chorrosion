@@ -335,7 +335,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 6.3 Authentication & Authorization
 
 - [x] API key generation and management (`/api/v1/auth/api-keys`) ✓
-- [ ] Basic authentication support
+- [x] Basic authentication support (`Authorization: Basic ...`) ✓
 - [ ] Forms authentication (optional)
 - [ ] Permission levels (optional)
 

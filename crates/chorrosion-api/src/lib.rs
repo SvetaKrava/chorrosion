@@ -379,7 +379,10 @@ pub fn router(state: AppState) -> Router {
             get(get_indexer).put(update_indexer).delete(delete_indexer),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
-        .layer(axum_middleware::from_fn(auth_middleware));
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     let mut openapi = ApiDoc::openapi();
     openapi.info.version = APP_VERSION.to_string();

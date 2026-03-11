@@ -375,6 +375,7 @@ name = "chorrosion-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chorrosion-application",
  "chorrosion-config",
  "chorrosion-domain",
@@ -385,7 +386,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "subtle",
  "tokio",
+ "tower",
  "tracing",
  "url",
  "utoipa",

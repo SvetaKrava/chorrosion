@@ -20,9 +20,12 @@ url = "2.5"
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 futures-util = "0.3"
+base64 = "0.22"
+subtle = "2"
 
 [dev-dependencies]
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 chorrosion-config = { path = "../chorrosion-config" }
 http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
