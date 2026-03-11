@@ -80,6 +80,28 @@ SQLite tips:
 - Base: `/api/v1`
 - OpenAPI docs are generated with `utoipa` and exposed at `/docs`.
 
+### Authentication
+
+All `/api/v1` endpoints require a valid API key. Provide the key using one of:
+
+- **Header:** `X-Api-Key: <key>`
+- **Bearer token:** `Authorization: Bearer <key>`
+
+#### Bootstrap flow (first-time setup)
+
+When no API keys exist, `POST /api/v1/auth/api-keys` is accessible without authentication so the first key can be created:
+
+```bash
+curl -X POST http://localhost:5150/api/v1/auth/api-keys \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "my-key"}'
+# → { "id": "...", "key": "ck_...", ... }
+```
+
+While the process is running and at least one key exists, all subsequent requests (including key management) require a valid key.
+
+> **Security note:** API keys are currently kept in an in-memory store. On each process restart the store is cleared, so the service briefly reverts to a zero-key state and the bootstrap route becomes unauthenticated again until a new key is created. Do **not** expose the service directly to the internet; keep it bound to localhost or behind a trusted reverse proxy and create a new API key immediately after each restart.
+
 Current implemented endpoints:
 
 - `GET /health`

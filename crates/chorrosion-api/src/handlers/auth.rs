@@ -81,13 +81,34 @@ fn to_metadata(record: &ApiKeyRecord) -> ApiKeyMetadataResponse {
     }
 }
 
+pub(crate) async fn api_key_count() -> usize {
+    api_key_store().read().await.len()
+}
+
 pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
+    // First check with read-lock so concurrent requests are not serialized.
+    {
+        let store = api_key_store().read().await;
+        if !store.iter().any(|r| r.key == key) {
+            return false;
+        }
+    }
+    // Yield between the two locks in tests so that a concurrently spawned delete
+    // task can acquire the write-lock and remove the key before we do, making
+    // the TOCTOU window deterministically observable in unit tests.
+    #[cfg(test)]
+    tokio::task::yield_now().await;
+
+    // Key exists; take write-lock only to update last_used_at.
+    let now = Utc::now();
     let mut store = api_key_store().write().await;
     if let Some(record) = store.iter_mut().find(|r| r.key == key) {
-        record.last_used_at = Some(Utc::now());
-        return true;
+        record.last_used_at = Some(now);
+        true
+    } else {
+        // Key was removed between the read-lock check and here (TOCTOU).
+        false
     }
-    false
 }
 
 #[utoipa::path(
@@ -97,7 +118,11 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
     responses(
         (status = 201, description = "API key created", body = ApiKeyResponse)
     ),
-    tag = "auth"
+    tag = "auth",
+    description = "Create a new API key.\n\nThis endpoint requires authentication except during initial bootstrap: \
+        when no API keys exist the request is allowed without credentials so that the very \
+        first key can be created. Once at least one key exists, a valid API key must be \
+        supplied via `X-Api-Key` or `Authorization: Bearer <key>`."
 )]
 pub async fn create_api_key(
     State(_state): State<AppState>,
@@ -251,5 +276,46 @@ mod tests {
             .await
             .expect("delete should succeed");
         assert_eq!(deleted.0.deleted, true);
+    }
+
+    /// Tests the TOCTOU branch in `validate_api_key_and_touch` where the key is
+    /// deleted between the read-lock check and the write-lock update.
+    ///
+    /// The `#[cfg(test)]` `yield_now()` hook inside the function ensures that a
+    /// concurrently spawned delete task runs in the gap between the two lock
+    /// acquisitions, making the race window deterministically observable.
+    #[tokio::test]
+    async fn validate_returns_false_when_key_deleted_between_locks() {
+        let _lock = test_mutex().lock().await;
+        reset_store().await;
+        let state = make_test_state().await;
+
+        let (_, Json(created)) = create_api_key(
+            State(state.clone()),
+            Json(CreateApiKeyRequest {
+                name: Some("toctou".to_string()),
+            }),
+        )
+        .await;
+        let key = created.key.clone();
+
+        // Spawn a task that deletes the key. It will run when `validate_api_key_and_touch`
+        // yields (via the `#[cfg(test)] yield_now()` hook) between releasing the
+        // read-lock and acquiring the write-lock.
+        let key_to_delete = key.clone();
+        let delete_handle = tokio::spawn(async move {
+            let mut store = api_key_store().write().await;
+            store.retain(|r| r.key != key_to_delete);
+        });
+
+        // validate passes the read-lock check (key exists), yields, the delete task
+        // runs, and then validate finds the key gone at the write-lock step.
+        let result = validate_api_key_and_touch(&key).await;
+        delete_handle.await.expect("delete task should not panic");
+
+        assert!(
+            !result,
+            "validate_api_key_and_touch must return false when key is deleted between locks"
+        );
     }
 }
