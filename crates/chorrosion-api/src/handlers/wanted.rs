@@ -121,7 +121,7 @@ pub async fn list_wanted_albums(
         (
             StatusCode::BAD_REQUEST,
             Json(WantedErrorResponse {
-                error: "offset is out of range for this platform".to_string(),
+                error: "offset is out of range".to_string(),
             }),
         )
     })?;
@@ -177,7 +177,7 @@ pub async fn list_missing_albums(
         (
             StatusCode::BAD_REQUEST,
             Json(WantedErrorResponse {
-                error: "offset is out of range for this platform".to_string(),
+                error: "offset is out of range".to_string(),
             }),
         )
     })?;
