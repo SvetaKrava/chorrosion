@@ -81,13 +81,28 @@ fn to_metadata(record: &ApiKeyRecord) -> ApiKeyMetadataResponse {
     }
 }
 
+pub(crate) async fn api_key_count() -> usize {
+    api_key_store().read().await.len()
+}
+
 pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
+    // First check with read-lock so concurrent requests are not serialized.
+    {
+        let store = api_key_store().read().await;
+        if !store.iter().any(|r| r.key == key) {
+            return false;
+        }
+    }
+    // Key exists; take write-lock only to update last_used_at.
+    let now = Utc::now();
     let mut store = api_key_store().write().await;
     if let Some(record) = store.iter_mut().find(|r| r.key == key) {
-        record.last_used_at = Some(Utc::now());
-        return true;
+        record.last_used_at = Some(now);
+        true
+    } else {
+        // Key was removed between the read-lock check and here.
+        false
     }
-    false
 }
 
 #[utoipa::path(
@@ -97,6 +112,7 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
     responses(
         (status = 201, description = "API key created", body = ApiKeyResponse)
     ),
+    security(()),
     tag = "auth"
 )]
 pub async fn create_api_key(

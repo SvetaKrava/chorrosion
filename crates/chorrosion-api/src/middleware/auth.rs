@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::handlers::auth::validate_api_key_and_touch;
+use crate::handlers::auth::{api_key_count, validate_api_key_and_touch};
+use crate::API_V1_BASE;
 use axum::{
     extract::Request,
-    http::StatusCode,
+    http::{Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use tracing::debug;
-
-fn is_auth_bootstrap_path(path: &str) -> bool {
-    path == "/api/v1/auth/api-keys" || path.starts_with("/api/v1/auth/api-keys/")
-}
 
 fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
     if let Some(api_key) = headers.get("X-Api-Key") {
@@ -24,10 +21,13 @@ fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
 
     if let Some(auth_header) = headers.get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(rest) = auth_str.strip_prefix("Bearer ") {
-                let trimmed = rest.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
+            let auth_str = auth_str.trim();
+            if let Some((scheme, rest)) = auth_str.split_once(' ') {
+                if scheme.eq_ignore_ascii_case("bearer") {
+                    let trimmed = rest.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
                 }
             }
         }
@@ -39,8 +39,15 @@ fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
 /// API key authentication middleware.
 pub async fn auth_middleware(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
-    if is_auth_bootstrap_path(&path) {
-        debug!(target: "auth", %path, "auth bootstrap path bypassed");
+    let method = request.method().clone();
+
+    // Bootstrap bypass: allow POST /api/v1/auth/api-keys only when no keys exist yet,
+    // so the first key can be created without requiring prior authentication.
+    if method == Method::POST
+        && path.strip_prefix(API_V1_BASE) == Some("/auth/api-keys")
+        && api_key_count().await == 0
+    {
+        debug!(target: "auth", %path, "auth bootstrap: no keys exist, allowing first key creation");
         return next.run(request).await;
     }
 

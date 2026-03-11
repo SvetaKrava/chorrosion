@@ -92,8 +92,40 @@ use handlers::tracks::{
 use middleware::auth::auth_middleware;
 use serde::Serialize;
 use tracing::info;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+/// OpenAPI modifier that registers the API key / Bearer security schemes and
+/// applies a default global security requirement for all operations.
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi
+            .components
+            .get_or_insert_with(utoipa::openapi::Components::new);
+        components.add_security_scheme(
+            "ApiKeyAuth",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Api-Key"))),
+        );
+        components.add_security_scheme(
+            "BearerAuth",
+            SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+        );
+        // Apply a default global security requirement (api key OR bearer).
+        openapi.security = Some(vec![
+            utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+                "ApiKeyAuth",
+                [],
+            ),
+            utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+                "BearerAuth",
+                [],
+            ),
+        ]);
+    }
+}
 
 #[derive(Serialize, utoipa::ToSchema)]
 struct HealthResponse {
@@ -215,8 +247,6 @@ async fn health() -> Json<HealthResponse> {
             SystemLogEntryResponse,
             ActivityItemResponse,
             ActivityListResponse,
-            BroadcastEventRequest,
-            BroadcastEventResponse,
             BroadcastErrorResponse,
             SseConnectionsResponse,
             ListQualityProfilesResponse,
@@ -255,6 +285,7 @@ async fn health() -> Json<HealthResponse> {
         (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints")
     ),
+    modifiers(&SecurityAddon),
     info(
         title = "Chorrosion API",
         version = "0.1.0",
