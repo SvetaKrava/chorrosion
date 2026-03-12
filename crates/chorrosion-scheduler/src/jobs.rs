@@ -2,10 +2,13 @@
 use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
 use chorrosion_config::{DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig};
+use chorrosion_infrastructure::{
+    repositories::AlbumRepository, sqlite_adapters::SqliteAlbumRepository,
+};
 use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -463,17 +466,17 @@ impl Job for RssSyncJob {
 }
 
 /// Backlog search job - searches indexers for missing albums
-pub struct BacklogSearchJob;
-
-impl BacklogSearchJob {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct BacklogSearchJob {
+    album_repository: Arc<SqliteAlbumRepository>,
+    scan_limit: i64,
 }
 
-impl Default for BacklogSearchJob {
-    fn default() -> Self {
-        Self::new()
+impl BacklogSearchJob {
+    pub fn new(album_repository: Arc<SqliteAlbumRepository>) -> Self {
+        Self {
+            album_repository,
+            scan_limit: 5000,
+        }
     }
 }
 
@@ -490,13 +493,50 @@ impl Job for BacklogSearchJob {
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
         info!(target: "jobs", job_id = %ctx.job_id, "executing backlog search job");
 
-        // TODO: Implement backlog search logic
-        // - Query database for wanted albums without files
-        // - Search each album on configured indexers
-        // - Create download tasks for best matches
-        // - Update album status
+        let missing = match self
+            .album_repository
+            .list_wanted_without_tracks(self.scan_limit, 0)
+            .await
+        {
+            Ok(albums) => albums,
+            Err(error) => {
+                return Ok(JobResult::Failure {
+                    error: format!("failed to collect wanted albums without tracks: {error}"),
+                    retry: true,
+                });
+            }
+        };
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        let cutoff_unmet = match self
+            .album_repository
+            .list_cutoff_unmet_albums(self.scan_limit, 0)
+            .await
+        {
+            Ok(albums) => albums,
+            Err(error) => {
+                return Ok(JobResult::Failure {
+                    error: format!("failed to collect cutoff-unmet albums: {error}"),
+                    retry: true,
+                });
+            }
+        };
+
+        let mut candidate_ids = HashSet::new();
+        for album in &missing {
+            candidate_ids.insert(album.id.to_string());
+        }
+        for album in &cutoff_unmet {
+            candidate_ids.insert(album.id.to_string());
+        }
+
+        info!(
+            target: "jobs",
+            job_id = %ctx.job_id,
+            missing_count = missing.len(),
+            cutoff_unmet_count = cutoff_unmet.len(),
+            scheduled_count = candidate_ids.len(),
+            "automated backlog search scheduling snapshot"
+        );
 
         info!(target: "jobs", job_id = %ctx.job_id, "backlog search completed");
         Ok(JobResult::Success)

@@ -5,10 +5,11 @@ pub mod registry;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
+use chorrosion_infrastructure::{init_database, sqlite_adapters::SqliteAlbumRepository};
 use registry::JobRegistry;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{info, warn};
 
 use jobs::{
     BacklogSearchJob, DiscogsMetadataRefreshJob, HousekeepingJob, LastFmMetadataRefreshJob,
@@ -37,13 +38,25 @@ impl Scheduler {
             .await;
 
         // Backlog search every hour
-        self.registry
-            .register(
-                "backlog-search",
-                BacklogSearchJob::new(),
-                Schedule::Interval(60 * 60),
-            )
-            .await;
+        match init_database(&self.config).await {
+            Ok(pool) => {
+                let album_repository = Arc::new(SqliteAlbumRepository::new(pool));
+                self.registry
+                    .register(
+                        "backlog-search",
+                        BacklogSearchJob::new(album_repository),
+                        Schedule::Interval(60 * 60),
+                    )
+                    .await;
+            }
+            Err(error) => {
+                warn!(
+                    target: "scheduler",
+                    error = %error,
+                    "backlog search job skipped (database init failed)"
+                );
+            }
+        }
 
         // Refresh all artists metadata every 12 hours
         self.registry
