@@ -493,47 +493,69 @@ impl Job for BacklogSearchJob {
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
         info!(target: "jobs", job_id = %ctx.job_id, "executing backlog search job");
 
-        let missing = match self
-            .album_repository
-            .list_wanted_without_tracks(self.scan_limit, 0)
-            .await
-        {
-            Ok(albums) => albums,
-            Err(error) => {
-                return Ok(JobResult::Failure {
-                    error: format!("failed to collect wanted albums without tracks: {error}"),
-                    retry: true,
-                });
-            }
-        };
-
-        let cutoff_unmet = match self
-            .album_repository
-            .list_cutoff_unmet_albums(self.scan_limit, 0)
-            .await
-        {
-            Ok(albums) => albums,
-            Err(error) => {
-                return Ok(JobResult::Failure {
-                    error: format!("failed to collect cutoff-unmet albums: {error}"),
-                    retry: true,
-                });
-            }
-        };
-
         let mut candidate_ids = HashSet::new();
-        for album in &missing {
-            candidate_ids.insert(album.id.to_string());
+
+        // Page through all wanted albums without tracks, collecting only IDs
+        let mut missing_count: usize = 0;
+        let mut offset: i64 = 0;
+        loop {
+            let batch = match self
+                .album_repository
+                .list_wanted_without_tracks(self.scan_limit, offset)
+                .await
+            {
+                Ok(albums) => albums,
+                Err(error) => {
+                    return Ok(JobResult::Failure {
+                        error: format!("failed to collect wanted albums without tracks: {error}"),
+                        retry: true,
+                    });
+                }
+            };
+            let batch_len = batch.len();
+            missing_count += batch_len;
+            for album in batch {
+                candidate_ids.insert(album.id);
+            }
+            if batch_len < self.scan_limit as usize {
+                break;
+            }
+            offset += self.scan_limit;
         }
-        for album in &cutoff_unmet {
-            candidate_ids.insert(album.id.to_string());
+
+        // Page through all cutoff-unmet albums, collecting only IDs
+        let mut cutoff_unmet_count: usize = 0;
+        let mut cutoff_offset: i64 = 0;
+        loop {
+            let batch = match self
+                .album_repository
+                .list_cutoff_unmet_albums(self.scan_limit, cutoff_offset)
+                .await
+            {
+                Ok(albums) => albums,
+                Err(error) => {
+                    return Ok(JobResult::Failure {
+                        error: format!("failed to collect cutoff-unmet albums: {error}"),
+                        retry: true,
+                    });
+                }
+            };
+            let batch_len = batch.len();
+            cutoff_unmet_count += batch_len;
+            for album in batch {
+                candidate_ids.insert(album.id);
+            }
+            if batch_len < self.scan_limit as usize {
+                break;
+            }
+            cutoff_offset += self.scan_limit;
         }
 
         info!(
             target: "jobs",
             job_id = %ctx.job_id,
-            missing_count = missing.len(),
-            cutoff_unmet_count = cutoff_unmet.len(),
+            missing_count,
+            cutoff_unmet_count,
             scheduled_count = candidate_ids.len(),
             "automated backlog search scheduling snapshot"
         );
@@ -1252,5 +1274,61 @@ mod tests {
         let album_id = Uuid::new_v4();
         assert!(cache.try_mark_album_refreshed(album_id));
         assert!(!cache.try_mark_album_refreshed(album_id));
+    }
+
+    // ── BacklogSearchJob tests ───────────────────────────────────────────────
+
+    async fn make_migrated_pool() -> sqlx::SqlitePool {
+        let config = chorrosion_config::AppConfig {
+            database: chorrosion_config::DatabaseConfig {
+                url: "sqlite::memory:".to_string(),
+                pool_max_size: 1,
+            },
+            ..chorrosion_config::AppConfig::default()
+        };
+        chorrosion_infrastructure::init_database(&config)
+            .await
+            .expect("in-memory DB init failed")
+    }
+
+    #[tokio::test]
+    async fn test_backlog_search_job_name_and_type() {
+        let pool = make_migrated_pool().await;
+        let repo =
+            Arc::new(chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository::new(pool));
+        let job = BacklogSearchJob::new(repo);
+        assert_eq!(job.job_type(), "backlog_search");
+        assert_eq!(job.name(), "Backlog Search");
+        assert_eq!(job.max_retries(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_backlog_search_job_empty_database_returns_success() {
+        let pool = make_migrated_pool().await;
+        let repo =
+            Arc::new(chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository::new(pool));
+        let job = BacklogSearchJob::new(repo);
+        let ctx = JobContext::new("test-backlog-empty");
+
+        let result = job.execute(ctx).await;
+        assert!(matches!(result, Ok(JobResult::Success)));
+    }
+
+    #[tokio::test]
+    async fn test_backlog_search_job_missing_tables_returns_retriable_failure() {
+        // Pool without migrations → tables absent → repository errors → Failure { retry: true }
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("pool connect failed");
+        let repo =
+            Arc::new(chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository::new(pool));
+        let job = BacklogSearchJob::new(repo);
+        let ctx = JobContext::new("test-backlog-no-tables");
+
+        let result = job.execute(ctx).await.expect("execute should not Err");
+        match result {
+            JobResult::Failure { retry, .. } => assert!(retry, "failure must be retriable"),
+            other => panic!("expected Failure, got {other:?}"),
+        }
     }
 }
