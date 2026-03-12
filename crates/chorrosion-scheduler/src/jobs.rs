@@ -511,9 +511,6 @@ impl Job for BacklogSearchJob {
                 }
             };
             let batch_len = batch.len();
-            if batch_len == 0 {
-                break;
-            }
             missing.extend(batch);
             if batch_len < self.scan_limit as usize {
                 break;
@@ -539,9 +536,6 @@ impl Job for BacklogSearchJob {
                 }
             };
             let batch_len = batch.len();
-            if batch_len == 0 {
-                break;
-            }
             cutoff_unmet.extend(batch);
             if batch_len < self.scan_limit as usize {
                 break;
