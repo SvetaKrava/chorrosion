@@ -5,7 +5,9 @@ pub mod registry;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
+use chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository;
 use registry::JobRegistry;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -19,12 +21,17 @@ use jobs::{
 pub struct Scheduler {
     config: AppConfig,
     registry: Arc<JobRegistry>,
+    pool: SqlitePool,
 }
 
 impl Scheduler {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, pool: SqlitePool) -> Self {
         let registry = Arc::new(JobRegistry::new(config.scheduler.max_concurrent_jobs));
-        Self { config, registry }
+        Self {
+            config,
+            registry,
+            pool,
+        }
     }
 
     /// Register all background jobs with their schedules
@@ -36,11 +43,12 @@ impl Scheduler {
             .register("rss-sync", RssSyncJob::new(), Schedule::Interval(15 * 60))
             .await;
 
-        // Backlog search every hour
+        // Backlog search every hour, reusing the caller-provided database pool
+        let album_repository = Arc::new(SqliteAlbumRepository::new(self.pool.clone()));
         self.registry
             .register(
                 "backlog-search",
-                BacklogSearchJob::new(),
+                BacklogSearchJob::new(album_repository),
                 Schedule::Interval(60 * 60),
             )
             .await;

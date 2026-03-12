@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     let indexer_definition_repository =
         Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone()));
     let download_client_definition_repository =
-        Arc::new(SqliteDownloadClientDefinitionRepository::new(pool));
+        Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone()));
 
     let state = AppState::new(
         config.clone(),
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     );
     state.on_start();
 
-    let scheduler = Scheduler::new(config.clone());
+    let scheduler = Scheduler::new(config.clone(), pool.clone());
     scheduler.register_jobs().await;
     let _scheduler_handle = scheduler.start();
 
