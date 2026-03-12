@@ -9,6 +9,7 @@ use chorrosion_application::AppState;
 use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
 
@@ -166,21 +167,27 @@ pub async fn list_upcoming_releases(
         })?;
 
     let mut items = Vec::with_capacity(albums.len());
+    let mut artist_cache: HashMap<String, String> = HashMap::new();
     for album in albums {
-        let artist_name = state
-            .artist_repository
-            .get_by_id(album.artist_id.to_string())
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(CalendarErrorResponse {
-                        error: format!("failed to fetch artist: {e}"),
-                    }),
-                )
-            })?
-            .map(|a| a.name)
-            .unwrap_or_default();
+        let artist_id_str = album.artist_id.to_string();
+        if !artist_cache.contains_key(&artist_id_str) {
+            let name = state
+                .artist_repository
+                .get_by_id(artist_id_str.clone())
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(CalendarErrorResponse {
+                            error: format!("failed to fetch artist: {e}"),
+                        }),
+                    )
+                })?
+                .map(|a| a.name)
+                .unwrap_or_else(|| "Unknown Artist".to_string());
+            artist_cache.insert(artist_id_str.clone(), name);
+        }
+        let artist_name = artist_cache[&artist_id_str].clone();
 
         items.push(CalendarAlbumResponse {
             id: album.id.to_string(),
@@ -261,30 +268,38 @@ pub async fn get_ical_feed(
 
     let mut cal = String::from(
         "BEGIN:VCALENDAR\r\n\
-         VERSION:2.0\r\n\
-         PRODID:-//Chorrosion//Music Releases//EN\r\n\
-         CALSCALE:GREGORIAN\r\n\
-         METHOD:PUBLISH\r\n\
-         X-WR-CALNAME:Chorrosion Music Releases\r\n",
+VERSION:2.0\r\n\
+PRODID:-//Chorrosion//Music Releases//EN\r\n\
+CALSCALE:GREGORIAN\r\n\
+METHOD:PUBLISH\r\n\
+X-WR-CALNAME:Chorrosion Music Releases\r\n",
     );
 
+    let mut artist_cache: HashMap<String, String> = HashMap::new();
     for album in &albums {
-        let artist_name = match state
-            .artist_repository
-            .get_by_id(album.artist_id.to_string())
-            .await
-        {
-            Ok(artist) => artist.map(|a| a.name).unwrap_or_default(),
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(CalendarErrorResponse {
-                        error: format!("failed to fetch artist: {e}"),
-                    }),
-                )
-                    .into_response();
-            }
-        };
+        let artist_id_str = album.artist_id.to_string();
+        if !artist_cache.contains_key(&artist_id_str) {
+            let name = match state
+                .artist_repository
+                .get_by_id(artist_id_str.clone())
+                .await
+            {
+                Ok(artist) => artist
+                    .map(|a| a.name)
+                    .unwrap_or_else(|| "Unknown Artist".to_string()),
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(CalendarErrorResponse {
+                            error: format!("failed to fetch artist: {e}"),
+                        }),
+                    )
+                        .into_response();
+                }
+            };
+            artist_cache.insert(artist_id_str.clone(), name);
+        }
+        let artist_name = artist_cache[&artist_id_str].clone();
 
         let release_str = album
             .release_date
