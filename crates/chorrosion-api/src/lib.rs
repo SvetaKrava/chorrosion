@@ -90,8 +90,9 @@ use handlers::tracks::{
     __path_list_tracks_by_artist, __path_update_track,
 };
 use handlers::wanted::{
-    list_missing_albums, list_wanted_albums, WantedAlbumResponse, WantedAlbumsResponse,
-    WantedErrorResponse, __path_list_missing_albums, __path_list_wanted_albums,
+    list_cutoff_unmet_albums, list_missing_albums, list_wanted_albums, WantedAlbumResponse,
+    WantedAlbumsResponse, WantedErrorResponse, __path_list_cutoff_unmet_albums,
+    __path_list_missing_albums, __path_list_wanted_albums,
 };
 use middleware::auth::auth_middleware;
 use serde::Serialize;
@@ -217,6 +218,7 @@ async fn health() -> Json<HealthResponse> {
         test_indexer_endpoint,
         list_wanted_albums,
         list_missing_albums,
+        list_cutoff_unmet_albums,
     ),
     components(
         schemas(
@@ -391,6 +393,7 @@ pub fn router(state: AppState) -> Router {
         .route("/indexers/test", post(test_indexer_endpoint))
         .route("/wanted", get(list_wanted_albums))
         .route("/wanted/missing", get(list_missing_albums))
+        .route("/wanted/cutoff", get(list_cutoff_unmet_albums))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

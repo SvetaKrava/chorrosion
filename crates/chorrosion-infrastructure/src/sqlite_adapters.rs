@@ -671,6 +671,50 @@ impl AlbumRepository for SqliteAlbumRepository {
         }
         Ok(out)
     }
+
+    async fn list_cutoff_unmet_albums(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
+        debug!(target: "repository", limit, offset, "listing cutoff-unmet albums");
+        // An album is cutoff-unmet when:
+        //   - It is monitored
+        //   - Its artist has a quality profile with upgrade_allowed=TRUE and cutoff_quality set
+        //   - At least one monitored track file has a codec that is either unknown, ranked
+        //     lower than the cutoff in the allowed_qualities ordered list (lower = higher
+        //     index; the list is ordered best-to-worst), or whose cutoff_quality is not
+        //     found in the allowed list (treats an inconsistent profile as "needs upgrade").
+        let rows = sqlx::query(
+            "SELECT a.* \
+             FROM albums a \
+             JOIN artists ar ON ar.id = a.artist_id \
+             JOIN quality_profiles qp ON qp.id = ar.quality_profile_id \
+             WHERE a.monitored = TRUE \
+               AND qp.upgrade_allowed = TRUE \
+               AND qp.cutoff_quality IS NOT NULL \
+               AND EXISTS ( \
+                 SELECT 1 FROM tracks t \
+                 JOIN track_files tf ON tf.track_id = t.id \
+                 LEFT JOIN json_each(qp.allowed_qualities) je ON 1 = 1 \
+                 WHERE t.album_id = a.id \
+                   AND t.monitored = TRUE \
+                 GROUP BY tf.id \
+                 HAVING \
+                   tf.codec IS NULL \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) IS NULL \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) \
+                      > MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) IS NULL \
+               ) \
+             ORDER BY a.title LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
+    }
 }
 
 // ============================================================================
