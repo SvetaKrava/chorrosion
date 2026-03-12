@@ -38,6 +38,10 @@ use handlers::auth::{
     AuthErrorResponse, CreateApiKeyRequest, DeleteApiKeyResponse, ListApiKeysResponse,
     __path_create_api_key, __path_delete_api_key, __path_list_api_keys,
 };
+use handlers::calendar::{
+    get_ical_feed, list_upcoming_releases, CalendarAlbumResponse, CalendarErrorResponse,
+    CalendarResponse, __path_get_ical_feed, __path_list_upcoming_releases,
+};
 use handlers::download_clients::{
     create_download_client, delete_download_client, get_download_client, list_download_clients,
     update_download_client, CreateDownloadClientRequest, DownloadClientErrorResponse,
@@ -221,6 +225,8 @@ async fn health() -> Json<HealthResponse> {
         list_missing_albums,
         list_cutoff_unmet_albums,
         trigger_wanted_album_search,
+        list_upcoming_releases,
+        get_ical_feed,
     ),
     components(
         schemas(
@@ -288,6 +294,9 @@ async fn health() -> Json<HealthResponse> {
             WantedAlbumResponse,
             WantedErrorResponse,
             WantedManualSearchResponse,
+            CalendarResponse,
+            CalendarAlbumResponse,
+            CalendarErrorResponse,
         )
     ),
     tags(
@@ -299,7 +308,8 @@ async fn health() -> Json<HealthResponse> {
         (name = "auth", description = "Authentication and API key management endpoints"),
         (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints"),
-        (name = "wanted", description = "Wanted and missing album tracking")
+        (name = "wanted", description = "Wanted and missing album tracking"),
+        (name = "calendar", description = "Upcoming releases calendar")
     ),
     modifiers(&SecurityAddon),
     info(
@@ -398,6 +408,8 @@ pub fn router(state: AppState) -> Router {
         .route("/wanted/missing", get(list_missing_albums))
         .route("/wanted/cutoff", get(list_cutoff_unmet_albums))
         .route("/wanted/:id/search", post(trigger_wanted_album_search))
+        .route("/calendar", get(list_upcoming_releases))
+        .route("/calendar/ical", get(get_ical_feed))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

@@ -6,7 +6,7 @@ use chorrosion_domain::{
     IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile, TrackFileId,
     TrackId,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::Row;
 use sqlx::SqlitePool;
 use tracing::debug;
@@ -705,6 +705,42 @@ impl AlbumRepository for SqliteAlbumRepository {
                ) \
              ORDER BY a.title LIMIT ? OFFSET ?",
         )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_album(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn list_upcoming_releases(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Album>> {
+        debug!(
+                target: "repository",
+                %start, %end, limit, offset,
+                "listing upcoming releases in date range"
+        );
+        let start_str = start.format("%Y-%m-%d").to_string();
+        let end_str = end.format("%Y-%m-%d").to_string();
+        let rows = sqlx::query(
+            "SELECT * FROM albums \
+                         WHERE monitored = TRUE \
+                             AND release_date IS NOT NULL \
+                             AND release_date >= ? \
+                             AND release_date <= ? \
+                         ORDER BY release_date ASC, title ASC \
+                         LIMIT ? OFFSET ?",
+        )
+        .bind(start_str)
+        .bind(end_str)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

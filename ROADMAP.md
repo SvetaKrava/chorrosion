@@ -353,10 +353,10 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 7.2 Calendar
 
-- [ ] Upcoming releases calendar
-- [ ] Release date tracking
-  - [ ] Calendar API endpoints
-  - [ ] iCal feed support
+- [x] Upcoming releases calendar (Issue #235) ✓
+- [x] Release date tracking (Issue #235) ✓
+  - [x] Calendar API endpoints (Issue #235) ✓
+  - [x] iCal feed support (Issue #235) ✓
 
 ### 7.3 Notifications
 
