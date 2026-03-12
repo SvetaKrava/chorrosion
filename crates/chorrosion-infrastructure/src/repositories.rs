@@ -5,6 +5,7 @@ use chorrosion_domain::{
     DownloadClientDefinition, IndexerDefinition, MetadataProfile, QualityProfile, Track, TrackFile,
     TrackId,
 };
+use chrono::NaiveDate;
 
 // ============================================================================
 // Repository Traits
@@ -66,6 +67,15 @@ pub trait AlbumRepository: Repository<Album> {
     /// A file is below cutoff when its codec's index exceeds the cutoff's index,
     /// or when the codec is unknown / absent from the allowed list.
     async fn list_cutoff_unmet_albums(&self, limit: i64, offset: i64) -> Result<Vec<Album>>;
+    /// Return monitored albums whose ``release_date`` falls within [start, end] inclusive,
+    /// ordered by ``release_date`` ascending.
+    async fn list_upcoming_releases(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Album>>;
 }
 
 /// Track repository with specialized queries
