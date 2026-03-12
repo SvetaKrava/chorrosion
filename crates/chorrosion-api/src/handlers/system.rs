@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use axum::http::StatusCode;
 use axum::{
     extract::{Query, State},
     Json,
 };
-use chorrosion_application::AppState;
+use chorrosion_application::{AppState, NotificationEvent, NotificationPipeline};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -157,6 +158,26 @@ pub struct SystemLogsResponse {
     pub source: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationProviderStatusResponse {
+    pub kind: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationStatusResponse {
+    pub framework: String,
+    pub providers: Vec<NotificationProviderStatusResponse>,
+    pub configured_provider_count: usize,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationTestResponse {
+    pub status: String,
+    pub dispatched: usize,
+    pub message: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/system/status",
@@ -224,6 +245,63 @@ pub async fn get_system_logs(
         total: 0,
         source: "job_logs".to_string(),
     })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/notifications",
+    responses(
+        (status = 200, description = "Notification framework status", body = NotificationStatusResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_system_notifications(
+    State(_state): State<AppState>,
+) -> Json<NotificationStatusResponse> {
+    debug!(target: "api", "fetching notification framework status");
+
+    let pipeline = NotificationPipeline::default();
+    let providers = pipeline
+        .provider_configs()
+        .into_iter()
+        .map(|p| NotificationProviderStatusResponse {
+            kind: format!("{:?}", p.kind).to_lowercase(),
+            enabled: p.enabled,
+        })
+        .collect::<Vec<_>>();
+
+    Json(NotificationStatusResponse {
+        framework: "baseline".to_string(),
+        configured_provider_count: providers.len(),
+        providers,
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/system/notifications/test",
+    responses(
+        (status = 202, description = "Test notification dispatched", body = NotificationTestResponse)
+    ),
+    tag = "system"
+)]
+pub async fn post_system_notifications_test(
+    State(_state): State<AppState>,
+) -> (StatusCode, Json<NotificationTestResponse>) {
+    debug!(target: "api", "dispatching notification test event");
+
+    let pipeline = NotificationPipeline::default();
+    let event = NotificationEvent::test();
+    let dispatched = pipeline.dispatch(&event).await.unwrap_or(0);
+
+    (
+        StatusCode::ACCEPTED,
+        Json(NotificationTestResponse {
+            status: "accepted".to_string(),
+            dispatched,
+            message: "notification test event dispatched".to_string(),
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -410,5 +488,23 @@ mod tests {
         assert_eq!(resp.total, 0);
         assert!(resp.items.is_empty());
         assert_eq!(resp.source, "job_logs");
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_returns_framework_status() {
+        let state = make_test_state().await;
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.framework, "baseline");
+        assert!(resp.configured_provider_count >= 1);
+        assert!(!resp.providers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn post_system_notifications_test_returns_accepted() {
+        let state = make_test_state().await;
+        let (status, Json(resp)) = post_system_notifications_test(State(state)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(resp.status, "accepted");
+        assert!(resp.dispatched >= 1);
     }
 }

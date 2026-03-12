@@ -16,6 +16,7 @@ pub mod import_matching;
 pub mod indexers;
 pub mod matching;
 pub mod matching_precedence;
+pub mod notifications;
 pub mod release_parsing;
 pub mod search_automation;
 pub mod tag_embedding;
@@ -49,6 +50,10 @@ pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingServ
 pub use matching_precedence::{
     MatchingStrategy, PrecedenceMatchResult, PrecedenceMatchingEngine, PrecedenceMatchingError,
     PrecedenceMatchingResult,
+};
+pub use notifications::{
+    NoopNotificationProvider, NotificationEvent, NotificationEventKind, NotificationPipeline,
+    NotificationProvider, NotificationProviderConfig, NotificationProviderKind,
 };
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
