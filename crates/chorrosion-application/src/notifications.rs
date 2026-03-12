@@ -41,6 +41,7 @@ pub enum NotificationProviderKind {
     Slack,
     Pushover,
     Script,
+    Noop,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -61,11 +62,11 @@ pub struct NoopNotificationProvider;
 #[async_trait]
 impl NotificationProvider for NoopNotificationProvider {
     fn kind(&self) -> NotificationProviderKind {
-        NotificationProviderKind::Script
+        NotificationProviderKind::Noop
     }
 
     fn enabled(&self) -> bool {
-        true
+        false
     }
 
     async fn send(&self, _event: &NotificationEvent) -> Result<()> {
@@ -85,6 +86,7 @@ impl NotificationPipeline {
     pub fn provider_configs(&self) -> Vec<NotificationProviderConfig> {
         self.providers
             .iter()
+            .filter(|p| p.kind() != NotificationProviderKind::Noop)
             .map(|p| NotificationProviderConfig {
                 kind: p.kind(),
                 enabled: p.enabled(),
@@ -144,8 +146,9 @@ mod tests {
             Box::new(NoopNotificationProvider),
             Box::new(DisabledProvider),
         ]);
+        // Both providers are disabled (noop is always disabled, DisabledProvider explicitly so)
         let sent = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
-        assert_eq!(sent, 1);
+        assert_eq!(sent, 0);
     }
 
     #[test]
@@ -155,10 +158,9 @@ mod tests {
             Box::new(DisabledProvider),
         ]);
         let configs = pipeline.provider_configs();
-        assert_eq!(configs.len(), 2);
-        assert_eq!(configs[0].kind, NotificationProviderKind::Script);
-        assert!(configs[0].enabled);
-        assert_eq!(configs[1].kind, NotificationProviderKind::Email);
-        assert!(!configs[1].enabled);
+        // Noop provider is filtered from configs; only real providers are included
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].kind, NotificationProviderKind::Email);
+        assert!(!configs[0].enabled);
     }
 }
