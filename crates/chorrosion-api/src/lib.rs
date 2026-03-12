@@ -90,9 +90,10 @@ use handlers::tracks::{
     __path_list_tracks_by_artist, __path_update_track,
 };
 use handlers::wanted::{
-    list_cutoff_unmet_albums, list_missing_albums, list_wanted_albums, WantedAlbumResponse,
-    WantedAlbumsResponse, WantedErrorResponse, __path_list_cutoff_unmet_albums,
-    __path_list_missing_albums, __path_list_wanted_albums,
+    list_cutoff_unmet_albums, list_missing_albums, list_wanted_albums, trigger_wanted_album_search,
+    WantedAlbumResponse, WantedAlbumsResponse, WantedErrorResponse, WantedManualSearchResponse,
+    __path_list_cutoff_unmet_albums, __path_list_missing_albums, __path_list_wanted_albums,
+    __path_trigger_wanted_album_search,
 };
 use middleware::auth::auth_middleware;
 use serde::Serialize;
@@ -219,6 +220,7 @@ async fn health() -> Json<HealthResponse> {
         list_wanted_albums,
         list_missing_albums,
         list_cutoff_unmet_albums,
+        trigger_wanted_album_search,
     ),
     components(
         schemas(
@@ -285,6 +287,7 @@ async fn health() -> Json<HealthResponse> {
             WantedAlbumsResponse,
             WantedAlbumResponse,
             WantedErrorResponse,
+            WantedManualSearchResponse,
         )
     ),
     tags(
@@ -394,6 +397,7 @@ pub fn router(state: AppState) -> Router {
         .route("/wanted", get(list_wanted_albums))
         .route("/wanted/missing", get(list_missing_albums))
         .route("/wanted/cutoff", get(list_cutoff_unmet_albums))
+        .route("/wanted/:id/search", post(trigger_wanted_album_search))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
