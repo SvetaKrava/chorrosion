@@ -493,8 +493,10 @@ impl Job for BacklogSearchJob {
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
         info!(target: "jobs", job_id = %ctx.job_id, "executing backlog search job");
 
-        // Page through all wanted albums without tracks
-        let mut missing = Vec::new();
+        let mut candidate_ids = HashSet::new();
+
+        // Page through all wanted albums without tracks, collecting only IDs
+        let mut missing_count: usize = 0;
         let mut offset: i64 = 0;
         loop {
             let batch = match self
@@ -511,15 +513,18 @@ impl Job for BacklogSearchJob {
                 }
             };
             let batch_len = batch.len();
-            missing.extend(batch);
+            missing_count += batch_len;
+            for album in batch {
+                candidate_ids.insert(album.id);
+            }
             if batch_len < self.scan_limit as usize {
                 break;
             }
             offset += self.scan_limit;
         }
 
-        // Page through all cutoff-unmet albums
-        let mut cutoff_unmet = Vec::new();
+        // Page through all cutoff-unmet albums, collecting only IDs
+        let mut cutoff_unmet_count: usize = 0;
         let mut cutoff_offset: i64 = 0;
         loop {
             let batch = match self
@@ -536,26 +541,21 @@ impl Job for BacklogSearchJob {
                 }
             };
             let batch_len = batch.len();
-            cutoff_unmet.extend(batch);
+            cutoff_unmet_count += batch_len;
+            for album in batch {
+                candidate_ids.insert(album.id);
+            }
             if batch_len < self.scan_limit as usize {
                 break;
             }
             cutoff_offset += self.scan_limit;
         }
 
-        let mut candidate_ids = HashSet::new();
-        for album in &missing {
-            candidate_ids.insert(album.id);
-        }
-        for album in &cutoff_unmet {
-            candidate_ids.insert(album.id);
-        }
-
         info!(
             target: "jobs",
             job_id = %ctx.job_id,
-            missing_count = missing.len(),
-            cutoff_unmet_count = cutoff_unmet.len(),
+            missing_count,
+            cutoff_unmet_count,
             scheduled_count = candidate_ids.len(),
             "automated backlog search scheduling snapshot"
         );
@@ -1282,7 +1282,7 @@ mod tests {
         let config = chorrosion_config::AppConfig {
             database: chorrosion_config::DatabaseConfig {
                 url: "sqlite::memory:".to_string(),
-                pool_max_size: 5,
+                pool_max_size: 1,
             },
             ..chorrosion_config::AppConfig::default()
         };
