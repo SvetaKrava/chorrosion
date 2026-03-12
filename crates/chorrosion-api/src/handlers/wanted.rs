@@ -9,7 +9,7 @@ use chorrosion_application::AppState;
 use chorrosion_domain::{Album, AlbumStatus};
 use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -323,7 +323,15 @@ pub async fn trigger_wanted_album_search(
         .await
     {
         Ok(Some(artist)) => artist.name,
-        Ok(None) => "Unknown Artist".to_string(),
+        Ok(None) => {
+            warn!(
+                target: "api",
+                album_id = %album.id,
+                artist_id = %album.artist_id,
+                "artist not found for wanted album; searching by album title only"
+            );
+            String::new()
+        }
         Err(error) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -838,5 +846,50 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn trigger_wanted_album_search_falls_back_to_title_when_artist_missing() {
+        use axum::body::to_bytes;
+        let (pool, state) = make_test_pool_and_state().await;
+        // Insert a wanted album whose artist_id points to a non-existent artist.
+        // Acquire a single connection so FK-related PRAGMAs apply to the same connection
+        // as the INSERT (the pool has max_connections=1, but be explicit for clarity).
+        let fake_artist_id = chorrosion_domain::ArtistId::new().to_string();
+        let album_id = chorrosion_domain::AlbumId::new().to_string();
+        let title = "Orphaned Album";
+        let mut conn = pool.acquire().await.expect("acquire connection");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *conn)
+            .await
+            .expect("disable FK");
+        sqlx::query(
+            "INSERT INTO albums (id, artist_id, title, status, monitored) VALUES (?, ?, ?, 'wanted', 1)",
+        )
+        .bind(&album_id)
+        .bind(&fake_artist_id)
+        .bind(title)
+        .execute(&mut *conn)
+        .await
+        .expect("insert orphaned album");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .await
+            .expect("re-enable FK");
+        drop(conn);
+
+        let response = trigger_wanted_album_search(State(state), Path(album_id))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body_bytes = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("read body");
+        let body: WantedManualSearchResponse =
+            serde_json::from_slice(&body_bytes).expect("deserialize");
+        assert_eq!(
+            body.query, title,
+            "query should be just the album title when artist is missing"
+        );
     }
 }
