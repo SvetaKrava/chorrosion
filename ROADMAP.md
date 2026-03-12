@@ -349,7 +349,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Missing album detection (Issue #223) ✓
 - [x] Cutoff unmet detection (Issue #226) ✓
 - [x] Automated search scheduling (Issue #229) ✓
-- [ ] Manual search interface
+- [x] Manual search interface (Issue #232) ✓
 
 ### 7.2 Calendar
 
