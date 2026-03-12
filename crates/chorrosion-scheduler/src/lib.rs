@@ -5,11 +5,12 @@ pub mod registry;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
-use chorrosion_infrastructure::{init_database, sqlite_adapters::SqliteAlbumRepository};
+use chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository;
 use registry::JobRegistry;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::info;
 
 use jobs::{
     BacklogSearchJob, DiscogsMetadataRefreshJob, HousekeepingJob, LastFmMetadataRefreshJob,
@@ -20,12 +21,17 @@ use jobs::{
 pub struct Scheduler {
     config: AppConfig,
     registry: Arc<JobRegistry>,
+    pool: SqlitePool,
 }
 
 impl Scheduler {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, pool: SqlitePool) -> Self {
         let registry = Arc::new(JobRegistry::new(config.scheduler.max_concurrent_jobs));
-        Self { config, registry }
+        Self {
+            config,
+            registry,
+            pool,
+        }
     }
 
     /// Register all background jobs with their schedules
@@ -37,26 +43,15 @@ impl Scheduler {
             .register("rss-sync", RssSyncJob::new(), Schedule::Interval(15 * 60))
             .await;
 
-        // Backlog search every hour
-        match init_database(&self.config).await {
-            Ok(pool) => {
-                let album_repository = Arc::new(SqliteAlbumRepository::new(pool));
-                self.registry
-                    .register(
-                        "backlog-search",
-                        BacklogSearchJob::new(album_repository),
-                        Schedule::Interval(60 * 60),
-                    )
-                    .await;
-            }
-            Err(error) => {
-                warn!(
-                    target: "scheduler",
-                    error = %error,
-                    "backlog search job skipped (database init failed)"
-                );
-            }
-        }
+        // Backlog search every hour, reusing the caller-provided database pool
+        let album_repository = Arc::new(SqliteAlbumRepository::new(self.pool.clone()));
+        self.registry
+            .register(
+                "backlog-search",
+                BacklogSearchJob::new(album_repository),
+                Schedule::Interval(60 * 60),
+            )
+            .await;
 
         // Refresh all artists metadata every 12 hours
         self.registry

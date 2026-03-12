@@ -540,6 +540,7 @@ dependencies = [
  "chorrosion-infrastructure",
  "chorrosion-metadata",
  "chrono",
+ "sqlx",
  "tokio",
  "tracing",
  "uuid",
