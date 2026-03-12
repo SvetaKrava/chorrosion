@@ -261,11 +261,12 @@ mod tests {
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteQualityProfileRepository, SqliteTrackFileRepository, SqliteTrackRepository,
     };
+    use sqlx::SqlitePool;
     use std::sync::Arc;
 
-    async fn make_test_state() -> AppState {
+    async fn make_test_pool_and_state() -> (SqlitePool, AppState) {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -276,7 +277,7 @@ mod tests {
             .run(&pool)
             .await
             .expect("migrations");
-        AppState::new(
+        let state = AppState::new(
             AppConfig::default(),
             Arc::new(SqliteArtistRepository::new(pool.clone())),
             Arc::new(SqliteAlbumRepository::new(pool.clone())),
@@ -284,8 +285,13 @@ mod tests {
             Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
-            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
-        )
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+        );
+        (pool, state)
+    }
+
+    async fn make_test_state() -> AppState {
+        make_test_pool_and_state().await.1
     }
 
     async fn create_test_artist(state: &AppState) -> chorrosion_domain::Artist {
@@ -472,5 +478,208 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_detects_below_cutoff() {
+        let (pool, state) = make_test_pool_and_state().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool);
+
+        // Set up a quality profile: FLAC is best, MP3 is worse; cutoff is FLAC
+        let mut profile = chorrosion_domain::QualityProfile::new(
+            "HD Audio",
+            vec!["FLAC".to_string(), "MP3".to_string()],
+        );
+        profile.upgrade_allowed = true;
+        profile.cutoff_quality = Some("FLAC".to_string());
+        let profile = state
+            .quality_profile_repository
+            .create(profile)
+            .await
+            .expect("create quality profile");
+
+        // Create an artist assigned to this quality profile
+        let mut artist = chorrosion_domain::Artist::new("Cutoff Artist");
+        artist.quality_profile_id = Some(profile.id);
+        let artist = state
+            .artist_repository
+            .create(artist)
+            .await
+            .expect("create artist");
+
+        // Create a monitored album (monitored = true by default in Album::new)
+        let album = state
+            .album_repository
+            .create(chorrosion_domain::Album::new(artist.id, "Below Cutoff Album"))
+            .await
+            .expect("create album");
+
+        // Create a monitored track (monitored = true by default in Track::new)
+        let track = state
+            .track_repository
+            .create(chorrosion_domain::Track::new(
+                album.id,
+                artist.id,
+                "Track One",
+            ))
+            .await
+            .expect("create track");
+
+        // Attach a track file with codec MP3 (below FLAC cutoff)
+        let mut track_file =
+            chorrosion_domain::TrackFile::new(track.id, "/music/track.mp3", 1024);
+        track_file.codec = Some("MP3".to_string());
+        track_file_repo
+            .create(track_file)
+            .await
+            .expect("create track file");
+
+        let result = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery { limit: 50, offset: 0 }),
+        )
+        .await
+        .expect("should succeed");
+
+        assert_eq!(
+            result.0.total, 1,
+            "album with MP3 file below FLAC cutoff should be listed"
+        );
+        assert_eq!(result.0.items[0].title, "Below Cutoff Album");
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_excludes_when_cutoff_met() {
+        let (pool, state) = make_test_pool_and_state().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool);
+
+        // Set up a quality profile: FLAC is best; cutoff is FLAC
+        let mut profile = chorrosion_domain::QualityProfile::new(
+            "Lossless Only",
+            vec!["FLAC".to_string(), "MP3".to_string()],
+        );
+        profile.upgrade_allowed = true;
+        profile.cutoff_quality = Some("FLAC".to_string());
+        let profile = state
+            .quality_profile_repository
+            .create(profile)
+            .await
+            .expect("create quality profile");
+
+        let mut artist = chorrosion_domain::Artist::new("Lossless Artist");
+        artist.quality_profile_id = Some(profile.id);
+        let artist = state
+            .artist_repository
+            .create(artist)
+            .await
+            .expect("create artist");
+
+        let album = state
+            .album_repository
+            .create(chorrosion_domain::Album::new(artist.id, "Meets Cutoff Album"))
+            .await
+            .expect("create album");
+
+        let track = state
+            .track_repository
+            .create(chorrosion_domain::Track::new(
+                album.id,
+                artist.id,
+                "FLAC Track",
+            ))
+            .await
+            .expect("create track");
+
+        // Attach a track file with codec matching the cutoff (case-insensitive: lowercase "flac")
+        let mut track_file =
+            chorrosion_domain::TrackFile::new(track.id, "/music/track.flac", 2048);
+        track_file.codec = Some("flac".to_string());
+        track_file_repo
+            .create(track_file)
+            .await
+            .expect("create track file");
+
+        let result = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery { limit: 50, offset: 0 }),
+        )
+        .await
+        .expect("should succeed");
+
+        assert_eq!(
+            result.0.total, 0,
+            "album with FLAC file meeting the cutoff should not be listed"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_detects_when_cutoff_not_in_allowed() {
+        // When cutoff_quality is not present in allowed_qualities (inconsistent profile),
+        // the album should be treated as cutoff-unmet rather than silently excluded.
+        let (pool, state) = make_test_pool_and_state().await;
+        let track_file_repo = SqliteTrackFileRepository::new(pool);
+
+        // Profile with cutoff_quality ("DSD") that is NOT in allowed_qualities
+        let mut profile = chorrosion_domain::QualityProfile::new(
+            "Broken Profile",
+            vec!["FLAC".to_string(), "MP3".to_string()],
+        );
+        profile.upgrade_allowed = true;
+        // Deliberately set a cutoff_quality not present in allowed_qualities
+        profile.cutoff_quality = Some("DSD".to_string());
+        let profile = state
+            .quality_profile_repository
+            .create(profile)
+            .await
+            .expect("create quality profile");
+
+        let mut artist = chorrosion_domain::Artist::new("Inconsistent Artist");
+        artist.quality_profile_id = Some(profile.id);
+        let artist = state
+            .artist_repository
+            .create(artist)
+            .await
+            .expect("create artist");
+
+        let album = state
+            .album_repository
+            .create(chorrosion_domain::Album::new(
+                artist.id,
+                "Inconsistent Cutoff Album",
+            ))
+            .await
+            .expect("create album");
+
+        let track = state
+            .track_repository
+            .create(chorrosion_domain::Track::new(
+                album.id,
+                artist.id,
+                "Some Track",
+            ))
+            .await
+            .expect("create track");
+
+        // Track file with a valid codec (FLAC) — would be fine if cutoff were valid
+        let mut track_file =
+            chorrosion_domain::TrackFile::new(track.id, "/music/track.flac", 4096);
+        track_file.codec = Some("FLAC".to_string());
+        track_file_repo
+            .create(track_file)
+            .await
+            .expect("create track file");
+
+        let result = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery { limit: 50, offset: 0 }),
+        )
+        .await
+        .expect("should succeed");
+
+        assert_eq!(
+            result.0.total, 1,
+            "album should be listed when cutoff_quality is absent from allowed_qualities"
+        );
+        assert_eq!(result.0.items[0].title, "Inconsistent Cutoff Album");
     }
 }

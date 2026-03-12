@@ -677,11 +677,12 @@ impl AlbumRepository for SqliteAlbumRepository {
         // An album is cutoff-unmet when:
         //   - It is monitored
         //   - Its artist has a quality profile with upgrade_allowed=TRUE and cutoff_quality set
-        //   - At least one monitored track file has a codec that is either unknown or
-        //     ranked lower than the cutoff in the allowed_qualities ordered list
-        //     (lower = higher index; the list is ordered best-to-worst).
+        //   - At least one monitored track file has a codec that is either unknown, ranked
+        //     lower than the cutoff in the allowed_qualities ordered list (lower = higher
+        //     index; the list is ordered best-to-worst), or whose cutoff_quality is not
+        //     found in the allowed list (treats an inconsistent profile as "needs upgrade").
         let rows = sqlx::query(
-            "SELECT DISTINCT a.* \
+            "SELECT a.* \
              FROM albums a \
              JOIN artists ar ON ar.id = a.artist_id \
              JOIN quality_profiles qp ON qp.id = ar.quality_profile_id \
@@ -691,17 +692,16 @@ impl AlbumRepository for SqliteAlbumRepository {
                AND EXISTS ( \
                  SELECT 1 FROM tracks t \
                  JOIN track_files tf ON tf.track_id = t.id \
+                 LEFT JOIN json_each(qp.allowed_qualities) je ON 1 = 1 \
                  WHERE t.album_id = a.id \
                    AND t.monitored = TRUE \
-                   AND ( \
-                     tf.codec IS NULL \
-                     OR (SELECT MIN(je.key) FROM json_each(qp.allowed_qualities) je \
-                         WHERE je.value = tf.codec) IS NULL \
-                     OR (SELECT MIN(je.key) FROM json_each(qp.allowed_qualities) je \
-                         WHERE je.value = tf.codec) \
-                        > (SELECT MIN(je.key) FROM json_each(qp.allowed_qualities) je \
-                           WHERE je.value = qp.cutoff_quality) \
-                   ) \
+                 GROUP BY tf.id \
+                 HAVING \
+                   tf.codec IS NULL \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) IS NULL \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) \
+                      > MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) \
+                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) IS NULL \
                ) \
              ORDER BY a.title LIMIT ? OFFSET ?",
         )
