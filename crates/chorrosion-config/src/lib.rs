@@ -194,9 +194,17 @@ pub struct DiscordNotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SlackNotificationConfig {
+    pub enabled: bool,
+    pub webhook_url: Option<String>,
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationsConfig {
     pub email: EmailNotificationConfig,
     pub discord: DiscordNotificationConfig,
+    pub slack: SlackNotificationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
