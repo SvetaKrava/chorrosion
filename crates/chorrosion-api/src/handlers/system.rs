@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::{
     extract::{Query, State},
     Json,
 };
-use chorrosion_application::AppState;
+use chorrosion_application::{
+    AppState, NotificationEvent, NotificationPipeline, NotificationProviderKind,
+};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, error};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{API_V1_BASE, APP_VERSION};
@@ -157,6 +161,55 @@ pub struct SystemLogsResponse {
     pub source: String,
 }
 
+/// Stable serialized representation of a notification provider kind for the API.
+/// Uses `serde(rename_all = "snake_case")` to guarantee a stable contract
+/// independent of Rust's `Debug` formatting.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationProviderKindApi {
+    Email,
+    Discord,
+    Slack,
+    Pushover,
+    Script,
+}
+
+impl TryFrom<NotificationProviderKind> for NotificationProviderKindApi {
+    type Error = ();
+
+    fn try_from(kind: NotificationProviderKind) -> Result<Self, Self::Error> {
+        match kind {
+            NotificationProviderKind::Email => Ok(Self::Email),
+            NotificationProviderKind::Discord => Ok(Self::Discord),
+            NotificationProviderKind::Slack => Ok(Self::Slack),
+            NotificationProviderKind::Pushover => Ok(Self::Pushover),
+            NotificationProviderKind::Script => Ok(Self::Script),
+            // Noop is filtered out by provider_configs() and never reaches the API layer
+            NotificationProviderKind::Noop => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationProviderStatusResponse {
+    pub kind: NotificationProviderKindApi,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationStatusResponse {
+    pub framework: String,
+    pub providers: Vec<NotificationProviderStatusResponse>,
+    pub configured_provider_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NotificationTestResponse {
+    pub status: String,
+    pub dispatched: usize,
+    pub message: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/system/status",
@@ -224,6 +277,79 @@ pub async fn get_system_logs(
         total: 0,
         source: "job_logs".to_string(),
     })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/notifications",
+    responses(
+        (status = 200, description = "Notification framework status", body = NotificationStatusResponse)
+    ),
+    tag = "system"
+)]
+pub async fn get_system_notifications(
+    State(_state): State<AppState>,
+) -> Json<NotificationStatusResponse> {
+    debug!(target: "api", "fetching notification framework status");
+
+    let pipeline = NotificationPipeline::default();
+    let providers = pipeline
+        .provider_configs()
+        .into_iter()
+        .map(|p| {
+            let kind = NotificationProviderKindApi::try_from(p.kind)
+                .expect("BUG: Noop provider should have been filtered by provider_configs()");
+            NotificationProviderStatusResponse {
+                kind,
+                enabled: p.enabled,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Json(NotificationStatusResponse {
+        framework: "baseline".to_string(),
+        configured_provider_count: providers.len(),
+        providers,
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/system/notifications/test",
+    responses(
+        (status = 202, description = "Test notification dispatched", body = NotificationTestResponse),
+        (status = 500, description = "Dispatch failed", body = NotificationTestResponse)
+    ),
+    tag = "system"
+)]
+pub async fn post_system_notifications_test(State(_state): State<AppState>) -> impl IntoResponse {
+    debug!(target: "api", "dispatching notification test event");
+
+    let pipeline = NotificationPipeline::default();
+    let event = NotificationEvent::test();
+    match pipeline.dispatch(&event).await {
+        Ok(dispatched) => (
+            StatusCode::ACCEPTED,
+            Json(NotificationTestResponse {
+                status: "accepted".to_string(),
+                dispatched,
+                message: "notification test event dispatched".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(err) => {
+            error!(target: "api", %err, "notification test dispatch failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(NotificationTestResponse {
+                    status: "error".to_string(),
+                    dispatched: 0,
+                    message: format!("dispatch failed: {err}"),
+                }),
+            )
+                .into_response()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -410,5 +536,31 @@ mod tests {
         assert_eq!(resp.total, 0);
         assert!(resp.items.is_empty());
         assert_eq!(resp.source, "job_logs");
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_returns_framework_status() {
+        let state = make_test_state().await;
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.framework, "baseline");
+        // Default pipeline has only a noop provider which is excluded from the public status
+        assert_eq!(resp.configured_provider_count, 0);
+        assert!(resp.providers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn post_system_notifications_test_returns_accepted() {
+        let state = make_test_state().await;
+        let response = post_system_notifications_test(State(state))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let resp: NotificationTestResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(resp.status, "accepted");
+        // Default pipeline has no real providers; dispatched count is 0
+        assert_eq!(resp.dispatched, 0);
     }
 }

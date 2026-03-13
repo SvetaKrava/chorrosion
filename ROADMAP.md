@@ -360,7 +360,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 7.3 Notifications
 
-- [ ] Notification framework
+- [x] Notification framework (Issue #238) ✓
 - [ ] Email notifications
 - [ ] Discord webhook
 - [ ] Slack webhook
