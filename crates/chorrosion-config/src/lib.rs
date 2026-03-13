@@ -179,21 +179,11 @@ pub struct MetadataConfig {
     pub cover_art: CoverArtConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmailNotificationConfig {
     pub enabled: bool,
     pub from: Option<String>,
     pub to: Vec<String>,
-}
-
-impl Default for EmailNotificationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            from: None,
-            to: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

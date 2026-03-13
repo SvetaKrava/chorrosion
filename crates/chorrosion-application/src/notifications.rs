@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -85,14 +84,23 @@ pub struct EmailNotificationProvider {
 impl EmailNotificationProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let email = &config.notifications.email;
-        let has_recipients = !email.to.is_empty();
+        let to = sanitize_email_list(&email.to);
+        let has_recipients = !to.is_empty();
         let has_sender = email.from.as_ref().is_some_and(|v| !v.trim().is_empty());
         Self {
             enabled: email.enabled && has_recipients && has_sender,
             from: email.from.clone(),
-            to: email.to.clone(),
+            to,
         }
     }
+}
+
+fn sanitize_email_list(emails: &[String]) -> Vec<String> {
+    emails
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 #[async_trait]
@@ -108,11 +116,11 @@ impl NotificationProvider for EmailNotificationProvider {
     async fn send(&self, event: &NotificationEvent) -> Result<()> {
         // Baseline implementation: log the outbound envelope and content.
         // SMTP transport wiring will be implemented in a dedicated follow-up task.
-        info!(
+        tracing::trace!(
             target: "application",
             kind = ?self.kind(),
-            from = %self.from.clone().unwrap_or_default(),
-            recipients = ?self.to,
+            has_from = self.from.is_some(),
+            recipient_count = self.to.len(),
             title = %event.title,
             "email notification dispatched"
         );
@@ -291,5 +299,28 @@ mod tests {
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(!providers[0].enabled);
+    }
+
+    #[test]
+    fn from_config_disables_email_when_to_is_whitespace_only() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                email: chorrosion_config::EmailNotificationConfig {
+                    enabled: true,
+                    from: Some("noreply@example.com".to_string()),
+                    to: vec!["   ".to_string(), "\t".to_string()],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].kind, NotificationProviderKind::Email);
+        assert!(
+            !providers[0].enabled,
+            "whitespace-only recipients should not enable the provider"
+        );
     }
 }

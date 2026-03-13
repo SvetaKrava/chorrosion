@@ -308,7 +308,7 @@ pub async fn get_system_notifications(
 
     Json(NotificationStatusResponse {
         framework: "baseline".to_string(),
-        configured_provider_count: providers.len(),
+        configured_provider_count: providers.iter().filter(|p| p.enabled).count(),
         providers,
     })
 }
@@ -544,7 +544,8 @@ mod tests {
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
         // Default pipeline includes an email provider but it is disabled unless configured.
-        assert_eq!(resp.configured_provider_count, 1);
+        // configured_provider_count reflects only enabled providers.
+        assert_eq!(resp.configured_provider_count, 0);
         assert_eq!(resp.providers.len(), 1);
         assert!(matches!(
             resp.providers[0].kind,
