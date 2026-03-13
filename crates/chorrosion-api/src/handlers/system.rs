@@ -543,15 +543,20 @@ mod tests {
         let state = make_test_state().await;
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
-        // Default pipeline includes an email provider but it is disabled unless configured.
+        // Default pipeline includes email + discord providers, both disabled unless configured.
         // enabled_provider_count reflects only enabled providers.
         assert_eq!(resp.enabled_provider_count, 0);
-        assert_eq!(resp.providers.len(), 1);
+        assert_eq!(resp.providers.len(), 2);
         assert!(matches!(
             resp.providers[0].kind,
             NotificationProviderKindApi::Email
         ));
         assert!(!resp.providers[0].enabled);
+        assert!(matches!(
+            resp.providers[1].kind,
+            NotificationProviderKindApi::Discord
+        ));
+        assert!(!resp.providers[1].enabled);
     }
 
     #[tokio::test]
@@ -581,6 +586,7 @@ mod tests {
                     from: Some("noreply@example.com".to_string()),
                     to: vec!["ops@example.com".to_string()],
                 },
+                ..Default::default()
             },
             ..AppConfig::default()
         })
@@ -596,5 +602,32 @@ mod tests {
         let resp: NotificationTestResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(resp.status, "accepted");
         assert_eq!(resp.dispatched, 1);
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_marks_discord_enabled_when_configured() {
+        use chorrosion_config::{AppConfig, DiscordNotificationConfig, NotificationsConfig};
+
+        let state = make_test_state_with_config(AppConfig {
+            notifications: NotificationsConfig {
+                discord: DiscordNotificationConfig {
+                    enabled: true,
+                    webhook_url: Some("https://discord.example/webhook".to_string()),
+                    username: Some("Chorrosion".to_string()),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        })
+        .await;
+
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.enabled_provider_count, 1);
+        let discord = resp
+            .providers
+            .iter()
+            .find(|p| matches!(p.kind, NotificationProviderKindApi::Discord))
+            .expect("discord provider should be present");
+        assert!(discord.enabled);
     }
 }
