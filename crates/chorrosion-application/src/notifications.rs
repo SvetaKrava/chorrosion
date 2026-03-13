@@ -85,11 +85,17 @@ impl EmailNotificationProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let email = &config.notifications.email;
         let to = sanitize_email_list(&email.to);
+        let from = email
+            .from
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         let has_recipients = !to.is_empty();
-        let has_sender = email.from.as_ref().is_some_and(|v| !v.trim().is_empty());
+        let has_sender = from.is_some();
         Self {
             enabled: email.enabled && has_recipients && has_sender,
-            from: email.from.clone(),
+            from,
             to,
         }
     }
