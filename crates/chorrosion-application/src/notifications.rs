@@ -41,6 +41,7 @@ pub enum NotificationProviderKind {
     Slack,
     Pushover,
     Script,
+    Noop,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -61,11 +62,11 @@ pub struct NoopNotificationProvider;
 #[async_trait]
 impl NotificationProvider for NoopNotificationProvider {
     fn kind(&self) -> NotificationProviderKind {
-        NotificationProviderKind::Script
+        NotificationProviderKind::Noop
     }
 
     fn enabled(&self) -> bool {
-        true
+        false
     }
 
     async fn send(&self, _event: &NotificationEvent) -> Result<()> {
@@ -85,9 +86,16 @@ impl NotificationPipeline {
     pub fn provider_configs(&self) -> Vec<NotificationProviderConfig> {
         self.providers
             .iter()
-            .map(|p| NotificationProviderConfig {
-                kind: p.kind(),
-                enabled: p.enabled(),
+            .filter_map(|p| {
+                let kind = p.kind();
+                if matches!(kind, NotificationProviderKind::Noop) {
+                    None
+                } else {
+                    Some(NotificationProviderConfig {
+                        kind,
+                        enabled: p.enabled(),
+                    })
+                }
             })
             .collect()
     }
@@ -120,6 +128,10 @@ impl Default for NotificationPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
 
     struct DisabledProvider;
 
@@ -138,27 +150,52 @@ mod tests {
         }
     }
 
+    struct EnabledProvider {
+        sent: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl NotificationProvider for EnabledProvider {
+        fn kind(&self) -> NotificationProviderKind {
+            NotificationProviderKind::Discord
+        }
+
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, _event: &NotificationEvent) -> Result<()> {
+            self.sent.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
     #[tokio::test]
     async fn dispatch_counts_enabled_providers() {
+        let sent = Arc::new(AtomicBool::new(false));
         let pipeline = NotificationPipeline::new(vec![
             Box::new(NoopNotificationProvider),
             Box::new(DisabledProvider),
+            Box::new(EnabledProvider { sent: sent.clone() }),
         ]);
-        let sent = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
-        assert_eq!(sent, 1);
+        let count = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(count, 1, "only enabled providers should be counted");
+        assert!(
+            sent.load(Ordering::SeqCst),
+            "enabled provider's send() should have been called"
+        );
     }
 
     #[test]
-    fn provider_configs_reflect_pipeline() {
+    fn provider_configs_excludes_noop_providers() {
         let pipeline = NotificationPipeline::new(vec![
             Box::new(NoopNotificationProvider),
             Box::new(DisabledProvider),
         ]);
         let configs = pipeline.provider_configs();
-        assert_eq!(configs.len(), 2);
-        assert_eq!(configs[0].kind, NotificationProviderKind::Script);
-        assert!(configs[0].enabled);
-        assert_eq!(configs[1].kind, NotificationProviderKind::Email);
-        assert!(!configs[1].enabled);
+        // Noop provider is filtered from configs; only real providers are included
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].kind, NotificationProviderKind::Email);
+        assert!(!configs[0].enabled);
     }
 }
