@@ -173,7 +173,6 @@ impl SlackWebhookProvider {
                     _ => {
                         tracing::warn!(
                             target: "application",
-                            url = %url_str,
                             "Slack webhook_url is not a valid http/https URL; provider will be disabled"
                         );
                         None
