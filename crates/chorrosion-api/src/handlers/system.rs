@@ -296,13 +296,13 @@ pub async fn get_system_notifications(
     let providers = pipeline
         .provider_configs()
         .into_iter()
-        .filter_map(|p| {
-            NotificationProviderKindApi::try_from(p.kind)
-                .ok()
-                .map(|kind| NotificationProviderStatusResponse {
-                    kind,
-                    enabled: p.enabled,
-                })
+        .map(|p| {
+            let kind = NotificationProviderKindApi::try_from(p.kind)
+                .expect("BUG: Noop provider should have been filtered by provider_configs()");
+            NotificationProviderStatusResponse {
+                kind,
+                enabled: p.enabled,
+            }
         })
         .collect::<Vec<_>>();
 
