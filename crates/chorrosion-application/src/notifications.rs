@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use anyhow::Result;
 use async_trait::async_trait;
+use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -74,6 +75,65 @@ impl NotificationProvider for NoopNotificationProvider {
     }
 }
 
+pub struct EmailNotificationProvider {
+    enabled: bool,
+    from: Option<String>,
+    to: Vec<String>,
+}
+
+impl EmailNotificationProvider {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let email = &config.notifications.email;
+        let to = sanitize_email_list(&email.to);
+        let from = email
+            .from
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let has_recipients = !to.is_empty();
+        let has_sender = from.is_some();
+        Self {
+            enabled: email.enabled && has_recipients && has_sender,
+            from,
+            to,
+        }
+    }
+}
+
+fn sanitize_email_list(emails: &[String]) -> Vec<String> {
+    emails
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+#[async_trait]
+impl NotificationProvider for EmailNotificationProvider {
+    fn kind(&self) -> NotificationProviderKind {
+        NotificationProviderKind::Email
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    async fn send(&self, event: &NotificationEvent) -> Result<()> {
+        // Baseline implementation: log the outbound envelope and content.
+        // SMTP transport wiring will be implemented in a dedicated follow-up task.
+        tracing::trace!(
+            target: "application",
+            kind = ?self.kind(),
+            has_from = self.from.is_some(),
+            recipient_count = self.to.len(),
+            title = %event.title,
+            "email notification dispatched"
+        );
+        Ok(())
+    }
+}
+
 pub struct NotificationPipeline {
     providers: Vec<Box<dyn NotificationProvider>>,
 }
@@ -114,6 +174,14 @@ impl NotificationPipeline {
             dispatched += 1;
         }
         Ok(dispatched)
+    }
+
+    pub fn from_config(config: &AppConfig) -> Self {
+        let providers: Vec<Box<dyn NotificationProvider>> = vec![
+            Box::new(EmailNotificationProvider::from_config(config)),
+            Box::new(NoopNotificationProvider),
+        ];
+        Self { providers }
     }
 }
 
@@ -197,5 +265,68 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].kind, NotificationProviderKind::Email);
         assert!(!configs[0].enabled);
+    }
+
+    #[test]
+    fn from_config_enables_email_when_fully_configured() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                email: chorrosion_config::EmailNotificationConfig {
+                    enabled: true,
+                    from: Some("noreply@example.com".to_string()),
+                    to: vec!["user@example.com".to_string()],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].kind, NotificationProviderKind::Email);
+        assert!(providers[0].enabled);
+    }
+
+    #[test]
+    fn from_config_disables_email_when_missing_fields() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                email: chorrosion_config::EmailNotificationConfig {
+                    enabled: true,
+                    from: None,
+                    to: vec![],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].kind, NotificationProviderKind::Email);
+        assert!(!providers[0].enabled);
+    }
+
+    #[test]
+    fn from_config_disables_email_when_to_is_whitespace_only() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                email: chorrosion_config::EmailNotificationConfig {
+                    enabled: true,
+                    from: Some("noreply@example.com".to_string()),
+                    to: vec!["   ".to_string(), "\t".to_string()],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].kind, NotificationProviderKind::Email);
+        assert!(
+            !providers[0].enabled,
+            "whitespace-only recipients should not enable the provider"
+        );
     }
 }

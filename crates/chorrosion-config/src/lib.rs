@@ -180,6 +180,18 @@ pub struct MetadataConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmailNotificationConfig {
+    pub enabled: bool,
+    pub from: Option<String>,
+    pub to: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationsConfig {
+    pub email: EmailNotificationConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
     pub http: HttpConfig,
@@ -187,6 +199,7 @@ pub struct AppConfig {
     pub scheduler: SchedulerConfig,
     pub auth: AuthConfig,
     pub metadata: MetadataConfig,
+    pub notifications: NotificationsConfig,
 }
 
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).

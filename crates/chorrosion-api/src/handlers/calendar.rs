@@ -284,11 +284,7 @@ X-WR-CALNAME:Chorrosion Music Releases\r\n",
         let artist_name = match artist_cache.entry(artist_id_str) {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => {
-                let name = match state
-                    .artist_repository
-                    .get_by_id(e.key().clone())
-                    .await
-                {
+                let name = match state.artist_repository.get_by_id(e.key().clone()).await {
                     Ok(artist) => artist
                         .map(|a| a.name)
                         .unwrap_or_else(|| "Unknown Artist".to_string()),

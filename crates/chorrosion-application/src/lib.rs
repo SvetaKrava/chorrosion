@@ -52,8 +52,9 @@ pub use matching_precedence::{
     PrecedenceMatchingResult,
 };
 pub use notifications::{
-    NoopNotificationProvider, NotificationEvent, NotificationEventKind, NotificationPipeline,
-    NotificationProvider, NotificationProviderConfig, NotificationProviderKind,
+    EmailNotificationProvider, NoopNotificationProvider, NotificationEvent, NotificationEventKind,
+    NotificationPipeline, NotificationProvider, NotificationProviderConfig,
+    NotificationProviderKind,
 };
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,

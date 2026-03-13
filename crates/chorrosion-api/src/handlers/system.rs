@@ -200,7 +200,7 @@ pub struct NotificationProviderStatusResponse {
 pub struct NotificationStatusResponse {
     pub framework: String,
     pub providers: Vec<NotificationProviderStatusResponse>,
-    pub configured_provider_count: usize,
+    pub enabled_provider_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -288,11 +288,11 @@ pub async fn get_system_logs(
     tag = "system"
 )]
 pub async fn get_system_notifications(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Json<NotificationStatusResponse> {
     debug!(target: "api", "fetching notification framework status");
 
-    let pipeline = NotificationPipeline::default();
+    let pipeline = NotificationPipeline::from_config(&state.config);
     let providers = pipeline
         .provider_configs()
         .into_iter()
@@ -308,7 +308,7 @@ pub async fn get_system_notifications(
 
     Json(NotificationStatusResponse {
         framework: "baseline".to_string(),
-        configured_provider_count: providers.len(),
+        enabled_provider_count: providers.iter().filter(|p| p.enabled).count(),
         providers,
     })
 }
@@ -322,10 +322,10 @@ pub async fn get_system_notifications(
     ),
     tag = "system"
 )]
-pub async fn post_system_notifications_test(State(_state): State<AppState>) -> impl IntoResponse {
+pub async fn post_system_notifications_test(State(state): State<AppState>) -> impl IntoResponse {
     debug!(target: "api", "dispatching notification test event");
 
-    let pipeline = NotificationPipeline::default();
+    let pipeline = NotificationPipeline::from_config(&state.config);
     let event = NotificationEvent::test();
     match pipeline.dispatch(&event).await {
         Ok(dispatched) => (
@@ -543,9 +543,15 @@ mod tests {
         let state = make_test_state().await;
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
-        // Default pipeline has only a noop provider which is excluded from the public status
-        assert_eq!(resp.configured_provider_count, 0);
-        assert!(resp.providers.is_empty());
+        // Default pipeline includes an email provider but it is disabled unless configured.
+        // enabled_provider_count reflects only enabled providers.
+        assert_eq!(resp.enabled_provider_count, 0);
+        assert_eq!(resp.providers.len(), 1);
+        assert!(matches!(
+            resp.providers[0].kind,
+            NotificationProviderKindApi::Email
+        ));
+        assert!(!resp.providers[0].enabled);
     }
 
     #[tokio::test]
@@ -560,7 +566,35 @@ mod tests {
             .unwrap();
         let resp: NotificationTestResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(resp.status, "accepted");
-        // Default pipeline has no real providers; dispatched count is 0
+        // Default email provider is disabled without sender/recipient config.
         assert_eq!(resp.dispatched, 0);
+    }
+
+    #[tokio::test]
+    async fn post_system_notifications_test_dispatches_when_email_configured() {
+        use chorrosion_config::{AppConfig, EmailNotificationConfig, NotificationsConfig};
+
+        let state = make_test_state_with_config(AppConfig {
+            notifications: NotificationsConfig {
+                email: EmailNotificationConfig {
+                    enabled: true,
+                    from: Some("noreply@example.com".to_string()),
+                    to: vec!["ops@example.com".to_string()],
+                },
+            },
+            ..AppConfig::default()
+        })
+        .await;
+
+        let response = post_system_notifications_test(State(state))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let resp: NotificationTestResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(resp.status, "accepted");
+        assert_eq!(resp.dispatched, 1);
     }
 }
