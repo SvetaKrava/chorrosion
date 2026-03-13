@@ -179,6 +179,28 @@ pub struct MetadataConfig {
     pub cover_art: CoverArtConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailNotificationConfig {
+    pub enabled: bool,
+    pub from: Option<String>,
+    pub to: Vec<String>,
+}
+
+impl Default for EmailNotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            from: None,
+            to: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationsConfig {
+    pub email: EmailNotificationConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
@@ -187,6 +209,7 @@ pub struct AppConfig {
     pub scheduler: SchedulerConfig,
     pub auth: AuthConfig,
     pub metadata: MetadataConfig,
+    pub notifications: NotificationsConfig,
 }
 
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).
