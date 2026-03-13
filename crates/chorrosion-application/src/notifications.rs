@@ -3,6 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +82,44 @@ pub struct EmailNotificationProvider {
     to: Vec<String>,
 }
 
+pub struct DiscordWebhookProvider {
+    enabled: bool,
+    webhook_url: Option<String>,
+    username: Option<String>,
+    client: Client,
+}
+
+impl DiscordWebhookProvider {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let discord = &config.notifications.discord;
+        let webhook_url = discord
+            .webhook_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let username = discord
+            .username
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        Self {
+            enabled: discord.enabled && webhook_url.is_some(),
+            webhook_url,
+            username,
+            client: Client::new(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DiscordWebhookPayload {
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+}
+
 impl EmailNotificationProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let email = &config.notifications.email;
@@ -134,6 +173,44 @@ impl NotificationProvider for EmailNotificationProvider {
     }
 }
 
+#[async_trait]
+impl NotificationProvider for DiscordWebhookProvider {
+    fn kind(&self) -> NotificationProviderKind {
+        NotificationProviderKind::Discord
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    async fn send(&self, event: &NotificationEvent) -> Result<()> {
+        let Some(webhook_url) = &self.webhook_url else {
+            return Ok(());
+        };
+
+        let payload = DiscordWebhookPayload {
+            content: format!("{}\n{}", event.title, event.body),
+            username: self.username.clone(),
+        };
+
+        self.client
+            .post(webhook_url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        tracing::trace!(
+            target: "application",
+            kind = ?self.kind(),
+            title = %event.title,
+            "discord webhook notification dispatched"
+        );
+
+        Ok(())
+    }
+}
+
 pub struct NotificationPipeline {
     providers: Vec<Box<dyn NotificationProvider>>,
 }
@@ -179,6 +256,7 @@ impl NotificationPipeline {
     pub fn from_config(config: &AppConfig) -> Self {
         let providers: Vec<Box<dyn NotificationProvider>> = vec![
             Box::new(EmailNotificationProvider::from_config(config)),
+            Box::new(DiscordWebhookProvider::from_config(config)),
             Box::new(NoopNotificationProvider),
         ];
         Self { providers }
@@ -199,6 +277,10 @@ mod tests {
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
+    };
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
     };
 
     struct DisabledProvider;
@@ -276,15 +358,18 @@ mod tests {
                     from: Some("noreply@example.com".to_string()),
                     to: vec!["user@example.com".to_string()],
                 },
+                ..Default::default()
             },
             ..AppConfig::default()
         };
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 1);
+        assert_eq!(providers.len(), 2);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(providers[0].enabled);
+        assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
+        assert!(!providers[1].enabled);
     }
 
     #[test]
@@ -296,15 +381,18 @@ mod tests {
                     from: None,
                     to: vec![],
                 },
+                ..Default::default()
             },
             ..AppConfig::default()
         };
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 1);
+        assert_eq!(providers.len(), 2);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(!providers[0].enabled);
+        assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
+        assert!(!providers[1].enabled);
     }
 
     #[test]
@@ -316,17 +404,47 @@ mod tests {
                     from: Some("noreply@example.com".to_string()),
                     to: vec!["   ".to_string(), "\t".to_string()],
                 },
+                ..Default::default()
             },
             ..AppConfig::default()
         };
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 1);
+        assert_eq!(providers.len(), 2);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(
             !providers[0].enabled,
             "whitespace-only recipients should not enable the provider"
         );
+        assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
+        assert!(!providers[1].enabled);
+    }
+
+    #[tokio::test]
+    async fn from_config_dispatches_to_discord_webhook_when_enabled() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/webhooks/test"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                discord: chorrosion_config::DiscordNotificationConfig {
+                    enabled: true,
+                    webhook_url: Some(format!("{}/api/webhooks/test", server.uri())),
+                    username: Some("Chorrosion".to_string()),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
     }
 }

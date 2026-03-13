@@ -187,8 +187,16 @@ pub struct EmailNotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DiscordNotificationConfig {
+    pub enabled: bool,
+    pub webhook_url: Option<String>,
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationsConfig {
     pub email: EmailNotificationConfig,
+    pub discord: DiscordNotificationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

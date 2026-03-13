@@ -52,8 +52,8 @@ pub use matching_precedence::{
     PrecedenceMatchingResult,
 };
 pub use notifications::{
-    EmailNotificationProvider, NoopNotificationProvider, NotificationEvent, NotificationEventKind,
-    NotificationPipeline, NotificationProvider, NotificationProviderConfig,
+    DiscordWebhookProvider, EmailNotificationProvider, NoopNotificationProvider, NotificationEvent,
+    NotificationEventKind, NotificationPipeline, NotificationProvider, NotificationProviderConfig,
     NotificationProviderKind,
 };
 pub use release_parsing::{
