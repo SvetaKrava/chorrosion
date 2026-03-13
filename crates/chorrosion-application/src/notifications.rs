@@ -3,7 +3,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
-use reqwest::Client;
+use reqwest::{Client, Url};
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,18 +98,51 @@ impl DiscordWebhookProvider {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(str::to_string);
+            .and_then(|url_str| {
+                let parsed = Url::parse(url_str).ok();
+                match parsed {
+                    Some(ref p)
+                        if matches!(p.scheme(), "http" | "https") && p.host().is_some() =>
+                    {
+                        Some(url_str.to_string())
+                    }
+                    _ => {
+                        tracing::warn!(
+                            target: "application",
+                            url = %url_str,
+                            "Discord webhook_url is not a valid http/https URL; provider will be disabled"
+                        );
+                        None
+                    }
+                }
+            });
         let username = discord
             .username
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        let client = Client::builder()
+            .user_agent(concat!(
+                "chorrosion/",
+                env!("CARGO_PKG_VERSION"),
+                " (+https://github.com/SvetaKrava/chorrosion)"
+            ))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|error| {
+                tracing::debug!(
+                    target: "application",
+                    ?error,
+                    "Failed to build Discord webhook HTTP client with custom settings, falling back to default"
+                );
+                Client::new()
+            });
         Self {
             enabled: discord.enabled && webhook_url.is_some(),
             webhook_url,
             username,
-            client: Client::new(),
+            client,
         }
     }
 }
@@ -446,5 +480,37 @@ mod tests {
         let pipeline = NotificationPipeline::from_config(&config);
         let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
         assert_eq!(dispatched, 1);
+    }
+
+    #[test]
+    fn from_config_disables_discord_when_webhook_url_is_invalid() {
+        for bad_url in &[
+            "not-a-url",
+            "ftp://discord.com/webhooks/test",
+            "discord.com/webhooks/test",
+        ] {
+            let config = AppConfig {
+                notifications: chorrosion_config::NotificationsConfig {
+                    discord: chorrosion_config::DiscordNotificationConfig {
+                        enabled: true,
+                        webhook_url: Some(bad_url.to_string()),
+                        username: None,
+                    },
+                    ..Default::default()
+                },
+                ..AppConfig::default()
+            };
+
+            let pipeline = NotificationPipeline::from_config(&config);
+            let providers = pipeline.provider_configs();
+            let discord = providers
+                .iter()
+                .find(|p| p.kind == NotificationProviderKind::Discord)
+                .expect("discord provider should be in configs");
+            assert!(
+                !discord.enabled,
+                "Discord provider should be disabled for invalid URL: {bad_url}"
+            );
+        }
     }
 }
