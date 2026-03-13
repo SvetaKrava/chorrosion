@@ -116,7 +116,6 @@ impl DiscordWebhookProvider {
                     _ => {
                         tracing::warn!(
                             target: "application",
-                            url = %url_str,
                             "Discord webhook_url is not a valid http/https URL; provider will be disabled"
                         );
                         None
