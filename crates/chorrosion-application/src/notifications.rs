@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,6 +104,13 @@ pub struct PushoverProvider {
     user_key: Option<String>,
     api_url: String,
     client: Client,
+}
+
+pub struct ScriptNotificationProvider {
+    enabled: bool,
+    command: Option<String>,
+    args: Vec<String>,
+    working_dir: Option<String>,
 }
 
 impl DiscordWebhookProvider {
@@ -283,6 +291,37 @@ impl PushoverProvider {
             user_key,
             api_url,
             client,
+        }
+    }
+}
+
+impl ScriptNotificationProvider {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let script = &config.notifications.script;
+        let command = script
+            .command
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let args = script
+            .args
+            .iter()
+            .map(|arg| arg.trim().to_string())
+            .filter(|arg| !arg.is_empty())
+            .collect::<Vec<_>>();
+        let working_dir = script
+            .working_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        Self {
+            enabled: script.enabled && command.is_some(),
+            command,
+            args,
+            working_dir,
         }
     }
 }
@@ -478,6 +517,49 @@ impl NotificationProvider for PushoverProvider {
     }
 }
 
+#[async_trait]
+impl NotificationProvider for ScriptNotificationProvider {
+    fn kind(&self) -> NotificationProviderKind {
+        NotificationProviderKind::Script
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    async fn send(&self, event: &NotificationEvent) -> Result<()> {
+        let Some(command) = &self.command else {
+            return Ok(());
+        };
+
+        let mut cmd = ProcessCommand::new(command);
+        cmd.args(&self.args);
+        if let Some(dir) = &self.working_dir {
+            cmd.current_dir(dir);
+        }
+        cmd.env("CHORROSION_NOTIFICATION_KIND", format!("{:?}", event.kind));
+        cmd.env("CHORROSION_NOTIFICATION_TITLE", &event.title);
+        cmd.env("CHORROSION_NOTIFICATION_BODY", &event.body);
+        cmd.env(
+            "CHORROSION_NOTIFICATION_OCCURRED_AT",
+            event.occurred_at.to_rfc3339(),
+        );
+
+        let status = cmd.status()?;
+        if !status.success() {
+            return Err(anyhow!("notification script exited with status {}", status));
+        }
+
+        tracing::trace!(
+            target: "application",
+            kind = ?self.kind(),
+            command = %command,
+            "custom script notification dispatched"
+        );
+        Ok(())
+    }
+}
+
 pub struct NotificationPipeline {
     providers: Vec<Box<dyn NotificationProvider>>,
 }
@@ -526,6 +608,7 @@ impl NotificationPipeline {
             Box::new(DiscordWebhookProvider::from_config(config)),
             Box::new(SlackWebhookProvider::from_config(config)),
             Box::new(PushoverProvider::from_config(config)),
+            Box::new(ScriptNotificationProvider::from_config(config)),
             Box::new(NoopNotificationProvider),
         ];
         Self { providers }
@@ -634,7 +717,7 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 4);
+        assert_eq!(providers.len(), 5);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(providers[0].enabled);
         assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
@@ -643,6 +726,8 @@ mod tests {
         assert!(!providers[2].enabled);
         assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
         assert!(!providers[3].enabled);
+        assert_eq!(providers[4].kind, NotificationProviderKind::Script);
+        assert!(!providers[4].enabled);
     }
 
     #[test]
@@ -661,7 +746,7 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 4);
+        assert_eq!(providers.len(), 5);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(!providers[0].enabled);
         assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
@@ -670,6 +755,8 @@ mod tests {
         assert!(!providers[2].enabled);
         assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
         assert!(!providers[3].enabled);
+        assert_eq!(providers[4].kind, NotificationProviderKind::Script);
+        assert!(!providers[4].enabled);
     }
 
     #[test]
@@ -688,7 +775,7 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 4);
+        assert_eq!(providers.len(), 5);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(
             !providers[0].enabled,
@@ -700,6 +787,8 @@ mod tests {
         assert!(!providers[2].enabled);
         assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
         assert!(!providers[3].enabled);
+        assert_eq!(providers[4].kind, NotificationProviderKind::Script);
+        assert!(!providers[4].enabled);
     }
 
     #[tokio::test]
@@ -903,6 +992,86 @@ mod tests {
             .find(|p| p.kind == NotificationProviderKind::Pushover)
             .expect("pushover provider should be in configs");
         assert!(!pushover.enabled);
+    }
+
+    #[test]
+    fn from_config_enables_script_when_command_present() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some("echo".to_string()),
+                    args: vec!["hello".to_string()],
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let script = pipeline
+            .provider_configs()
+            .into_iter()
+            .find(|p| p.kind == NotificationProviderKind::Script)
+            .expect("script provider should be in configs");
+        assert!(script.enabled);
+    }
+
+    #[tokio::test]
+    async fn from_config_dispatches_to_script_when_enabled() {
+        let (command, args) = if cfg!(windows) {
+            (
+                "cmd".to_string(),
+                vec!["/C".to_string(), "exit 0".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exit 0".to_string()],
+            )
+        };
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some(command),
+                    args,
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
+    }
+
+    #[test]
+    fn from_config_disables_script_when_command_missing() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: None,
+                    args: vec![],
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let script = pipeline
+            .provider_configs()
+            .into_iter()
+            .find(|p| p.kind == NotificationProviderKind::Script)
+            .expect("script provider should be in configs");
+        assert!(!script.enabled);
     }
 
     #[test]

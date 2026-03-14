@@ -543,11 +543,11 @@ mod tests {
         let state = make_test_state().await;
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
-        // Default pipeline includes email + discord + slack + pushover providers,
+        // Default pipeline includes email + discord + slack + pushover + script providers,
         // all disabled unless configured.
         // enabled_provider_count reflects only enabled providers.
         assert_eq!(resp.enabled_provider_count, 0);
-        assert_eq!(resp.providers.len(), 4);
+        assert_eq!(resp.providers.len(), 5);
         assert!(matches!(
             resp.providers[0].kind,
             NotificationProviderKindApi::Email
@@ -568,6 +568,11 @@ mod tests {
             NotificationProviderKindApi::Pushover
         ));
         assert!(!resp.providers[3].enabled);
+        assert!(matches!(
+            resp.providers[4].kind,
+            NotificationProviderKindApi::Script
+        ));
+        assert!(!resp.providers[4].enabled);
     }
 
     #[tokio::test]
@@ -695,5 +700,33 @@ mod tests {
             .find(|p| matches!(p.kind, NotificationProviderKindApi::Pushover))
             .expect("pushover provider should be present");
         assert!(pushover.enabled);
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_marks_script_enabled_when_configured() {
+        use chorrosion_config::{AppConfig, NotificationsConfig, ScriptNotificationConfig};
+
+        let state = make_test_state_with_config(AppConfig {
+            notifications: NotificationsConfig {
+                script: ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some("echo".to_string()),
+                    args: vec!["test".to_string()],
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        })
+        .await;
+
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.enabled_provider_count, 1);
+        let script = resp
+            .providers
+            .iter()
+            .find(|p| matches!(p.kind, NotificationProviderKindApi::Script))
+            .expect("script provider should be present");
+        assert!(script.enabled);
     }
 }

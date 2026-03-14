@@ -209,11 +209,20 @@ pub struct PushoverNotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScriptNotificationConfig {
+    pub enabled: bool,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub working_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationsConfig {
     pub email: EmailNotificationConfig,
     pub discord: DiscordNotificationConfig,
     pub slack: SlackNotificationConfig,
     pub pushover: PushoverNotificationConfig,
+    pub script: ScriptNotificationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
