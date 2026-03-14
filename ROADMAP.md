@@ -365,7 +365,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Discord webhook (Issue #244) ✓
 - [x] Slack webhook (Issue #247) ✓
 - [x] Pushover integration (Issue #250) ✓
-- [ ] Custom scripts support
+- [x] Custom scripts support (Issue #253) ✓
 
 ### 7.4 Lists Integration
 
