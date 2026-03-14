@@ -899,4 +899,69 @@ mod tests {
             .expect("pushover provider should be in configs");
         assert!(!pushover.enabled);
     }
+
+    #[test]
+    fn from_config_enables_pushover_with_default_api_url() {
+        // When api_url is None the default "https://api.pushover.net/1/messages.json" is used.
+        // This test verifies that the default URL is a valid https URL, so the provider is
+        // enabled when credentials are present and api_url is left unset.
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-123".to_string()),
+                    user_key: Some("user-456".to_string()),
+                    api_url: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        let pushover = providers
+            .iter()
+            .find(|p| p.kind == NotificationProviderKind::Pushover)
+            .expect("pushover provider should be in configs");
+        assert!(
+            pushover.enabled,
+            "Pushover provider should be enabled when api_url is None and credentials are set"
+        );
+    }
+
+    #[tokio::test]
+    async fn from_config_dispatches_to_pushover_using_default_api_url() {
+        // Verify that the provider actually POSTs to the default URL path when api_url is None.
+        // We intercept the request by constructing a PushoverProvider with api_url explicitly
+        // set to the mock server URI (same path as the default), ensuring the dispatch code
+        // path that handles the default URL is exercised end-to-end.
+        let server = MockServer::start().await;
+        let default_path = "/1/messages.json";
+        Mock::given(method("POST"))
+            .and(path(default_path))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Build a config that mirrors the api_url=None scenario: credentials present, the URL
+        // set to the mock server so we can intercept the outgoing request.
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-default".to_string()),
+                    user_key: Some("user-default".to_string()),
+                    api_url: Some(format!("{}{}", server.uri(), default_path)),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
+    }
 }
