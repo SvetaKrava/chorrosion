@@ -218,6 +218,11 @@ impl SlackWebhookProvider {
 }
 
 impl PushoverProvider {
+    #[cfg(test)]
+    fn api_url(&self) -> &str {
+        &self.api_url
+    }
+
     pub fn from_config(config: &AppConfig) -> Self {
         let pushover = &config.notifications.pushover;
         let api_token = pushover
@@ -898,5 +903,84 @@ mod tests {
             .find(|p| p.kind == NotificationProviderKind::Pushover)
             .expect("pushover provider should be in configs");
         assert!(!pushover.enabled);
+    }
+
+    #[test]
+    fn from_config_enables_pushover_with_default_api_url() {
+        // When api_url is None the constant default URL is used. This test pins the exact
+        // default value so any accidental change to it (even to another valid https URL) is
+        // caught immediately.
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-123".to_string()),
+                    user_key: Some("user-456".to_string()),
+                    api_url: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = PushoverProvider::from_config(&config);
+        assert!(
+            provider.enabled(),
+            "Pushover provider should be enabled when api_url is None and credentials are set"
+        );
+        assert_eq!(
+            provider.api_url(),
+            "https://api.pushover.net/1/messages.json",
+            "PushoverProvider must fall back to the canonical Pushover messages endpoint"
+        );
+    }
+
+    #[tokio::test]
+    async fn from_config_dispatches_to_pushover_using_default_api_url() {
+        // Build a provider with api_url: None to discover the computed default URL and its path.
+        // Then set up a mock server at that same path and dispatch through a pipeline whose URL
+        // points to the mock server, keeping the path identical to the computed default.
+        let config_no_url = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-default".to_string()),
+                    user_key: Some("user-default".to_string()),
+                    api_url: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+        let default_provider = PushoverProvider::from_config(&config_no_url);
+        let default_url = Url::parse(default_provider.api_url())
+            .expect("default Pushover api_url must be a valid URL");
+        let default_path = default_url.path().to_string();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(&default_path))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Wire the pipeline to the mock server, using the path derived from the computed default.
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-default".to_string()),
+                    user_key: Some("user-default".to_string()),
+                    api_url: Some(format!("{}{}", server.uri(), default_path)),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
     }
 }
