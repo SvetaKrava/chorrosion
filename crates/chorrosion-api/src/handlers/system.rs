@@ -543,10 +543,11 @@ mod tests {
         let state = make_test_state().await;
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
-        // Default pipeline includes email + discord + slack providers, all disabled unless configured.
+        // Default pipeline includes email + discord + slack + pushover providers,
+        // all disabled unless configured.
         // enabled_provider_count reflects only enabled providers.
         assert_eq!(resp.enabled_provider_count, 0);
-        assert_eq!(resp.providers.len(), 3);
+        assert_eq!(resp.providers.len(), 4);
         assert!(matches!(
             resp.providers[0].kind,
             NotificationProviderKindApi::Email
@@ -562,6 +563,11 @@ mod tests {
             NotificationProviderKindApi::Slack
         ));
         assert!(!resp.providers[2].enabled);
+        assert!(matches!(
+            resp.providers[3].kind,
+            NotificationProviderKindApi::Pushover
+        ));
+        assert!(!resp.providers[3].enabled);
     }
 
     #[tokio::test]
@@ -661,5 +667,33 @@ mod tests {
             .find(|p| matches!(p.kind, NotificationProviderKindApi::Slack))
             .expect("slack provider should be present");
         assert!(slack.enabled);
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_marks_pushover_enabled_when_configured() {
+        use chorrosion_config::{AppConfig, NotificationsConfig, PushoverNotificationConfig};
+
+        let state = make_test_state_with_config(AppConfig {
+            notifications: NotificationsConfig {
+                pushover: PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-123".to_string()),
+                    user_key: Some("user-456".to_string()),
+                    api_url: Some("https://api.pushover.net/1/messages.json".to_string()),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        })
+        .await;
+
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.enabled_provider_count, 1);
+        let pushover = resp
+            .providers
+            .iter()
+            .find(|p| matches!(p.kind, NotificationProviderKindApi::Pushover))
+            .expect("pushover provider should be present");
+        assert!(pushover.enabled);
     }
 }
