@@ -97,6 +97,14 @@ pub struct SlackWebhookProvider {
     client: Client,
 }
 
+pub struct PushoverProvider {
+    enabled: bool,
+    api_token: Option<String>,
+    user_key: Option<String>,
+    api_url: String,
+    client: Client,
+}
+
 impl DiscordWebhookProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let discord = &config.notifications.discord;
@@ -209,6 +217,71 @@ impl SlackWebhookProvider {
     }
 }
 
+impl PushoverProvider {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let pushover = &config.notifications.pushover;
+        let api_token = pushover
+            .api_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let user_key = pushover
+            .user_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let api_url = pushover
+            .api_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("https://api.pushover.net/1/messages.json")
+            .to_string();
+
+        let api_url_is_valid = match Url::parse(&api_url) {
+            Ok(parsed) => matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some(),
+            Err(_) => false,
+        };
+        if !api_url_is_valid {
+            tracing::warn!(
+                target: "application",
+                "Pushover api_url is not a valid http/https URL; provider will be disabled"
+            );
+        }
+
+        let client = Client::builder()
+            .user_agent(concat!(
+                "chorrosion/",
+                env!("CARGO_PKG_VERSION"),
+                " (+https://github.com/SvetaKrava/chorrosion)"
+            ))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|error| {
+                tracing::debug!(
+                    target: "application",
+                    ?error,
+                    "Failed to build Pushover HTTP client with custom settings, falling back to default"
+                );
+                Client::new()
+            });
+
+        Self {
+            enabled: pushover.enabled
+                && api_token.is_some()
+                && user_key.is_some()
+                && api_url_is_valid,
+            api_token,
+            user_key,
+            api_url,
+            client,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct DiscordWebhookPayload {
     content: String,
@@ -221,6 +294,14 @@ struct SlackWebhookPayload {
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PushoverPayload {
+    token: String,
+    user: String,
+    title: String,
+    message: String,
 }
 
 impl EmailNotificationProvider {
@@ -352,6 +433,46 @@ impl NotificationProvider for SlackWebhookProvider {
     }
 }
 
+#[async_trait]
+impl NotificationProvider for PushoverProvider {
+    fn kind(&self) -> NotificationProviderKind {
+        NotificationProviderKind::Pushover
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    async fn send(&self, event: &NotificationEvent) -> Result<()> {
+        let (Some(api_token), Some(user_key)) = (&self.api_token, &self.user_key) else {
+            return Ok(());
+        };
+
+        let payload = PushoverPayload {
+            token: api_token.clone(),
+            user: user_key.clone(),
+            title: event.title.clone(),
+            message: event.body.clone(),
+        };
+
+        self.client
+            .post(&self.api_url)
+            .form(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        tracing::trace!(
+            target: "application",
+            kind = ?self.kind(),
+            title = %event.title,
+            "pushover notification dispatched"
+        );
+
+        Ok(())
+    }
+}
+
 pub struct NotificationPipeline {
     providers: Vec<Box<dyn NotificationProvider>>,
 }
@@ -399,6 +520,7 @@ impl NotificationPipeline {
             Box::new(EmailNotificationProvider::from_config(config)),
             Box::new(DiscordWebhookProvider::from_config(config)),
             Box::new(SlackWebhookProvider::from_config(config)),
+            Box::new(PushoverProvider::from_config(config)),
             Box::new(NoopNotificationProvider),
         ];
         Self { providers }
@@ -507,13 +629,15 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 3);
+        assert_eq!(providers.len(), 4);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(providers[0].enabled);
         assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
         assert!(!providers[1].enabled);
         assert_eq!(providers[2].kind, NotificationProviderKind::Slack);
         assert!(!providers[2].enabled);
+        assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
+        assert!(!providers[3].enabled);
     }
 
     #[test]
@@ -532,13 +656,15 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 3);
+        assert_eq!(providers.len(), 4);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(!providers[0].enabled);
         assert_eq!(providers[1].kind, NotificationProviderKind::Discord);
         assert!(!providers[1].enabled);
         assert_eq!(providers[2].kind, NotificationProviderKind::Slack);
         assert!(!providers[2].enabled);
+        assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
+        assert!(!providers[3].enabled);
     }
 
     #[test]
@@ -557,7 +683,7 @@ mod tests {
 
         let pipeline = NotificationPipeline::from_config(&config);
         let providers = pipeline.provider_configs();
-        assert_eq!(providers.len(), 3);
+        assert_eq!(providers.len(), 4);
         assert_eq!(providers[0].kind, NotificationProviderKind::Email);
         assert!(
             !providers[0].enabled,
@@ -567,6 +693,8 @@ mod tests {
         assert!(!providers[1].enabled);
         assert_eq!(providers[2].kind, NotificationProviderKind::Slack);
         assert!(!providers[2].enabled);
+        assert_eq!(providers[3].kind, NotificationProviderKind::Pushover);
+        assert!(!providers[3].enabled);
     }
 
     #[tokio::test]
@@ -612,6 +740,34 @@ mod tests {
                     enabled: true,
                     webhook_url: Some(format!("{}/services/test", server.uri())),
                     username: Some("Chorrosion".to_string()),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
+    }
+
+    #[tokio::test]
+    async fn from_config_dispatches_to_pushover_when_enabled() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/1/messages.json"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: Some("token-123".to_string()),
+                    user_key: Some("user-456".to_string()),
+                    api_url: Some(format!("{}/1/messages.json", server.uri())),
                 },
                 ..Default::default()
             },
@@ -685,5 +841,62 @@ mod tests {
                 "Slack provider should be disabled for invalid URL: {bad_url}"
             );
         }
+    }
+
+    #[test]
+    fn from_config_disables_pushover_when_api_url_is_invalid() {
+        for bad_url in &[
+            "not-a-url",
+            "ftp://api.pushover.net/1/messages.json",
+            "api.pushover.net/1/messages.json",
+        ] {
+            let config = AppConfig {
+                notifications: chorrosion_config::NotificationsConfig {
+                    pushover: chorrosion_config::PushoverNotificationConfig {
+                        enabled: true,
+                        api_token: Some("token-123".to_string()),
+                        user_key: Some("user-456".to_string()),
+                        api_url: Some(bad_url.to_string()),
+                    },
+                    ..Default::default()
+                },
+                ..AppConfig::default()
+            };
+
+            let pipeline = NotificationPipeline::from_config(&config);
+            let providers = pipeline.provider_configs();
+            let pushover = providers
+                .iter()
+                .find(|p| p.kind == NotificationProviderKind::Pushover)
+                .expect("pushover provider should be in configs");
+            assert!(
+                !pushover.enabled,
+                "Pushover provider should be disabled for invalid URL: {bad_url}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_config_disables_pushover_when_credentials_missing() {
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                pushover: chorrosion_config::PushoverNotificationConfig {
+                    enabled: true,
+                    api_token: None,
+                    user_key: Some("user-456".to_string()),
+                    api_url: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let providers = pipeline.provider_configs();
+        let pushover = providers
+            .iter()
+            .find(|p| p.kind == NotificationProviderKind::Pushover)
+            .expect("pushover provider should be in configs");
+        assert!(!pushover.enabled);
     }
 }

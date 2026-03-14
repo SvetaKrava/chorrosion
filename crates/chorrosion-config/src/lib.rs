@@ -201,10 +201,19 @@ pub struct SlackNotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PushoverNotificationConfig {
+    pub enabled: bool,
+    pub api_token: Option<String>,
+    pub user_key: Option<String>,
+    pub api_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationsConfig {
     pub email: EmailNotificationConfig,
     pub discord: DiscordNotificationConfig,
     pub slack: SlackNotificationConfig,
+    pub pushover: PushoverNotificationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
