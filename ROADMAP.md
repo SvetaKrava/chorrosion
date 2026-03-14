@@ -363,7 +363,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Notification framework (Issue #238) ✓
 - [x] Email notifications (Issue #241) ✓
 - [x] Discord webhook (Issue #244) ✓
-- [ ] Slack webhook
+- [x] Slack webhook (Issue #247) ✓
 - [ ] Pushover integration
 - [ ] Custom scripts support
 

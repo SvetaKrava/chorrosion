@@ -54,7 +54,7 @@ pub use matching_precedence::{
 pub use notifications::{
     DiscordWebhookProvider, EmailNotificationProvider, NoopNotificationProvider, NotificationEvent,
     NotificationEventKind, NotificationPipeline, NotificationProvider, NotificationProviderConfig,
-    NotificationProviderKind,
+    NotificationProviderKind, SlackWebhookProvider,
 };
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,

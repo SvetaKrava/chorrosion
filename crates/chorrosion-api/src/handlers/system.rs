@@ -543,10 +543,10 @@ mod tests {
         let state = make_test_state().await;
         let Json(resp) = get_system_notifications(State(state)).await;
         assert_eq!(resp.framework, "baseline");
-        // Default pipeline includes email + discord providers, both disabled unless configured.
+        // Default pipeline includes email + discord + slack providers, all disabled unless configured.
         // enabled_provider_count reflects only enabled providers.
         assert_eq!(resp.enabled_provider_count, 0);
-        assert_eq!(resp.providers.len(), 2);
+        assert_eq!(resp.providers.len(), 3);
         assert!(matches!(
             resp.providers[0].kind,
             NotificationProviderKindApi::Email
@@ -557,6 +557,11 @@ mod tests {
             NotificationProviderKindApi::Discord
         ));
         assert!(!resp.providers[1].enabled);
+        assert!(matches!(
+            resp.providers[2].kind,
+            NotificationProviderKindApi::Slack
+        ));
+        assert!(!resp.providers[2].enabled);
     }
 
     #[tokio::test]
@@ -629,5 +634,32 @@ mod tests {
             .find(|p| matches!(p.kind, NotificationProviderKindApi::Discord))
             .expect("discord provider should be present");
         assert!(discord.enabled);
+    }
+
+    #[tokio::test]
+    async fn get_system_notifications_marks_slack_enabled_when_configured() {
+        use chorrosion_config::{AppConfig, NotificationsConfig, SlackNotificationConfig};
+
+        let state = make_test_state_with_config(AppConfig {
+            notifications: NotificationsConfig {
+                slack: SlackNotificationConfig {
+                    enabled: true,
+                    webhook_url: Some("https://hooks.slack.com/services/test".to_string()),
+                    username: Some("Chorrosion".to_string()),
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        })
+        .await;
+
+        let Json(resp) = get_system_notifications(State(state)).await;
+        assert_eq!(resp.enabled_provider_count, 1);
+        let slack = resp
+            .providers
+            .iter()
+            .find(|p| matches!(p.kind, NotificationProviderKindApi::Slack))
+            .expect("slack provider should be present");
+        assert!(slack.enabled);
     }
 }
