@@ -21,7 +21,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 anyhow = "1"
 thiserror = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "process"] }
 axum = { version = "0.7", default-features = false, features = ["macros", "json", "tokio", "query", "http1"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
