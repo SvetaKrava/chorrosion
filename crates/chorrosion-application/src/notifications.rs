@@ -560,7 +560,10 @@ impl NotificationProvider for ScriptNotificationProvider {
 
         let status = cmd.status().await?;
         if !status.success() {
-            return Err(anyhow!("notification script exited with status {}", status));
+            return Err(anyhow!(
+                "notification script `{command}` with args {:?} exited with status {status}",
+                self.args
+            ));
         }
 
         tracing::trace!(
@@ -1139,19 +1142,14 @@ mod tests {
 
     #[tokio::test]
     async fn script_provider_kind_env_var_is_snake_case() {
-        // Capture the CHORROSION_NOTIFICATION_KIND value by writing it to a temp file
-        // and verifying its content equals the stable snake_case representation.
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let tmp_path = tmp.path().to_string_lossy().to_string();
-
+        // Assert the env var value directly inside the script (exit 1 if it doesn't match the
+        // expected stable snake_case form), avoiding any temp-file or path-escaping complexity.
         let (command, args) = if cfg!(windows) {
             (
                 "cmd".to_string(),
-                // Redirect without a leading space (avoids trailing-space artifact) and
-                // quote the path to handle spaces in %TEMP%.
                 vec![
                     "/C".to_string(),
-                    format!("echo %CHORROSION_NOTIFICATION_KIND%>\"{tmp_path}\""),
+                    "if not \"%CHORROSION_NOTIFICATION_KIND%\"==\"test\" exit 1".to_string(),
                 ],
             )
         } else {
@@ -1159,7 +1157,7 @@ mod tests {
                 "sh".to_string(),
                 vec![
                     "-c".to_string(),
-                    format!("printf '%s' \"$CHORROSION_NOTIFICATION_KIND\" > '{tmp_path}'"),
+                    "test \"$CHORROSION_NOTIFICATION_KIND\" = \"test\"".to_string(),
                 ],
             )
         };
@@ -1178,14 +1176,10 @@ mod tests {
         };
 
         let pipeline = NotificationPipeline::from_config(&config);
-        pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
-
-        let content = std::fs::read_to_string(tmp.path()).unwrap();
-        assert_eq!(
-            content.trim(),
-            "test",
-            "CHORROSION_NOTIFICATION_KIND must be stable snake_case"
-        );
+        pipeline
+            .dispatch(&NotificationEvent::test())
+            .await
+            .expect("CHORROSION_NOTIFICATION_KIND must equal the stable snake_case value 'test'");
     }
 
     #[tokio::test]
