@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dedupe_list_entries_removes_duplicate_external_ids() {
+    fn dedupe_list_entries_removes_entries_with_same_entity_type_and_external_id() {
         let entries = vec![
             ExternalListEntry {
                 entity_type: ListEntityType::Artist,
