@@ -369,7 +369,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 7.4 Lists Integration
 
-- [ ] List provider trait
+- [x] List provider trait (Issue #256) ✓
 - [ ] MusicBrainz list import
 - [ ] Spotify playlist import (optional)
 - [ ] Last.fm integration

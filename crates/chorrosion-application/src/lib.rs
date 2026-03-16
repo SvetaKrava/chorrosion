@@ -14,6 +14,7 @@ pub mod filename_heuristics;
 pub mod import;
 pub mod import_matching;
 pub mod indexers;
+pub mod lists;
 pub mod matching;
 pub mod matching_precedence;
 pub mod notifications;
@@ -45,6 +46,10 @@ pub use indexers::{
     parse_rss_feed, parse_search_results, IndexerCapabilities, IndexerClient, IndexerConfig,
     IndexerError, IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult,
     IndexerTestResult, NewznabClient, TorznabClient,
+};
+pub use lists::{
+    dedupe_list_entries, ExternalListEntry, ListEntityType, ListProvider, ListProviderCapabilities,
+    ListProviderHealth,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{
