@@ -5,7 +5,7 @@ use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use std::process::Command as ProcessCommand;
+use tokio::process::Command as ProcessCommand;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -16,6 +16,19 @@ pub enum NotificationEventKind {
     DownloadCompleted,
     ImportFailed,
     Test,
+}
+
+impl std::fmt::Display for NotificationEventKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            NotificationEventKind::WantedAlbumSearchTriggered => "wanted_album_search_triggered",
+            NotificationEventKind::ReleaseMatched => "release_matched",
+            NotificationEventKind::DownloadCompleted => "download_completed",
+            NotificationEventKind::ImportFailed => "import_failed",
+            NotificationEventKind::Test => "test",
+        };
+        write!(f, "{s}")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -537,7 +550,7 @@ impl NotificationProvider for ScriptNotificationProvider {
         if let Some(dir) = &self.working_dir {
             cmd.current_dir(dir);
         }
-        cmd.env("CHORROSION_NOTIFICATION_KIND", format!("{:?}", event.kind));
+        cmd.env("CHORROSION_NOTIFICATION_KIND", event.kind.to_string());
         cmd.env("CHORROSION_NOTIFICATION_TITLE", &event.title);
         cmd.env("CHORROSION_NOTIFICATION_BODY", &event.body);
         cmd.env(
@@ -545,9 +558,12 @@ impl NotificationProvider for ScriptNotificationProvider {
             event.occurred_at.to_rfc3339(),
         );
 
-        let status = cmd.status()?;
+        let status = cmd.status().await?;
         if !status.success() {
-            return Err(anyhow!("notification script exited with status {}", status));
+            return Err(anyhow!(
+                "notification script `{command}` with args {:?} exited with status {status}",
+                self.args
+            ));
         }
 
         tracing::trace!(
@@ -1072,6 +1088,133 @@ mod tests {
             .find(|p| p.kind == NotificationProviderKind::Script)
             .expect("script provider should be in configs");
         assert!(!script.enabled);
+    }
+
+    #[tokio::test]
+    async fn script_provider_injects_env_vars() {
+        let (command, args) = if cfg!(windows) {
+            (
+                "cmd".to_string(),
+                vec![
+                    "/C".to_string(),
+                    concat!(
+                        "if \"%CHORROSION_NOTIFICATION_KIND%\"==\"\" exit 1 & ",
+                        "if \"%CHORROSION_NOTIFICATION_TITLE%\"==\"\" exit 1 & ",
+                        "if \"%CHORROSION_NOTIFICATION_BODY%\"==\"\" exit 1 & ",
+                        "if \"%CHORROSION_NOTIFICATION_OCCURRED_AT%\"==\"\" exit 1"
+                    )
+                    .to_string(),
+                ],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec![
+                    "-c".to_string(),
+                    concat!(
+                        "test -n \"$CHORROSION_NOTIFICATION_KIND\" && ",
+                        "test -n \"$CHORROSION_NOTIFICATION_TITLE\" && ",
+                        "test -n \"$CHORROSION_NOTIFICATION_BODY\" && ",
+                        "test -n \"$CHORROSION_NOTIFICATION_OCCURRED_AT\""
+                    )
+                    .to_string(),
+                ],
+            )
+        };
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some(command),
+                    args,
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let dispatched = pipeline.dispatch(&NotificationEvent::test()).await.unwrap();
+        assert_eq!(dispatched, 1);
+    }
+
+    #[tokio::test]
+    async fn script_provider_kind_env_var_is_snake_case() {
+        // Assert the env var value directly inside the script (exit 1 if it doesn't match the
+        // expected stable snake_case form), avoiding any temp-file or path-escaping complexity.
+        let (command, args) = if cfg!(windows) {
+            (
+                "cmd".to_string(),
+                vec![
+                    "/C".to_string(),
+                    "if not \"%CHORROSION_NOTIFICATION_KIND%\"==\"test\" exit 1".to_string(),
+                ],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec![
+                    "-c".to_string(),
+                    "test \"$CHORROSION_NOTIFICATION_KIND\" = \"test\"".to_string(),
+                ],
+            )
+        };
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some(command),
+                    args,
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        pipeline
+            .dispatch(&NotificationEvent::test())
+            .await
+            .expect("CHORROSION_NOTIFICATION_KIND must equal the stable snake_case value 'test'");
+    }
+
+    #[tokio::test]
+    async fn script_provider_returns_error_on_nonzero_exit() {
+        let (command, args) = if cfg!(windows) {
+            (
+                "cmd".to_string(),
+                vec!["/C".to_string(), "exit 1".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exit 1".to_string()],
+            )
+        };
+
+        let config = AppConfig {
+            notifications: chorrosion_config::NotificationsConfig {
+                script: chorrosion_config::ScriptNotificationConfig {
+                    enabled: true,
+                    command: Some(command),
+                    args,
+                    working_dir: None,
+                },
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let pipeline = NotificationPipeline::from_config(&config);
+        let result = pipeline.dispatch(&NotificationEvent::test()).await;
+        assert!(
+            result.is_err(),
+            "non-zero script exit must propagate as an error"
+        );
     }
 
     #[test]
