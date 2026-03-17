@@ -5,10 +5,21 @@ use chorrosion_config::AppConfig;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chorrosion_musicbrainz::MusicBrainzClient;
 use chrono::{DateTime, Utc};
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+/// Encoding set for URL path segments: encodes all non-alphanumeric characters
+/// except the RFC 3986 unreserved characters (`-`, `_`, `.`, `~`). This ensures
+/// spaces and special characters like `/` are encoded while keeping common
+/// artist/album name punctuation readable.
+const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -484,8 +495,8 @@ impl ListProvider for MusicBrainzListProvider {
 
 pub struct LastFmListProvider {
     enabled: bool,
-    api_key: Option<String>,
-    base_url: Option<String>,
+    api_key_present: bool,
+    client: Option<LastFmClient>,
     artist_names: Vec<String>,
     album_seeds: Vec<(String, String)>,
 }
@@ -493,20 +504,29 @@ pub struct LastFmListProvider {
 impl LastFmListProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let lfm = &config.lists.lastfm;
+        let api_key = lfm
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let base_url = lfm
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let client = if lfm.enabled {
+            api_key
+                .as_ref()
+                .map(|key| LastFmClient::new(key.clone(), base_url))
+        } else {
+            None
+        };
         Self {
             enabled: lfm.enabled,
-            api_key: lfm
-                .api_key
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
-            base_url: lfm
-                .base_url
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
+            api_key_present: api_key.is_some(),
+            client,
             artist_names: lfm
                 .artist_names
                 .iter()
@@ -516,19 +536,18 @@ impl LastFmListProvider {
             album_seeds: lfm
                 .album_seeds
                 .iter()
-                .map(|s| (s.artist.clone(), s.album.clone()))
+                .map(|s| (s.artist.trim().to_string(), s.album.trim().to_string()))
+                .filter(|(artist, album)| !artist.is_empty() && !album.is_empty())
                 .collect(),
         }
     }
 
-    fn is_ready(&self) -> bool {
-        self.enabled && self.api_key.is_some()
+    fn has_entries(&self) -> bool {
+        !self.artist_names.is_empty() || !self.album_seeds.is_empty()
     }
 
-    fn make_client(&self) -> Option<LastFmClient> {
-        self.api_key.as_ref().map(|key| {
-            LastFmClient::new_with_limits_and_base_url(key.clone(), 1, self.base_url.clone())
-        })
+    fn is_ready(&self) -> bool {
+        self.client.is_some() && self.has_entries()
     }
 }
 
@@ -550,8 +569,10 @@ impl ListProvider for LastFmListProvider {
             ok: self.is_ready(),
             message: if !self.enabled {
                 Some("provider disabled".to_string())
-            } else if self.api_key.is_none() {
+            } else if !self.api_key_present {
                 Some("Last.fm API key not configured".to_string())
+            } else if !self.has_entries() {
+                Some("no Last.fm artist names or album seeds configured".to_string())
             } else {
                 None
             },
@@ -562,7 +583,7 @@ impl ListProvider for LastFmListProvider {
         if !self.is_ready() {
             return Ok(vec![]);
         }
-        let client = self.make_client().unwrap();
+        let client = self.client.as_ref().unwrap();
         let mut entries = Vec::with_capacity(self.artist_names.len());
         for artist in &self.artist_names {
             match client.fetch_artist_metadata(artist).await {
@@ -572,7 +593,10 @@ impl ListProvider for LastFmListProvider {
                         external_id: meta.name.to_lowercase(),
                         name: meta.name.clone(),
                         artist_name: None,
-                        source_url: Some(format!("https://www.last.fm/music/{}", meta.name)),
+                        source_url: Some(format!(
+                            "https://www.last.fm/music/{}",
+                            utf8_percent_encode(&meta.name, PATH_SEGMENT)
+                        )),
                         followed_at: None,
                     });
                 }
@@ -593,7 +617,7 @@ impl ListProvider for LastFmListProvider {
         if !self.is_ready() {
             return Ok(vec![]);
         }
-        let client = self.make_client().unwrap();
+        let client = self.client.as_ref().unwrap();
         let mut entries = Vec::with_capacity(self.album_seeds.len());
         for (artist, album) in &self.album_seeds {
             match client.fetch_album_metadata(artist, album).await {
@@ -609,7 +633,8 @@ impl ListProvider for LastFmListProvider {
                         artist_name: Some(meta.artist.clone()),
                         source_url: Some(format!(
                             "https://www.last.fm/music/{}/{}",
-                            meta.artist, meta.title
+                            utf8_percent_encode(&meta.artist, PATH_SEGMENT),
+                            utf8_percent_encode(&meta.title, PATH_SEGMENT)
                         )),
                         followed_at: None,
                     });
@@ -1116,6 +1141,102 @@ mod tests {
         assert_eq!(
             health.message.as_deref(),
             Some("Last.fm API key not configured")
+        );
+    }
+
+    #[tokio::test]
+    async fn lastfm_provider_health_check_reflects_no_entries_configured() {
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig::default(),
+                lastfm: chorrosion_config::LastFmListsConfig {
+                    enabled: true,
+                    api_key: Some("test-key".to_string()),
+                    base_url: None,
+                    artist_names: vec![],
+                    album_seeds: vec![],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = LastFmListProvider::from_config(&config);
+        let health = provider.health_check().await.unwrap();
+
+        assert!(!health.ok);
+        assert_eq!(
+            health.message.as_deref(),
+            Some("no Last.fm artist names or album seeds configured")
+        );
+    }
+
+    #[tokio::test]
+    async fn lastfm_provider_source_urls_are_percent_encoded() {
+        let server = MockServer::start().await;
+        let base_url = format!("{}/2.0/", server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/2.0/"))
+            .and(query_param("method", "artist.getinfo"))
+            .and(query_param("artist", "AC/DC"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "artist": {
+                    "name": "AC/DC",
+                    "bio": { "summary": "" },
+                    "tags": { "tag": [] }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/2.0/"))
+            .and(query_param("method", "album.getinfo"))
+            .and(query_param("artist", "AC/DC"))
+            .and(query_param("album", "Back in Black"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "album": {
+                    "name": "Back in Black",
+                    "artist": "AC/DC",
+                    "tracks": { "track": [] }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig::default(),
+                lastfm: chorrosion_config::LastFmListsConfig {
+                    enabled: true,
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some(base_url),
+                    artist_names: vec!["AC/DC".to_string()],
+                    album_seeds: vec![chorrosion_config::LastFmListsAlbumSeed {
+                        artist: "AC/DC".to_string(),
+                        album: "Back in Black".to_string(),
+                    }],
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = LastFmListProvider::from_config(&config);
+        let artists = provider.fetch_followed_artists().await.unwrap();
+        let albums = provider.fetch_saved_albums().await.unwrap();
+
+        assert_eq!(artists.len(), 1);
+        assert_eq!(
+            artists[0].source_url.as_deref(),
+            Some("https://www.last.fm/music/AC%2FDC")
+        );
+
+        assert_eq!(albums.len(), 1);
+        assert_eq!(
+            albums[0].source_url.as_deref(),
+            Some("https://www.last.fm/music/AC%2FDC/Back%20in%20Black")
         );
     }
 }
