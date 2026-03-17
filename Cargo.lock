@@ -406,6 +406,7 @@ dependencies = [
  "chorrosion-domain",
  "chorrosion-fingerprint",
  "chorrosion-infrastructure",
+ "chorrosion-metadata",
  "chorrosion-musicbrainz",
  "chrono",
  "lazy_static",

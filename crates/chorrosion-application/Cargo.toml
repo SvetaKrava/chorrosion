@@ -10,6 +10,7 @@ tokio = { workspace = true, features = ["process"] }
 chorrosion-config = { path = "../chorrosion-config" }
 chorrosion-domain = { path = "../chorrosion-domain" }
 chorrosion-fingerprint = { path = "../chorrosion-fingerprint" }
+chorrosion-metadata = { path = "../chorrosion-metadata" }
 chorrosion-musicbrainz = { path = "../chorrosion-musicbrainz" }
 chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chrono = { workspace = true }

@@ -49,8 +49,9 @@ pub use indexers::{
     IndexerTestResult, NewznabClient, TorznabClient,
 };
 pub use lists::{
-    dedupe_list_entries, ExternalListEntry, ListEntityType, ListProvider, ListProviderCapabilities,
-    ListProviderHealth, MusicBrainzListProvider, SpotifyPlaylistListProvider,
+    dedupe_list_entries, ExternalListEntry, LastFmListProvider, ListEntityType, ListProvider,
+    ListProviderCapabilities, ListProviderHealth, MusicBrainzListProvider,
+    SpotifyPlaylistListProvider,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{

@@ -372,7 +372,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] List provider trait (Issue #256) ✓
 - [x] MusicBrainz list import (Issue #259) ✓
 - [x] Spotify playlist import (optional) (Issue #261) ✓
-- [ ] Last.fm integration
+- [x] Last.fm integration (Issue #264) ✓
 - [ ] Auto-add from lists
 
 ---
