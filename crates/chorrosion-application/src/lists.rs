@@ -495,7 +495,6 @@ impl ListProvider for MusicBrainzListProvider {
 
 pub struct LastFmListProvider {
     enabled: bool,
-    api_key_present: bool,
     client: Option<LastFmClient>,
     artist_names: Vec<String>,
     album_seeds: Vec<(String, String)>,
@@ -525,7 +524,6 @@ impl LastFmListProvider {
         };
         Self {
             enabled: lfm.enabled,
-            api_key_present: api_key.is_some(),
             client,
             artist_names: lfm
                 .artist_names
@@ -569,7 +567,7 @@ impl ListProvider for LastFmListProvider {
             ok: self.is_ready(),
             message: if !self.enabled {
                 Some("provider disabled".to_string())
-            } else if !self.api_key_present {
+            } else if self.client.is_none() {
                 Some("Last.fm API key not configured".to_string())
             } else if !self.has_entries() {
                 Some("no Last.fm artist names or album seeds configured".to_string())
