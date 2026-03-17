@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use quick_xml::de::from_str;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use thiserror::Error;
 use tracing::debug;
 
@@ -126,21 +125,7 @@ pub trait IndexerClient: Send + Sync {
 /// Builds a shared `reqwest::Client` configured with the chorrosion user-agent and a 30-second
 /// timeout. Falls back to a default `Client` if the builder fails.
 fn build_indexer_http_client() -> Client {
-    Client::builder()
-        .user_agent(concat!(
-            "chorrosion/",
-            env!("CARGO_PKG_VERSION"),
-            " (+https://github.com/SvetaKrava/chorrosion)"
-        ))
-        .timeout(Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|error| {
-            debug!(
-                ?error,
-                "Failed to build indexer HTTP client with custom settings, falling back to default"
-            );
-            Client::new()
-        })
+    crate::http_client::build_http_client()
 }
 
 pub struct NewznabClient {

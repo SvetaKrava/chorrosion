@@ -7,7 +7,6 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -83,21 +82,7 @@ pub struct SpotifyPlaylistListProvider {
 }
 
 fn build_spotify_http_client() -> Client {
-    Client::builder()
-        .user_agent(concat!(
-            "chorrosion/",
-            env!("CARGO_PKG_VERSION"),
-            " (+https://github.com/SvetaKrava/chorrosion)"
-        ))
-        .timeout(Duration::from_secs(30))
-        .build()
-        .unwrap_or_else(|error| {
-            tracing::debug!(
-                ?error,
-                "Failed to build Spotify HTTP client with custom settings, falling back to default"
-            );
-            Client::new()
-        })
+    crate::http_client::build_http_client()
 }
 
 impl SpotifyPlaylistListProvider {
