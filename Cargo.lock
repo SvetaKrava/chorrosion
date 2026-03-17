@@ -411,6 +411,7 @@ dependencies = [
  "chrono",
  "lazy_static",
  "lofty",
+ "percent-encoding",
  "quick-xml",
  "regex",
  "reqwest",
