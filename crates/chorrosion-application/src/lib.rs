@@ -49,7 +49,7 @@ pub use indexers::{
 };
 pub use lists::{
     dedupe_list_entries, ExternalListEntry, ListEntityType, ListProvider, ListProviderCapabilities,
-    ListProviderHealth,
+    ListProviderHealth, MusicBrainzListProvider,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{

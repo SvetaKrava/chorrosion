@@ -217,6 +217,19 @@ pub struct ScriptNotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MusicBrainzListsConfig {
+    pub enabled: bool,
+    pub base_url: Option<String>,
+    pub artist_mbids: Vec<String>,
+    pub album_mbids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListsConfig {
+    pub musicbrainz: MusicBrainzListsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationsConfig {
     pub email: EmailNotificationConfig,
     pub discord: DiscordNotificationConfig,
@@ -234,6 +247,7 @@ pub struct AppConfig {
     pub auth: AuthConfig,
     pub metadata: MetadataConfig,
     pub notifications: NotificationsConfig,
+    pub lists: ListsConfig,
 }
 
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).
