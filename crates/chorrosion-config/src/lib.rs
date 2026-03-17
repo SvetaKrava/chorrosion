@@ -234,10 +234,26 @@ pub struct SpotifyListsConfig {
     pub market: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastFmListsAlbumSeed {
+    pub artist: String,
+    pub album: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LastFmListsConfig {
+    pub enabled: bool,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub artist_names: Vec<String>,
+    pub album_seeds: Vec<LastFmListsAlbumSeed>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListsConfig {
     pub musicbrainz: MusicBrainzListsConfig,
     pub spotify: SpotifyListsConfig,
+    pub lastfm: LastFmListsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
