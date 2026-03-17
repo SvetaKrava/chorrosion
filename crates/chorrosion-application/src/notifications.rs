@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as ProcessCommand;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -157,22 +156,7 @@ impl DiscordWebhookProvider {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
-        let client = Client::builder()
-            .user_agent(concat!(
-                "chorrosion/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/SvetaKrava/chorrosion)"
-            ))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::debug!(
-                    target: "application",
-                    ?error,
-                    "Failed to build Discord webhook HTTP client with custom settings, falling back to default"
-                );
-                Client::new()
-            });
+        let client = crate::http_client::build_http_client();
         Self {
             enabled: discord.enabled && webhook_url.is_some(),
             webhook_url,
@@ -213,22 +197,7 @@ impl SlackWebhookProvider {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
-        let client = Client::builder()
-            .user_agent(concat!(
-                "chorrosion/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/SvetaKrava/chorrosion)"
-            ))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::debug!(
-                    target: "application",
-                    ?error,
-                    "Failed to build Slack webhook HTTP client with custom settings, falling back to default"
-                );
-                Client::new()
-            });
+        let client = crate::http_client::build_http_client();
         Self {
             enabled: slack.enabled && webhook_url.is_some(),
             webhook_url,
@@ -278,22 +247,7 @@ impl PushoverProvider {
             );
         }
 
-        let client = Client::builder()
-            .user_agent(concat!(
-                "chorrosion/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/SvetaKrava/chorrosion)"
-            ))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::debug!(
-                    target: "application",
-                    ?error,
-                    "Failed to build Pushover HTTP client with custom settings, falling back to default"
-                );
-                Client::new()
-            });
+        let client = crate::http_client::build_http_client();
 
         Self {
             enabled: pushover.enabled

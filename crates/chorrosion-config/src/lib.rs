@@ -225,8 +225,19 @@ pub struct MusicBrainzListsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SpotifyListsConfig {
+    pub enabled: bool,
+    #[serde(alias = "api_base_url")]
+    pub base_url: Option<String>,
+    pub access_token: Option<String>,
+    pub playlist_ids: Vec<String>,
+    pub market: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListsConfig {
     pub musicbrainz: MusicBrainzListsConfig,
+    pub spotify: SpotifyListsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

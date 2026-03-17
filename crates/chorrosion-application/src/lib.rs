@@ -11,6 +11,7 @@ pub mod embedded_tags;
 pub mod events;
 pub mod file_organization;
 pub mod filename_heuristics;
+mod http_client;
 pub mod import;
 pub mod import_matching;
 pub mod indexers;
@@ -49,7 +50,7 @@ pub use indexers::{
 };
 pub use lists::{
     dedupe_list_entries, ExternalListEntry, ListEntityType, ListProvider, ListProviderCapabilities,
-    ListProviderHealth, MusicBrainzListProvider,
+    ListProviderHealth, MusicBrainzListProvider, SpotifyPlaylistListProvider,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{

@@ -4,8 +4,9 @@ use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chorrosion_musicbrainz::MusicBrainzClient;
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,6 +70,270 @@ pub struct MusicBrainzListProvider {
     client: MusicBrainzClient,
     artist_mbids: Vec<Uuid>,
     album_mbids: Vec<Uuid>,
+}
+
+pub struct SpotifyPlaylistListProvider {
+    enabled: bool,
+    http_client: reqwest::Client,
+    base_url: String,
+    access_token: Option<String>,
+    playlist_ids: Vec<String>,
+    market: Option<String>,
+}
+
+fn build_spotify_http_client() -> Client {
+    crate::http_client::build_http_client()
+}
+
+impl SpotifyPlaylistListProvider {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let spotify = &config.lists.spotify;
+        let base_url = spotify
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("https://api.spotify.com/v1")
+            .trim_end_matches('/')
+            .to_string();
+
+        let access_token = spotify
+            .access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let playlist_ids = spotify
+            .playlist_ids
+            .iter()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .collect();
+
+        let market = spotify
+            .market
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        Self {
+            enabled: spotify.enabled,
+            http_client: build_spotify_http_client(),
+            base_url,
+            access_token,
+            playlist_ids,
+            market,
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        self.enabled && self.access_token.is_some() && !self.playlist_ids.is_empty()
+    }
+
+    async fn fetch_playlist_tracks(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Vec<SpotifyPlaylistTrackItem>> {
+        let token = match &self.access_token {
+            Some(token) => token,
+            None => return Ok(vec![]),
+        };
+
+        let mut all_items = Vec::new();
+        let mut offset: usize = 0;
+
+        loop {
+            let url = format!("{}/playlists/{}/tracks", self.base_url, playlist_id);
+            let mut request = self
+                .http_client
+                .get(url)
+                .bearer_auth(token)
+                .query(&[("limit", "100"), ("offset", &offset.to_string())]);
+
+            if let Some(market) = &self.market {
+                request = request.query(&[("market", market)]);
+            }
+
+            let response = request.send().await?.error_for_status()?;
+            let payload: SpotifyPlaylistTracksResponse = response.json().await?;
+            let count = payload.items.len();
+            all_items.extend(payload.items);
+
+            if payload.next.is_none() || count == 0 {
+                break;
+            }
+
+            offset += count;
+        }
+
+        Ok(all_items)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpotifyPlaylistTracksResponse {
+    items: Vec<SpotifyPlaylistTrackItem>,
+    next: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpotifyPlaylistTrackItem {
+    track: Option<SpotifyTrack>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpotifyTrack {
+    artists: Vec<SpotifyArtist>,
+    album: Option<SpotifyAlbum>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpotifyArtist {
+    id: Option<String>,
+    name: String,
+    external_urls: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpotifyAlbum {
+    id: Option<String>,
+    name: String,
+    artists: Vec<SpotifyArtist>,
+    external_urls: Option<HashMap<String, String>>,
+}
+
+#[async_trait]
+impl ListProvider for SpotifyPlaylistListProvider {
+    fn provider_name(&self) -> &'static str {
+        "spotify"
+    }
+
+    fn capabilities(&self) -> ListProviderCapabilities {
+        ListProviderCapabilities {
+            supports_artists: true,
+            supports_albums: true,
+        }
+    }
+
+    async fn health_check(&self) -> Result<ListProviderHealth> {
+        Ok(ListProviderHealth {
+            ok: self.is_ready(),
+            message: if !self.enabled {
+                Some("provider disabled".to_string())
+            } else if self.access_token.is_none() {
+                Some("Spotify access token not configured".to_string())
+            } else if self.playlist_ids.is_empty() {
+                Some("no Spotify playlist IDs configured".to_string())
+            } else {
+                None
+            },
+        })
+    }
+
+    async fn fetch_followed_artists(&self) -> Result<Vec<ExternalListEntry>> {
+        if !self.is_ready() {
+            return Ok(vec![]);
+        }
+
+        let mut entries = Vec::new();
+        for playlist_id in &self.playlist_ids {
+            match self.fetch_playlist_tracks(playlist_id).await {
+                Ok(items) => {
+                    for item in items {
+                        let Some(track) = item.track else {
+                            continue;
+                        };
+                        for artist in track.artists {
+                            let external_id = artist.id.unwrap_or_else(|| {
+                                format!("spotify:artist:name:{}", artist.name.to_lowercase())
+                            });
+                            let source_url = artist
+                                .external_urls
+                                .as_ref()
+                                .and_then(|urls| urls.get("spotify"))
+                                .cloned();
+                            entries.push(ExternalListEntry {
+                                entity_type: ListEntityType::Artist,
+                                external_id,
+                                name: artist.name,
+                                artist_name: None,
+                                source_url,
+                                followed_at: None,
+                            });
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        target: "application",
+                        playlist_id = %playlist_id,
+                        ?error,
+                        "Failed to import artists from Spotify playlist"
+                    );
+                }
+            }
+        }
+
+        Ok(dedupe_list_entries(entries))
+    }
+
+    async fn fetch_saved_albums(&self) -> Result<Vec<ExternalListEntry>> {
+        if !self.is_ready() {
+            return Ok(vec![]);
+        }
+
+        let mut entries = Vec::new();
+        for playlist_id in &self.playlist_ids {
+            match self.fetch_playlist_tracks(playlist_id).await {
+                Ok(items) => {
+                    for item in items {
+                        let Some(track) = item.track else {
+                            continue;
+                        };
+                        let Some(album) = track.album else {
+                            continue;
+                        };
+
+                        let artist_name = album.artists.first().map(|artist| artist.name.clone());
+                        let external_id = album.id.unwrap_or_else(|| {
+                            format!(
+                                "spotify:album:{}:{}",
+                                album.name.to_lowercase(),
+                                artist_name.as_deref().unwrap_or("unknown").to_lowercase()
+                            )
+                        });
+                        let source_url = album
+                            .external_urls
+                            .as_ref()
+                            .and_then(|urls| urls.get("spotify"))
+                            .cloned();
+
+                        entries.push(ExternalListEntry {
+                            entity_type: ListEntityType::Album,
+                            external_id,
+                            name: album.name,
+                            artist_name,
+                            source_url,
+                            followed_at: None,
+                        });
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        target: "application",
+                        playlist_id = %playlist_id,
+                        ?error,
+                        "Failed to import albums from Spotify playlist"
+                    );
+                }
+            }
+        }
+
+        Ok(dedupe_list_entries(entries))
+    }
 }
 
 impl MusicBrainzListProvider {
@@ -333,6 +598,7 @@ mod tests {
                     artist_mbids: vec![artist_id.to_string()],
                     album_mbids: vec![album_id.to_string()],
                 },
+                spotify: chorrosion_config::SpotifyListsConfig::default(),
             },
             ..AppConfig::default()
         };
@@ -361,6 +627,7 @@ mod tests {
                     artist_mbids: vec![],
                     album_mbids: vec![],
                 },
+                spotify: chorrosion_config::SpotifyListsConfig::default(),
             },
             ..AppConfig::default()
         };
@@ -372,5 +639,237 @@ mod tests {
             health.message.as_deref(),
             Some("no MusicBrainz MBIDs configured")
         );
+    }
+
+    #[tokio::test]
+    async fn spotify_provider_imports_entries_from_playlists() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/v1/playlists/playlist-1/tracks"))
+            .and(query_param("limit", "100"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-1",
+                                    "name": "Artist One",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-1"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-1",
+                                "name": "Album One",
+                                "artists": [
+                                    {
+                                        "id": "artist-1",
+                                        "name": "Artist One",
+                                        "external_urls": {
+                                            "spotify": "https://open.spotify.com/artist/artist-1"
+                                        }
+                                    }
+                                ],
+                                "external_urls": {
+                                    "spotify": "https://open.spotify.com/album/album-1"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-1",
+                                    "name": "Artist One",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-1"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-1",
+                                "name": "Album One",
+                                "artists": [
+                                    {
+                                        "id": "artist-1",
+                                        "name": "Artist One"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "next": null
+            })))
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig {
+                    enabled: true,
+                    base_url: Some(format!("{}/v1", server.uri())),
+                    access_token: Some("test-token".to_string()),
+                    playlist_ids: vec!["playlist-1".to_string()],
+                    market: None,
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = SpotifyPlaylistListProvider::from_config(&config);
+        let artists = provider.fetch_followed_artists().await.unwrap();
+        let albums = provider.fetch_saved_albums().await.unwrap();
+
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].external_id, "artist-1");
+        assert_eq!(artists[0].name, "Artist One");
+
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].external_id, "album-1");
+        assert_eq!(albums[0].name, "Album One");
+        assert_eq!(albums[0].artist_name.as_deref(), Some("Artist One"));
+    }
+
+    #[tokio::test]
+    async fn spotify_provider_health_check_reflects_missing_token() {
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig {
+                    enabled: true,
+                    base_url: None,
+                    access_token: None,
+                    playlist_ids: vec!["playlist-1".to_string()],
+                    market: None,
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = SpotifyPlaylistListProvider::from_config(&config);
+        let health = provider.health_check().await.unwrap();
+
+        assert!(!health.ok);
+        assert_eq!(
+            health.message.as_deref(),
+            Some("Spotify access token not configured")
+        );
+    }
+
+    #[tokio::test]
+    async fn spotify_provider_fetches_paginated_tracks() {
+        let server = MockServer::start().await;
+
+        // First page: contains one track and sets `next` to signal more pages.
+        Mock::given(method("GET"))
+            .and(path("/v1/playlists/playlist-paginated/tracks"))
+            .and(query_param("limit", "100"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-page1",
+                                    "name": "Artist Page One",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-page1"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-page1",
+                                "name": "Album Page One",
+                                "artists": [
+                                    {
+                                        "id": "artist-page1",
+                                        "name": "Artist Page One"
+                                    }
+                                ],
+                                "external_urls": {
+                                    "spotify": "https://open.spotify.com/album/album-page1"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "next": "https://api.spotify.com/v1/playlists/playlist-paginated/tracks?offset=1&limit=100"
+            })))
+            .mount(&server)
+            .await;
+
+        // Second page: offset=1, no next (last page).
+        Mock::given(method("GET"))
+            .and(path("/v1/playlists/playlist-paginated/tracks"))
+            .and(query_param("limit", "100"))
+            .and(query_param("offset", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-page2",
+                                    "name": "Artist Page Two",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-page2"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-page2",
+                                "name": "Album Page Two",
+                                "artists": [
+                                    {
+                                        "id": "artist-page2",
+                                        "name": "Artist Page Two"
+                                    }
+                                ],
+                                "external_urls": {
+                                    "spotify": "https://open.spotify.com/album/album-page2"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "next": null
+            })))
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig {
+                    enabled: true,
+                    base_url: Some(format!("{}/v1", server.uri())),
+                    access_token: Some("test-token".to_string()),
+                    playlist_ids: vec!["playlist-paginated".to_string()],
+                    market: None,
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = SpotifyPlaylistListProvider::from_config(&config);
+        let artists = provider.fetch_followed_artists().await.unwrap();
+        let albums = provider.fetch_saved_albums().await.unwrap();
+
+        // Both pages should have been fetched: 2 distinct artists and 2 distinct albums.
+        assert_eq!(artists.len(), 2);
+        assert!(artists.iter().any(|a| a.external_id == "artist-page1"));
+        assert!(artists.iter().any(|a| a.external_id == "artist-page2"));
+
+        assert_eq!(albums.len(), 2);
+        assert!(albums.iter().any(|a| a.external_id == "album-page1"));
+        assert!(albums.iter().any(|a| a.external_id == "album-page2"));
     }
 }
