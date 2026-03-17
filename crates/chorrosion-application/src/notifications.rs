@@ -5,8 +5,8 @@ use chorrosion_config::AppConfig;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use tokio::process::Command as ProcessCommand;
 use std::time::Duration;
+use tokio::process::Command as ProcessCommand;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
