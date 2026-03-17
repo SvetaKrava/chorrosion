@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use chorrosion_config::AppConfig;
 use chorrosion_musicbrainz::MusicBrainzClient;
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -74,17 +75,21 @@ pub struct MusicBrainzListProvider {
 pub struct SpotifyPlaylistListProvider {
     enabled: bool,
     http_client: reqwest::Client,
-    api_base_url: String,
+    base_url: String,
     access_token: Option<String>,
     playlist_ids: Vec<String>,
     market: Option<String>,
 }
 
+fn build_spotify_http_client() -> Client {
+    crate::http_client::build_http_client()
+}
+
 impl SpotifyPlaylistListProvider {
     pub fn from_config(config: &AppConfig) -> Self {
         let spotify = &config.lists.spotify;
-        let api_base_url = spotify
-            .api_base_url
+        let base_url = spotify
+            .base_url
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -116,8 +121,8 @@ impl SpotifyPlaylistListProvider {
 
         Self {
             enabled: spotify.enabled,
-            http_client: reqwest::Client::new(),
-            api_base_url,
+            http_client: build_spotify_http_client(),
+            base_url,
             access_token,
             playlist_ids,
             market,
@@ -141,7 +146,7 @@ impl SpotifyPlaylistListProvider {
         let mut offset: usize = 0;
 
         loop {
-            let url = format!("{}/playlists/{}/tracks", self.api_base_url, playlist_id);
+            let url = format!("{}/playlists/{}/tracks", self.base_url, playlist_id);
             let mut request = self
                 .http_client
                 .get(url)
@@ -709,7 +714,7 @@ mod tests {
                 musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
                 spotify: chorrosion_config::SpotifyListsConfig {
                     enabled: true,
-                    api_base_url: Some(format!("{}/v1", server.uri())),
+                    base_url: Some(format!("{}/v1", server.uri())),
                     access_token: Some("test-token".to_string()),
                     playlist_ids: vec!["playlist-1".to_string()],
                     market: None,
@@ -739,7 +744,7 @@ mod tests {
                 musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
                 spotify: chorrosion_config::SpotifyListsConfig {
                     enabled: true,
-                    api_base_url: None,
+                    base_url: None,
                     access_token: None,
                     playlist_ids: vec!["playlist-1".to_string()],
                     market: None,
@@ -756,5 +761,115 @@ mod tests {
             health.message.as_deref(),
             Some("Spotify access token not configured")
         );
+    }
+
+    #[tokio::test]
+    async fn spotify_provider_fetches_paginated_tracks() {
+        let server = MockServer::start().await;
+
+        // First page: contains one track and sets `next` to signal more pages.
+        Mock::given(method("GET"))
+            .and(path("/v1/playlists/playlist-paginated/tracks"))
+            .and(query_param("limit", "100"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-page1",
+                                    "name": "Artist Page One",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-page1"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-page1",
+                                "name": "Album Page One",
+                                "artists": [
+                                    {
+                                        "id": "artist-page1",
+                                        "name": "Artist Page One"
+                                    }
+                                ],
+                                "external_urls": {
+                                    "spotify": "https://open.spotify.com/album/album-page1"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "next": "https://api.spotify.com/v1/playlists/playlist-paginated/tracks?offset=1&limit=100"
+            })))
+            .mount(&server)
+            .await;
+
+        // Second page: offset=1, no next (last page).
+        Mock::given(method("GET"))
+            .and(path("/v1/playlists/playlist-paginated/tracks"))
+            .and(query_param("limit", "100"))
+            .and(query_param("offset", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
+                    {
+                        "track": {
+                            "artists": [
+                                {
+                                    "id": "artist-page2",
+                                    "name": "Artist Page Two",
+                                    "external_urls": {
+                                        "spotify": "https://open.spotify.com/artist/artist-page2"
+                                    }
+                                }
+                            ],
+                            "album": {
+                                "id": "album-page2",
+                                "name": "Album Page Two",
+                                "artists": [
+                                    {
+                                        "id": "artist-page2",
+                                        "name": "Artist Page Two"
+                                    }
+                                ],
+                                "external_urls": {
+                                    "spotify": "https://open.spotify.com/album/album-page2"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "next": null
+            })))
+            .mount(&server)
+            .await;
+
+        let config = AppConfig {
+            lists: chorrosion_config::ListsConfig {
+                musicbrainz: chorrosion_config::MusicBrainzListsConfig::default(),
+                spotify: chorrosion_config::SpotifyListsConfig {
+                    enabled: true,
+                    base_url: Some(format!("{}/v1", server.uri())),
+                    access_token: Some("test-token".to_string()),
+                    playlist_ids: vec!["playlist-paginated".to_string()],
+                    market: None,
+                },
+            },
+            ..AppConfig::default()
+        };
+
+        let provider = SpotifyPlaylistListProvider::from_config(&config);
+        let artists = provider.fetch_followed_artists().await.unwrap();
+        let albums = provider.fetch_saved_albums().await.unwrap();
+
+        // Both pages should have been fetched: 2 distinct artists and 2 distinct albums.
+        assert_eq!(artists.len(), 2);
+        assert!(artists.iter().any(|a| a.external_id == "artist-page1"));
+        assert!(artists.iter().any(|a| a.external_id == "artist-page2"));
+
+        assert_eq!(albums.len(), 2);
+        assert!(albums.iter().any(|a| a.external_id == "album-page1"));
+        assert!(albums.iter().any(|a| a.external_id == "album-page2"));
     }
 }

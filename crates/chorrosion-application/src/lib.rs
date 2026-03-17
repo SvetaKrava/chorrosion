@@ -11,6 +11,7 @@ pub mod embedded_tags;
 pub mod events;
 pub mod file_organization;
 pub mod filename_heuristics;
+mod http_client;
 pub mod import;
 pub mod import_matching;
 pub mod indexers;
