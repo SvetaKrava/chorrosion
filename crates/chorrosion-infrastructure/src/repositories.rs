@@ -45,6 +45,13 @@ pub trait AlbumRepository: Repository<Album> {
         offset: i64,
     ) -> Result<Vec<Album>>;
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Album>>;
+    /// Look up an album by artist and title (case-insensitive). Used for de-duplicate checks
+    /// during auto-add to avoid loading thousands of albums into memory.
+    async fn get_by_artist_and_title(
+        &self,
+        artist_id: ArtistId,
+        title: &str,
+    ) -> Result<Option<Album>>;
     async fn get_by_status(
         &self,
         status: AlbumStatus,

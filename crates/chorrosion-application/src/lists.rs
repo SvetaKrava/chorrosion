@@ -157,10 +157,8 @@ where
         }
 
         if let Some(existing_album) = album_repo
-            .get_by_artist(artist.id, 1000, 0)
+            .get_by_artist_and_title(artist.id, &entry.name)
             .await?
-            .into_iter()
-            .find(|album| album.title.eq_ignore_ascii_case(&entry.name))
         {
             if existing_album.foreign_album_id.is_none() {
                 let mut updated = existing_album;
@@ -945,6 +943,20 @@ mod tests {
                 .cloned())
         }
 
+        async fn get_by_artist_and_title(
+            &self,
+            artist_id: chorrosion_domain::ArtistId,
+            title: &str,
+        ) -> Result<Option<Album>> {
+            Ok(self
+                .albums
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|album| album.artist_id == artist_id && album.title.eq_ignore_ascii_case(title))
+                .cloned())
+        }
+
         async fn get_by_status(
             &self,
             status: AlbumStatus,
@@ -1557,6 +1569,91 @@ mod tests {
         assert_eq!(summary.albums_skipped_missing_artist, 1);
         assert_eq!(summary.artists_created, 0);
         assert_eq!(summary.albums_created, 0);
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_updates_artist_foreign_id_when_name_matches() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        // Seed an artist that has no foreign_artist_id yet.
+        let mut existing_artist = Artist::new("Artist Update");
+        existing_artist.foreign_artist_id = None;
+        artist_repo.create(existing_artist).await.unwrap();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Artist,
+                external_id: "artist:update".to_string(),
+                // Intentionally different case from the seeded "Artist Update" to verify
+                // case-insensitive name matching triggers the update path.
+                name: "artist update".to_string(),
+                artist_name: None,
+                source_url: None,
+                followed_at: None,
+            }],
+            vec![],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.artists_updated, 1);
+        assert_eq!(summary.artists_created, 0);
+        assert_eq!(summary.artists_skipped, 0);
+
+        let updated = artist_repo
+            .get_by_name("Artist Update")
+            .await
+            .unwrap()
+            .expect("artist should exist");
+        assert_eq!(updated.foreign_artist_id.as_deref(), Some("artist:update"));
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_updates_album_foreign_id_when_title_matches() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        // Seed an artist with a known foreign id so it is found by foreign-id lookup.
+        let mut existing_artist = Artist::new("Artist Album Update");
+        existing_artist.foreign_artist_id = Some("artist:album-update".to_string());
+        let existing_artist = artist_repo.create(existing_artist).await.unwrap();
+
+        // Seed an album under that artist with a matching title but no foreign_album_id.
+        let mut existing_album = Album::new(existing_artist.id, "Album Update");
+        existing_album.foreign_album_id = None;
+        album_repo.create(existing_album).await.unwrap();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![],
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Album,
+                external_id: "album:update".to_string(),
+                // Intentionally different case from the seeded "Album Update" to verify
+                // case-insensitive title matching triggers the update path.
+                name: "ALBUM UPDATE".to_string(),
+                artist_name: Some("Artist Album Update".to_string()),
+                source_url: None,
+                followed_at: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.albums_updated, 1);
+        assert_eq!(summary.albums_created, 0);
+        assert_eq!(summary.albums_skipped, 0);
+
+        let updated = album_repo
+            .get_by_artist_and_title(existing_artist.id, "Album Update")
+            .await
+            .unwrap()
+            .expect("album should exist");
+        assert_eq!(updated.foreign_album_id.as_deref(), Some("album:update"));
     }
 
     #[tokio::test]
