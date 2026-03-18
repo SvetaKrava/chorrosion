@@ -1283,6 +1283,7 @@ mod tests {
             database: chorrosion_config::DatabaseConfig {
                 url: "sqlite::memory:".to_string(),
                 pool_max_size: 1,
+                ..chorrosion_config::DatabaseConfig::default()
             },
             ..chorrosion_config::AppConfig::default()
         };
