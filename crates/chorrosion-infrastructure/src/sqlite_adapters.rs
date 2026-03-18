@@ -2440,7 +2440,10 @@ mod tests {
         // Correct title but wrong artist returns None
         let other_artist = chorrosion_domain::Artist::new("Other Artist");
         let other_artist_id = other_artist.id;
-        artist_repo.create(other_artist).await.expect("create other artist");
+        artist_repo
+            .create(other_artist)
+            .await
+            .expect("create other artist");
         let wrong_artist = album_repo
             .get_by_artist_and_title(other_artist_id, "Blue Sky")
             .await

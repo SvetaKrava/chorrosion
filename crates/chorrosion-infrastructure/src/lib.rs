@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
+
+pub use profiler::QueryProfiler;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
