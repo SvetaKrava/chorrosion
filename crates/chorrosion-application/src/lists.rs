@@ -112,7 +112,11 @@ where
         .collect::<Vec<_>>();
 
     for entry in artist_entries {
-        if artist_repo.get_by_foreign_id(&entry.external_id).await?.is_some() {
+        if artist_repo
+            .get_by_foreign_id(&entry.external_id)
+            .await?
+            .is_some()
+        {
             summary.artists_skipped += 1;
             continue;
         }
@@ -151,7 +155,11 @@ where
             created
         };
 
-        if album_repo.get_by_foreign_id(&entry.external_id).await?.is_some() {
+        if album_repo
+            .get_by_foreign_id(&entry.external_id)
+            .await?
+            .is_some()
+        {
             summary.albums_skipped += 1;
             continue;
         }
@@ -953,7 +961,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .find(|album| album.artist_id == artist_id && album.title.eq_ignore_ascii_case(title))
+                .find(|album| {
+                    album.artist_id == artist_id && album.title.eq_ignore_ascii_case(title)
+                })
                 .cloned())
         }
 

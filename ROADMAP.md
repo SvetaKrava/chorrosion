@@ -385,7 +385,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 - [ ] Database query optimization
   - [x] Add indexes for common queries (Issue #270) ✓
-  - [ ] Query profiling and tuning
+  - [x] Query profiling and tuning (Issue #273) ✓
 - [ ] Caching layer
   - [ ] Metadata caching
   - [ ] API response caching

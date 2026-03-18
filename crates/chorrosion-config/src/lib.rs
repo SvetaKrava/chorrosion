@@ -13,6 +13,9 @@ use tracing::info;
 pub struct DatabaseConfig {
     pub url: String,
     pub pool_max_size: u32,
+    /// Queries that take longer than this threshold (in milliseconds) are logged at WARN level.
+    /// Set to 0 to disable slow-query logging.
+    pub slow_query_threshold_ms: u64,
 }
 
 impl Default for DatabaseConfig {
@@ -20,6 +23,7 @@ impl Default for DatabaseConfig {
         Self {
             url: "sqlite://chorrosion.db".to_string(),
             pool_max_size: 16,
+            slow_query_threshold_ms: 50,
         }
     }
 }

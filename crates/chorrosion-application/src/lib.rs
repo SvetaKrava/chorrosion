@@ -50,8 +50,8 @@ pub use indexers::{
 };
 pub use lists::{
     auto_add_from_list_entries, dedupe_list_entries, ExternalListEntry, LastFmListProvider,
-    ListAutoAddSummary, ListEntityType, ListProvider, ListProviderCapabilities,
-    ListProviderHealth, MusicBrainzListProvider, SpotifyPlaylistListProvider,
+    ListAutoAddSummary, ListEntityType, ListProvider, ListProviderCapabilities, ListProviderHealth,
+    MusicBrainzListProvider, SpotifyPlaylistListProvider,
 };
 pub use matching::{MatchResult, MatchingError, MatchingResult, TrackMatchingService};
 pub use matching_precedence::{
