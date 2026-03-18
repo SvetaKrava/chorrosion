@@ -1587,7 +1587,9 @@ mod tests {
             vec![ExternalListEntry {
                 entity_type: ListEntityType::Artist,
                 external_id: "artist:update".to_string(),
-                name: "Artist Update".to_string(),
+                // Intentionally different case from the seeded "Artist Update" to verify
+                // case-insensitive name matching triggers the update path.
+                name: "artist update".to_string(),
                 artist_name: None,
                 source_url: None,
                 followed_at: None,
@@ -1631,7 +1633,9 @@ mod tests {
             vec![ExternalListEntry {
                 entity_type: ListEntityType::Album,
                 external_id: "album:update".to_string(),
-                name: "Album Update".to_string(),
+                // Intentionally different case from the seeded "Album Update" to verify
+                // case-insensitive title matching triggers the update path.
+                name: "ALBUM UPDATE".to_string(),
                 artist_name: Some("Artist Album Update".to_string()),
                 source_url: None,
                 followed_at: None,

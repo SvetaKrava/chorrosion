@@ -2161,6 +2161,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn artist_get_by_name_is_case_insensitive() {
+        let pool = setup_pool().await;
+        let repo = SqliteArtistRepository::new(pool.clone());
+
+        repo.create(chorrosion_domain::Artist::new("Alpha"))
+            .await
+            .expect("create alpha");
+
+        // Exact case
+        let exact = repo
+            .get_by_name("Alpha")
+            .await
+            .expect("exact case")
+            .expect("exists");
+        assert_eq!(exact.name, "Alpha");
+
+        // All lowercase
+        let lower = repo
+            .get_by_name("alpha")
+            .await
+            .expect("lowercase")
+            .expect("exists");
+        assert_eq!(lower.id, exact.id);
+
+        // All uppercase
+        let upper = repo
+            .get_by_name("ALPHA")
+            .await
+            .expect("uppercase")
+            .expect("exists");
+        assert_eq!(upper.id, exact.id);
+
+        // Name not in DB returns None
+        let absent = repo.get_by_name("Beta").await.expect("absent");
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
     async fn artist_list_monitored_and_status_filters() {
         let pool = setup_pool().await;
         let repo = SqliteArtistRepository::new(pool.clone());
@@ -2352,6 +2390,62 @@ mod tests {
             .expect("exists");
         assert_eq!(by_foreign.id, album1.id);
         assert_eq!(by_foreign.title, "Album 1");
+    }
+
+    #[tokio::test]
+    async fn album_get_by_artist_and_title_case_insensitive() {
+        let pool = setup_pool().await;
+        let artist_repo = SqliteArtistRepository::new(pool.clone());
+        let album_repo = SqliteAlbumRepository::new(pool.clone());
+
+        let artist = chorrosion_domain::Artist::new("Test Artist");
+        let artist_id = artist.id;
+        artist_repo.create(artist).await.expect("create artist");
+
+        let album = chorrosion_domain::Album::new(artist_id, "Blue Sky");
+        let album_id = album.id;
+        album_repo.create(album).await.expect("create album");
+
+        // Exact case
+        let exact = album_repo
+            .get_by_artist_and_title(artist_id, "Blue Sky")
+            .await
+            .expect("exact case")
+            .expect("exists");
+        assert_eq!(exact.id, album_id);
+
+        // All lowercase
+        let lower = album_repo
+            .get_by_artist_and_title(artist_id, "blue sky")
+            .await
+            .expect("lowercase")
+            .expect("exists");
+        assert_eq!(lower.id, album_id);
+
+        // All uppercase
+        let upper = album_repo
+            .get_by_artist_and_title(artist_id, "BLUE SKY")
+            .await
+            .expect("uppercase")
+            .expect("exists");
+        assert_eq!(upper.id, album_id);
+
+        // Title not under this artist returns None
+        let absent = album_repo
+            .get_by_artist_and_title(artist_id, "Red Sky")
+            .await
+            .expect("absent title");
+        assert!(absent.is_none());
+
+        // Correct title but wrong artist returns None
+        let other_artist = chorrosion_domain::Artist::new("Other Artist");
+        let other_artist_id = other_artist.id;
+        artist_repo.create(other_artist).await.expect("create other artist");
+        let wrong_artist = album_repo
+            .get_by_artist_and_title(other_artist_id, "Blue Sky")
+            .await
+            .expect("wrong artist");
+        assert!(wrong_artist.is_none());
     }
 
     #[tokio::test]
