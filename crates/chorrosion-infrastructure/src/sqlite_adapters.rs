@@ -165,7 +165,7 @@ impl Repository<Artist> for SqliteArtistRepository {
 impl ArtistRepository for SqliteArtistRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", name, "fetching artist by name");
-        let row = sqlx::query("SELECT * FROM artists WHERE name = ? LIMIT 1")
+        let row = sqlx::query("SELECT * FROM artists WHERE name = ? COLLATE NOCASE LIMIT 1")
             .bind(name)
             .fetch_optional(&self.pool)
             .await?;
@@ -591,6 +591,22 @@ impl AlbumRepository for SqliteAlbumRepository {
             .bind(foreign_id)
             .fetch_optional(&self.pool)
             .await?;
+        Ok(row.map(|r| row_to_album(&r)).transpose()?)
+    }
+
+    async fn get_by_artist_and_title(
+        &self,
+        artist_id: ArtistId,
+        title: &str,
+    ) -> Result<Option<Album>> {
+        debug!(target: "repository", %artist_id, title, "fetching album by artist and title");
+        let row = sqlx::query(
+            "SELECT * FROM albums WHERE artist_id = ? AND title = ? COLLATE NOCASE LIMIT 1",
+        )
+        .bind(artist_id.to_string())
+        .bind(title)
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(row.map(|r| row_to_album(&r)).transpose()?)
     }
 
