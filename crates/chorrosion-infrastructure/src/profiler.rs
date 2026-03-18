@@ -56,9 +56,9 @@ impl QueryProfiler {
 
     /// Time a query future identified by `label`.
     ///
-    /// If the elapsed time exceeds `threshold_ms` a `WARN` event is emitted on
-    /// the `profiler` tracing target.  A `DEBUG` event is always emitted when
-    /// tracing at that level is enabled.
+    /// A `DEBUG` event is always emitted on the `profiler` tracing target.
+    /// If the elapsed time also exceeds `threshold_ms` (and `threshold_ms > 0`),
+    /// an additional `WARN` event is emitted.
     pub async fn timed<F, Fut, T>(&self, label: &str, query_fn: F) -> Fut::Output
     where
         F: FnOnce() -> Fut,
@@ -68,6 +68,8 @@ impl QueryProfiler {
         let result = query_fn().await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
+        debug!(target: "profiler", label, elapsed_ms, "query completed");
+
         if self.threshold_ms > 0 && elapsed_ms >= self.threshold_ms {
             warn!(
                 target: "profiler",
@@ -76,8 +78,6 @@ impl QueryProfiler {
                 threshold_ms = self.threshold_ms,
                 "slow query detected"
             );
-        } else {
-            debug!(target: "profiler", label, elapsed_ms, "query completed");
         }
 
         result
@@ -99,10 +99,18 @@ impl QueryProfiler {
         for row in rows {
             use sqlx::Row;
             // EXPLAIN QUERY PLAN returns: id INTEGER, parent INTEGER, notused INTEGER, detail TEXT
-            let id: i64 = row.try_get("id").unwrap_or(0);
-            let parent: i64 = row.try_get("parent").unwrap_or(0);
-            let notused: i64 = row.try_get("notused").unwrap_or(0);
-            let detail: String = row.try_get("detail").unwrap_or_default();
+            let id: i64 = row
+                .try_get("id")
+                .map_err(|e| anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'id': {e}"))?;
+            let parent: i64 = row
+                .try_get("parent")
+                .map_err(|e| anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'parent': {e}"))?;
+            let notused: i64 = row.try_get("notused").map_err(|e| {
+                anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'notused': {e}")
+            })?;
+            let detail: String = row.try_get("detail").map_err(|e| {
+                anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'detail': {e}")
+            })?;
             lines.push(format!("{id}|{parent}|{notused}|{detail}"));
         }
         Ok(lines)
@@ -146,9 +154,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn timed_zero_threshold_never_warns() {
+    async fn timed_zero_threshold_still_returns_value() {
         // A threshold of 0 disables slow-query logging; the function still
-        // returns correctly.
+        // returns the inner result correctly.
         let pool = test_pool().await;
         let profiler = QueryProfiler::new(pool.clone(), 0);
 
