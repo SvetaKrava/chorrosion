@@ -269,6 +269,23 @@ pub struct NotificationsConfig {
     pub script: ScriptNotificationConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    /// TTL in seconds for cached API GET responses. Set to 0 to disable.
+    pub api_response_ttl_seconds: u64,
+    /// Maximum number of cached API responses kept in memory.
+    pub api_response_max_capacity: u64,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            api_response_ttl_seconds: 60,
+            api_response_max_capacity: 1_000,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
@@ -276,6 +293,7 @@ pub struct AppConfig {
     pub telemetry: TelemetryConfig,
     pub scheduler: SchedulerConfig,
     pub auth: AuthConfig,
+    pub cache: CacheConfig,
     pub metadata: MetadataConfig,
     pub notifications: NotificationsConfig,
     pub lists: ListsConfig,

@@ -103,6 +103,7 @@ use handlers::wanted::{
     __path_trigger_wanted_album_search,
 };
 use middleware::auth::auth_middleware;
+use middleware::response_cache::response_cache_middleware;
 use serde::Serialize;
 use tracing::info;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
@@ -423,6 +424,10 @@ pub fn router(state: AppState) -> Router {
         .route("/wanted/:id/search", post(trigger_wanted_album_search))
         .route("/calendar", get(list_upcoming_releases))
         .route("/calendar/ical", get(get_ical_feed))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            response_cache_middleware,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
