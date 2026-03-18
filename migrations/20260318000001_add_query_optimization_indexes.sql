@@ -20,6 +20,10 @@ CREATE INDEX IF NOT EXISTS idx_tracks_monitored_track_number_title ON tracks(mon
 CREATE INDEX IF NOT EXISTS idx_tracks_has_file_track_number_title ON tracks(has_file, track_number, title);
 
 -- Track files: path lookups and recent/fingerprint processing scans.
+-- Drop the earlier single-column indexes that are superseded by the composite indexes below;
+-- the composite index leading columns satisfy all previous single-column lookups.
+DROP INDEX IF EXISTS idx_track_files_track_id;
+DROP INDEX IF EXISTS idx_track_files_fingerprint_hash;
 CREATE INDEX IF NOT EXISTS idx_track_files_path ON track_files(path);
 CREATE INDEX IF NOT EXISTS idx_track_files_track_id_created_at ON track_files(track_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_track_files_created_at ON track_files(created_at DESC);
