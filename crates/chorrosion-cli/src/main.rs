@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use axum::serve;
 use chorrosion_api::router;
-use chorrosion_application::{AppState, DirScanCache};
+use chorrosion_application::AppState;
 use chorrosion_config::load as load_config;
 use chorrosion_infrastructure::{
     init_database,
@@ -50,7 +50,6 @@ async fn main() -> Result<()> {
         config.cache.api_response_max_capacity,
         config.cache.api_response_ttl_seconds,
     );
-    let dir_scan_cache = DirScanCache::new();
 
     let state = AppState::new(
         config.clone(),
@@ -62,7 +61,6 @@ async fn main() -> Result<()> {
         indexer_definition_repository,
         download_client_definition_repository,
         response_cache,
-        dir_scan_cache,
     );
     state.on_start();
 

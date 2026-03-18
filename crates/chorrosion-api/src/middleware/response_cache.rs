@@ -21,10 +21,20 @@ use axum::{
     response::Response,
 };
 use chorrosion_application::AppState;
-use tracing::debug;
+use chorrosion_infrastructure::CachedResponse;
+use tracing::{debug, error};
 
 fn is_cacheable_get_path(path: &str) -> bool {
     !path.contains("/events") && !path.ends_with("/calendar/ical")
+}
+
+/// Returns `true` for methods that mutate server state and should therefore
+/// trigger a full cache invalidation on success.
+fn is_mutating(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
 }
 
 /// Middleware function — register with
@@ -39,7 +49,7 @@ pub async fn response_cache_middleware(
 
     if method != Method::GET {
         let response = next.run(req).await;
-        if state.response_cache.is_enabled() && response.status().is_success() {
+        if is_mutating(&method) && state.response_cache.is_enabled() && response.status().is_success() {
             debug!(target: "cache", method = %method, path = %path, "invalidating API response cache after write");
             state.response_cache.invalidate_all();
         }
@@ -60,13 +70,16 @@ pub async fn response_cache_middleware(
     };
 
     // --- Cache HIT ---
-    if let Some(cached_bytes) = state.response_cache.get(&key) {
+    if let Some(cached) = state.response_cache.get(&key) {
         debug!(target: "cache", key = %key, "API response cache HIT");
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
+        let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+        let mut builder = Response::builder().status(status);
+        for (name, value) in &cached.headers {
+            builder = builder.header(name.as_slice(), value.as_slice());
+        }
+        return builder
             .header("x-cache", "HIT")
-            .body(Body::from(cached_bytes))
+            .body(Body::from(cached.body))
             .unwrap_or_else(|_| {
                 Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -98,12 +111,33 @@ pub async fn response_cache_middleware(
                     bytes = bytes.len(),
                     "API response cache MISS → stored"
                 );
-                state.response_cache.insert(key, bytes.clone());
+                let headers = parts
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.as_str().as_bytes().to_vec(), v.as_bytes().to_vec()))
+                    .collect();
+                state.response_cache.insert(
+                    key,
+                    CachedResponse {
+                        status: parts.status.as_u16(),
+                        headers,
+                        body: bytes.clone(),
+                    },
+                );
                 Response::from_parts(parts, Body::from(bytes))
             }
-            // Body collection failed (shouldn't happen for JSON handlers) — pass
-            // through an empty response rather than panicking.
-            Err(_) => Response::from_parts(parts, Body::empty()),
+            Err(e) => {
+                error!(
+                    target: "cache",
+                    key = %key,
+                    error = %e,
+                    "failed to collect response body for caching"
+                );
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap()
+            }
         }
     } else {
         response
