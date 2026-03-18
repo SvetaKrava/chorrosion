@@ -56,9 +56,10 @@ impl QueryProfiler {
 
     /// Time a query future identified by `label`.
     ///
-    /// A `DEBUG` event is always emitted on the `profiler` tracing target.
-    /// If the elapsed time also exceeds `threshold_ms` (and `threshold_ms > 0`),
-    /// an additional `WARN` event is emitted.
+    /// A `DEBUG` event is emitted on the `profiler` target when DEBUG logging
+    /// is enabled for that target.  If the elapsed time also exceeds
+    /// `threshold_ms` (and `threshold_ms > 0`), an additional `WARN` event is
+    /// emitted.
     pub async fn timed<F, Fut, T>(&self, label: &str, query_fn: F) -> Fut::Output
     where
         F: FnOnce() -> Fut,
