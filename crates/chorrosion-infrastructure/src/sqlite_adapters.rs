@@ -787,11 +787,13 @@ impl AlbumRepository for SqliteAlbumRepository {
         debug!(target: "repository", limit, offset, "listing cutoff-unmet albums");
         // An album is cutoff-unmet when:
         //   - It is monitored
-        //   - Its artist has a quality profile with upgrade_allowed=TRUE and cutoff_quality set
-        //   - At least one monitored track file has a codec that is either unknown, ranked
-        //     lower than the cutoff in the allowed_qualities ordered list (lower = higher
-        //     index; the list is ordered best-to-worst), or whose cutoff_quality is not
-        //     found in the allowed list (treats an inconsistent profile as "needs upgrade").
+        //   - Its artist has a quality profile with upgrade_allowed=TRUE and a cutoff_quality set
+        //   - At least one monitored track file has a codec that is either unknown, has a
+        //     higher index than the profile's cutoff_quality in allowed_qualities (earlier index
+        //     = higher quality, so a higher index means lower quality than the cutoff), or
+        //     whose codec is not present in the allowed list at all.  If the profile's own
+        //     cutoff_quality is not found in allowed_qualities the profile is treated as
+        //     inconsistent and the album is also included.
         let rows = self
             .profiler
             .timed("albums::list_cutoff_unmet_albums", || async {
