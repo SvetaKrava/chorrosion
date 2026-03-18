@@ -373,7 +373,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] MusicBrainz list import (Issue #259) ✓
 - [x] Spotify playlist import (optional) (Issue #261) ✓
 - [x] Last.fm integration (Issue #264) ✓
-- [ ] Auto-add from lists
+- [x] Auto-add from lists (Issue #267) ✓
 
 ---
 

@@ -2,6 +2,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use chorrosion_config::AppConfig;
+use chorrosion_domain::{Album, Artist};
+use chorrosion_infrastructure::repositories::{AlbumRepository, ArtistRepository};
 use chorrosion_metadata::lastfm::LastFmClient;
 use chorrosion_musicbrainz::MusicBrainzClient;
 use chrono::{DateTime, Utc};
@@ -75,6 +77,108 @@ pub fn dedupe_list_entries(entries: Vec<ExternalListEntry>) -> Vec<ExternalListE
     }
 
     deduped
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListAutoAddSummary {
+    pub artists_created: usize,
+    pub artists_updated: usize,
+    pub artists_skipped: usize,
+    pub albums_created: usize,
+    pub albums_updated: usize,
+    pub albums_skipped: usize,
+    pub albums_skipped_missing_artist: usize,
+}
+
+pub async fn auto_add_from_list_entries<AR, ALR>(
+    artist_repo: &AR,
+    album_repo: &ALR,
+    artist_entries: Vec<ExternalListEntry>,
+    album_entries: Vec<ExternalListEntry>,
+) -> Result<ListAutoAddSummary>
+where
+    AR: ArtistRepository,
+    ALR: AlbumRepository,
+{
+    let mut summary = ListAutoAddSummary::default();
+
+    let artist_entries = dedupe_list_entries(artist_entries)
+        .into_iter()
+        .filter(|entry| entry.entity_type == ListEntityType::Artist)
+        .collect::<Vec<_>>();
+    let album_entries = dedupe_list_entries(album_entries)
+        .into_iter()
+        .filter(|entry| entry.entity_type == ListEntityType::Album)
+        .collect::<Vec<_>>();
+
+    for entry in artist_entries {
+        if artist_repo.get_by_foreign_id(&entry.external_id).await?.is_some() {
+            summary.artists_skipped += 1;
+            continue;
+        }
+
+        if let Some(existing) = artist_repo.get_by_name(&entry.name).await? {
+            if existing.foreign_artist_id.is_none() {
+                let mut updated = existing;
+                updated.foreign_artist_id = Some(entry.external_id.clone());
+                updated.updated_at = Utc::now();
+                artist_repo.update(updated).await?;
+                summary.artists_updated += 1;
+            } else {
+                summary.artists_skipped += 1;
+            }
+            continue;
+        }
+
+        let mut artist = Artist::new(entry.name);
+        artist.foreign_artist_id = Some(entry.external_id);
+        artist_repo.create(artist).await?;
+        summary.artists_created += 1;
+    }
+
+    for entry in album_entries {
+        let Some(artist_name) = entry.artist_name.as_deref() else {
+            summary.albums_skipped_missing_artist += 1;
+            continue;
+        };
+
+        let artist = if let Some(existing_artist) = artist_repo.get_by_name(artist_name).await? {
+            existing_artist
+        } else {
+            let created = Artist::new(artist_name.to_string());
+            let created = artist_repo.create(created).await?;
+            summary.artists_created += 1;
+            created
+        };
+
+        if album_repo.get_by_foreign_id(&entry.external_id).await?.is_some() {
+            summary.albums_skipped += 1;
+            continue;
+        }
+
+        if let Some(existing_album) = album_repo
+            .get_by_artist_and_title(artist.id, &entry.name)
+            .await?
+        {
+            if existing_album.foreign_album_id.is_none() {
+                let mut updated = existing_album;
+                updated.foreign_album_id = Some(entry.external_id.clone());
+                updated.updated_at = Utc::now();
+                album_repo.update(updated).await?;
+                summary.albums_updated += 1;
+            } else {
+                summary.albums_skipped += 1;
+            }
+            continue;
+        }
+
+        let mut album = Album::new(artist.id, entry.name);
+        album.foreign_album_id = Some(entry.external_id);
+        album_repo.create(album).await?;
+        summary.albums_created += 1;
+    }
+
+    Ok(summary)
 }
 
 pub struct MusicBrainzListProvider {
@@ -655,10 +759,265 @@ impl ListProvider for LastFmListProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chorrosion_domain::{AlbumStatus, ArtistStatus};
+    use chorrosion_infrastructure::repositories::{AlbumRepository, ArtistRepository, Repository};
+    use std::sync::{Arc, Mutex};
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
     };
+
+    #[derive(Clone, Default)]
+    struct InMemoryArtistRepo {
+        artists: Arc<Mutex<Vec<Artist>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Repository<Artist> for InMemoryArtistRepo {
+        async fn create(&self, entity: Artist) -> Result<Artist> {
+            self.artists.lock().unwrap().push(entity.clone());
+            Ok(entity)
+        }
+
+        async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Artist>> {
+            let id = id.into();
+            Ok(self
+                .artists
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|artist| artist.id.to_string() == id)
+                .cloned())
+        }
+
+        async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
+            let artists = self.artists.lock().unwrap();
+            Ok(artists
+                .iter()
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn update(&self, entity: Artist) -> Result<Artist> {
+            let mut artists = self.artists.lock().unwrap();
+            if let Some(existing) = artists.iter_mut().find(|artist| artist.id == entity.id) {
+                *existing = entity.clone();
+            }
+            Ok(entity)
+        }
+
+        async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+            let id = id.into();
+            let mut artists = self.artists.lock().unwrap();
+            artists.retain(|artist| artist.id.to_string() != id);
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ArtistRepository for InMemoryArtistRepo {
+        async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
+            Ok(self
+                .artists
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|artist| artist.name.eq_ignore_ascii_case(name))
+                .cloned())
+        }
+
+        async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Artist>> {
+            Ok(self
+                .artists
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|artist| artist.foreign_artist_id.as_deref() == Some(foreign_id))
+                .cloned())
+        }
+
+        async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
+            let artists = self.artists.lock().unwrap();
+            Ok(artists
+                .iter()
+                .filter(|artist| artist.monitored)
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_by_status(
+            &self,
+            status: ArtistStatus,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Artist>> {
+            let artists = self.artists.lock().unwrap();
+            Ok(artists
+                .iter()
+                .filter(|artist| artist.status == status)
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct InMemoryAlbumRepo {
+        albums: Arc<Mutex<Vec<Album>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Repository<Album> for InMemoryAlbumRepo {
+        async fn create(&self, entity: Album) -> Result<Album> {
+            self.albums.lock().unwrap().push(entity.clone());
+            Ok(entity)
+        }
+
+        async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Album>> {
+            let id = id.into();
+            Ok(self
+                .albums
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|album| album.id.to_string() == id)
+                .cloned())
+        }
+
+        async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
+            let albums = self.albums.lock().unwrap();
+            Ok(albums
+                .iter()
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn update(&self, entity: Album) -> Result<Album> {
+            let mut albums = self.albums.lock().unwrap();
+            if let Some(existing) = albums.iter_mut().find(|album| album.id == entity.id) {
+                *existing = entity.clone();
+            }
+            Ok(entity)
+        }
+
+        async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
+            let id = id.into();
+            let mut albums = self.albums.lock().unwrap();
+            albums.retain(|album| album.id.to_string() != id);
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AlbumRepository for InMemoryAlbumRepo {
+        async fn get_by_artist(
+            &self,
+            artist_id: chorrosion_domain::ArtistId,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Album>> {
+            let albums = self.albums.lock().unwrap();
+            Ok(albums
+                .iter()
+                .filter(|album| album.artist_id == artist_id)
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Album>> {
+            Ok(self
+                .albums
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|album| album.foreign_album_id.as_deref() == Some(foreign_id))
+                .cloned())
+        }
+
+        async fn get_by_artist_and_title(
+            &self,
+            artist_id: chorrosion_domain::ArtistId,
+            title: &str,
+        ) -> Result<Option<Album>> {
+            Ok(self
+                .albums
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|album| album.artist_id == artist_id && album.title.eq_ignore_ascii_case(title))
+                .cloned())
+        }
+
+        async fn get_by_status(
+            &self,
+            status: AlbumStatus,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Album>> {
+            let albums = self.albums.lock().unwrap();
+            Ok(albums
+                .iter()
+                .filter(|album| album.status == status)
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
+            let albums = self.albums.lock().unwrap();
+            Ok(albums
+                .iter()
+                .filter(|album| album.monitored)
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_by_album_type(
+            &self,
+            album_type: &str,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Album>> {
+            let albums = self.albums.lock().unwrap();
+            Ok(albums
+                .iter()
+                .filter(|album| album.album_type.as_deref() == Some(album_type))
+                .skip(offset.max(0) as usize)
+                .take(limit.max(0) as usize)
+                .cloned()
+                .collect())
+        }
+
+        async fn list_wanted_without_tracks(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
+            self.get_by_status(AlbumStatus::Wanted, limit, offset).await
+        }
+
+        async fn list_cutoff_unmet_albums(&self, _limit: i64, _offset: i64) -> Result<Vec<Album>> {
+            Ok(vec![])
+        }
+
+        async fn list_upcoming_releases(
+            &self,
+            _start: chrono::NaiveDate,
+            _end: chrono::NaiveDate,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<Album>> {
+            Ok(vec![])
+        }
+    }
 
     #[test]
     fn dedupe_list_entries_removes_entries_with_same_entity_type_and_external_id() {
@@ -1113,6 +1472,188 @@ mod tests {
         assert_eq!(albums[0].external_id, "artist one::album one");
         assert_eq!(albums[0].name, "Album One");
         assert_eq!(albums[0].artist_name.as_deref(), Some("Artist One"));
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_creates_missing_artists_and_albums() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![
+                ExternalListEntry {
+                    entity_type: ListEntityType::Artist,
+                    external_id: "artist:one".to_string(),
+                    name: "Artist One".to_string(),
+                    artist_name: None,
+                    source_url: None,
+                    followed_at: None,
+                },
+                ExternalListEntry {
+                    entity_type: ListEntityType::Artist,
+                    external_id: "artist:one".to_string(),
+                    name: "Artist One Duplicate".to_string(),
+                    artist_name: None,
+                    source_url: None,
+                    followed_at: None,
+                },
+            ],
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Album,
+                external_id: "album:one".to_string(),
+                name: "Album One".to_string(),
+                artist_name: Some("Artist One".to_string()),
+                source_url: None,
+                followed_at: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.artists_created, 1);
+        assert_eq!(summary.albums_created, 1);
+        assert_eq!(summary.artists_skipped, 0);
+        assert_eq!(summary.albums_skipped_missing_artist, 0);
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_skips_existing_and_missing_artist_name() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        let mut existing_artist = Artist::new("Artist Existing");
+        existing_artist.foreign_artist_id = Some("artist:existing".to_string());
+        let existing_artist = artist_repo.create(existing_artist).await.unwrap();
+
+        let mut existing_album = Album::new(existing_artist.id, "Album Existing");
+        existing_album.foreign_album_id = Some("album:existing".to_string());
+        album_repo.create(existing_album).await.unwrap();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Artist,
+                external_id: "artist:existing".to_string(),
+                name: "Artist Existing".to_string(),
+                artist_name: None,
+                source_url: None,
+                followed_at: None,
+            }],
+            vec![
+                ExternalListEntry {
+                    entity_type: ListEntityType::Album,
+                    external_id: "album:existing".to_string(),
+                    name: "Album Existing".to_string(),
+                    artist_name: Some("Artist Existing".to_string()),
+                    source_url: None,
+                    followed_at: None,
+                },
+                ExternalListEntry {
+                    entity_type: ListEntityType::Album,
+                    external_id: "album:no-artist".to_string(),
+                    name: "Album Missing Artist".to_string(),
+                    artist_name: None,
+                    source_url: None,
+                    followed_at: None,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.artists_skipped, 1);
+        assert_eq!(summary.albums_skipped, 1);
+        assert_eq!(summary.albums_skipped_missing_artist, 1);
+        assert_eq!(summary.artists_created, 0);
+        assert_eq!(summary.albums_created, 0);
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_updates_artist_foreign_id_when_name_matches() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        // Seed an artist that has no foreign_artist_id yet.
+        let mut existing_artist = Artist::new("Artist Update");
+        existing_artist.foreign_artist_id = None;
+        artist_repo.create(existing_artist).await.unwrap();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Artist,
+                external_id: "artist:update".to_string(),
+                // Intentionally different case from the seeded "Artist Update" to verify
+                // case-insensitive name matching triggers the update path.
+                name: "artist update".to_string(),
+                artist_name: None,
+                source_url: None,
+                followed_at: None,
+            }],
+            vec![],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.artists_updated, 1);
+        assert_eq!(summary.artists_created, 0);
+        assert_eq!(summary.artists_skipped, 0);
+
+        let updated = artist_repo
+            .get_by_name("Artist Update")
+            .await
+            .unwrap()
+            .expect("artist should exist");
+        assert_eq!(updated.foreign_artist_id.as_deref(), Some("artist:update"));
+    }
+
+    #[tokio::test]
+    async fn auto_add_from_list_entries_updates_album_foreign_id_when_title_matches() {
+        let artist_repo = InMemoryArtistRepo::default();
+        let album_repo = InMemoryAlbumRepo::default();
+
+        // Seed an artist with a known foreign id so it is found by foreign-id lookup.
+        let mut existing_artist = Artist::new("Artist Album Update");
+        existing_artist.foreign_artist_id = Some("artist:album-update".to_string());
+        let existing_artist = artist_repo.create(existing_artist).await.unwrap();
+
+        // Seed an album under that artist with a matching title but no foreign_album_id.
+        let mut existing_album = Album::new(existing_artist.id, "Album Update");
+        existing_album.foreign_album_id = None;
+        album_repo.create(existing_album).await.unwrap();
+
+        let summary = auto_add_from_list_entries(
+            &artist_repo,
+            &album_repo,
+            vec![],
+            vec![ExternalListEntry {
+                entity_type: ListEntityType::Album,
+                external_id: "album:update".to_string(),
+                // Intentionally different case from the seeded "Album Update" to verify
+                // case-insensitive title matching triggers the update path.
+                name: "ALBUM UPDATE".to_string(),
+                artist_name: Some("Artist Album Update".to_string()),
+                source_url: None,
+                followed_at: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(summary.albums_updated, 1);
+        assert_eq!(summary.albums_created, 0);
+        assert_eq!(summary.albums_skipped, 0);
+
+        let updated = album_repo
+            .get_by_artist_and_title(existing_artist.id, "Album Update")
+            .await
+            .unwrap()
+            .expect("album should exist");
+        assert_eq!(updated.foreign_album_id.as_deref(), Some("album:update"));
     }
 
     #[tokio::test]
