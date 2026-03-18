@@ -12,6 +12,7 @@ use sqlx::SqlitePool;
 use tracing::debug;
 use uuid::Uuid;
 
+use crate::profiler::QueryProfiler;
 use crate::repositories::{
     AlbumRepository, ArtistRelationshipRepository, ArtistRepository,
     DownloadClientDefinitionRepository, IndexerDefinitionRepository, MetadataProfileRepository,
@@ -22,11 +23,18 @@ use crate::repositories::{
 #[allow(dead_code)]
 pub struct SqliteArtistRepository {
     pool: SqlitePool,
+    profiler: QueryProfiler,
 }
 
 impl SqliteArtistRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
     }
 }
 
@@ -79,9 +87,15 @@ impl Repository<Artist> for SqliteArtistRepository {
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Artist>> {
         let id = id.into();
         debug!(target: "repository", %id, "fetching artist by id");
-        let row = sqlx::query("SELECT * FROM artists WHERE id = ? LIMIT 1")
-            .bind(id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let row = self
+            .profiler
+            .timed("artists::get_by_id", move || async move {
+                sqlx::query("SELECT * FROM artists WHERE id = ? LIMIT 1")
+                    .bind(id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_artist(&r)?))
@@ -92,10 +106,16 @@ impl Repository<Artist> for SqliteArtistRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
         debug!(target: "repository", limit, offset, "listing artists");
-        let rows = sqlx::query("SELECT * FROM artists ORDER BY name LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("artists::list", move || async move {
+                sqlx::query("SELECT * FROM artists ORDER BY name LIMIT ? OFFSET ?")
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
             .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
@@ -165,30 +185,51 @@ impl Repository<Artist> for SqliteArtistRepository {
 impl ArtistRepository for SqliteArtistRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", name, "fetching artist by name");
-        let row = sqlx::query("SELECT * FROM artists WHERE name = ? COLLATE NOCASE LIMIT 1")
-            .bind(name)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let name = name.to_owned();
+        let row = self
+            .profiler
+            .timed("artists::get_by_name", move || async move {
+                sqlx::query("SELECT * FROM artists WHERE name = ? COLLATE NOCASE LIMIT 1")
+                    .bind(name)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         Ok(row.map(|r| row_to_artist(&r)).transpose()?)
     }
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", foreign_id, "fetching artist by foreign_id");
-        let row = sqlx::query("SELECT * FROM artists WHERE foreign_artist_id = ? LIMIT 1")
-            .bind(foreign_id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let foreign_id = foreign_id.to_owned();
+        let row = self
+            .profiler
+            .timed("artists::get_by_foreign_id", move || async move {
+                sqlx::query("SELECT * FROM artists WHERE foreign_artist_id = ? LIMIT 1")
+                    .bind(foreign_id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         Ok(row.map(|r| row_to_artist(&r)).transpose()?)
     }
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Artist>> {
         debug!(target: "repository", limit, offset, "listing monitored artists");
-        let rows =
-            sqlx::query("SELECT * FROM artists WHERE monitored = 1 ORDER BY name LIMIT ? OFFSET ?")
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("artists::list_monitored", move || async move {
+                sqlx::query(
+                    "SELECT * FROM artists WHERE monitored = 1 ORDER BY name LIMIT ? OFFSET ?",
+                )
                 .bind(limit)
                 .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_artist(&r)?);
@@ -203,13 +244,19 @@ impl ArtistRepository for SqliteArtistRepository {
         offset: i64,
     ) -> Result<Vec<Artist>> {
         debug!(target: "repository", ?status, limit, offset, "fetching artists by status");
-        let rows =
-            sqlx::query("SELECT * FROM artists WHERE status = ? ORDER BY name LIMIT ? OFFSET ?")
-                .bind(status.to_string())
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+        let pool = self.pool.clone();
+        let status_str = status.to_string();
+        let rows = self
+            .profiler
+            .timed("artists::get_by_status", move || async move {
+                sqlx::query("SELECT * FROM artists WHERE status = ? ORDER BY name LIMIT ? OFFSET ?")
+                    .bind(status_str)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_artist(&r)?);
@@ -417,11 +464,18 @@ fn row_to_artist_relationship(row: &sqlx::sqlite::SqliteRow) -> Result<ArtistRel
 #[allow(dead_code)]
 pub struct SqliteAlbumRepository {
     pool: SqlitePool,
+    profiler: QueryProfiler,
 }
 
 impl SqliteAlbumRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
     }
 }
 
@@ -476,9 +530,15 @@ impl Repository<Album> for SqliteAlbumRepository {
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Album>> {
         let id = id.into();
         debug!(target: "repository", %id, "fetching album by id");
-        let row = sqlx::query("SELECT * FROM albums WHERE id = ? LIMIT 1")
-            .bind(id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let row = self
+            .profiler
+            .timed("albums::get_by_id", move || async move {
+                sqlx::query("SELECT * FROM albums WHERE id = ? LIMIT 1")
+                    .bind(id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_album(&r)?))
@@ -489,10 +549,16 @@ impl Repository<Album> for SqliteAlbumRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing albums");
-        let rows = sqlx::query("SELECT * FROM albums ORDER BY title LIMIT ? OFFSET ?")
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("albums::list", move || async move {
+                sqlx::query("SELECT * FROM albums ORDER BY title LIMIT ? OFFSET ?")
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
             .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
@@ -571,13 +637,21 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", %artist_id, limit, offset, "fetching albums by artist");
-        let rows =
-            sqlx::query("SELECT * FROM albums WHERE artist_id = ? ORDER BY title LIMIT ? OFFSET ?")
-                .bind(artist_id.to_string())
+        let pool = self.pool.clone();
+        let artist_id_str = artist_id.to_string();
+        let rows = self
+            .profiler
+            .timed("albums::get_by_artist", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums WHERE artist_id = ? ORDER BY title LIMIT ? OFFSET ?",
+                )
+                .bind(artist_id_str)
                 .bind(limit)
                 .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -587,9 +661,16 @@ impl AlbumRepository for SqliteAlbumRepository {
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Album>> {
         debug!(target: "repository", foreign_id, "fetching album by foreign_id");
-        let row = sqlx::query("SELECT * FROM albums WHERE foreign_album_id = ? LIMIT 1")
-            .bind(foreign_id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let foreign_id = foreign_id.to_owned();
+        let row = self
+            .profiler
+            .timed("albums::get_by_foreign_id", move || async move {
+                sqlx::query("SELECT * FROM albums WHERE foreign_album_id = ? LIMIT 1")
+                    .bind(foreign_id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         Ok(row.map(|r| row_to_album(&r)).transpose()?)
     }
@@ -600,13 +681,21 @@ impl AlbumRepository for SqliteAlbumRepository {
         title: &str,
     ) -> Result<Option<Album>> {
         debug!(target: "repository", %artist_id, title, "fetching album by artist and title");
-        let row = sqlx::query(
-            "SELECT * FROM albums WHERE artist_id = ? AND title = ? COLLATE NOCASE LIMIT 1",
-        )
-        .bind(artist_id.to_string())
-        .bind(title)
-        .fetch_optional(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let artist_id_str = artist_id.to_string();
+        let title = title.to_owned();
+        let row = self
+            .profiler
+            .timed("albums::get_by_artist_and_title", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums WHERE artist_id = ? AND title = ? COLLATE NOCASE LIMIT 1",
+                )
+                .bind(artist_id_str)
+                .bind(title)
+                .fetch_optional(&pool)
+                .await
+            })
+            .await?;
         Ok(row.map(|r| row_to_album(&r)).transpose()?)
     }
 
@@ -617,13 +706,19 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", ?status, limit, offset, "fetching albums by status");
-        let rows =
-            sqlx::query("SELECT * FROM albums WHERE status = ? ORDER BY title LIMIT ? OFFSET ?")
-                .bind(status.to_string())
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+        let pool = self.pool.clone();
+        let status_str = status.to_string();
+        let rows = self
+            .profiler
+            .timed("albums::get_by_status", move || async move {
+                sqlx::query("SELECT * FROM albums WHERE status = ? ORDER BY title LIMIT ? OFFSET ?")
+                    .bind(status_str)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -633,12 +728,19 @@ impl AlbumRepository for SqliteAlbumRepository {
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing monitored albums");
-        let rows =
-            sqlx::query("SELECT * FROM albums WHERE monitored = 1 ORDER BY title LIMIT ? OFFSET ?")
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("albums::list_monitored", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums WHERE monitored = 1 ORDER BY title LIMIT ? OFFSET ?",
+                )
                 .bind(limit)
                 .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -653,14 +755,21 @@ impl AlbumRepository for SqliteAlbumRepository {
         offset: i64,
     ) -> Result<Vec<Album>> {
         debug!(target: "repository", album_type, limit, offset, "fetching albums by type");
-        let rows = sqlx::query(
-            "SELECT * FROM albums WHERE album_type = ? ORDER BY title LIMIT ? OFFSET ?",
-        )
-        .bind(album_type)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let album_type = album_type.to_owned();
+        let rows = self
+            .profiler
+            .timed("albums::get_by_album_type", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums WHERE album_type = ? ORDER BY title LIMIT ? OFFSET ?",
+                )
+                .bind(album_type)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -670,17 +779,23 @@ impl AlbumRepository for SqliteAlbumRepository {
 
     async fn list_wanted_without_tracks(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing wanted albums without tracks");
-        let rows = sqlx::query(
-            "SELECT * FROM albums \
-             WHERE status = ? \
-             AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id) \
-             ORDER BY title LIMIT ? OFFSET ?",
-        )
-        .bind(AlbumStatus::Wanted.to_string())
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("albums::list_wanted_without_tracks", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums \
+                     WHERE status = ? \
+                     AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id) \
+                     ORDER BY title LIMIT ? OFFSET ?",
+                )
+                .bind(AlbumStatus::Wanted.to_string())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -690,41 +805,40 @@ impl AlbumRepository for SqliteAlbumRepository {
 
     async fn list_cutoff_unmet_albums(&self, limit: i64, offset: i64) -> Result<Vec<Album>> {
         debug!(target: "repository", limit, offset, "listing cutoff-unmet albums");
-        // An album is cutoff-unmet when:
-        //   - It is monitored
-        //   - Its artist has a quality profile with upgrade_allowed=TRUE and cutoff_quality set
-        //   - At least one monitored track file has a codec that is either unknown, ranked
-        //     lower than the cutoff in the allowed_qualities ordered list (lower = higher
-        //     index; the list is ordered best-to-worst), or whose cutoff_quality is not
-        //     found in the allowed list (treats an inconsistent profile as "needs upgrade").
-        let rows = sqlx::query(
-            "SELECT a.* \
-             FROM albums a \
-             JOIN artists ar ON ar.id = a.artist_id \
-             JOIN quality_profiles qp ON qp.id = ar.quality_profile_id \
-             WHERE a.monitored = TRUE \
-               AND qp.upgrade_allowed = TRUE \
-               AND qp.cutoff_quality IS NOT NULL \
-               AND EXISTS ( \
-                 SELECT 1 FROM tracks t \
-                 JOIN track_files tf ON tf.track_id = t.id \
-                 LEFT JOIN json_each(qp.allowed_qualities) je ON 1 = 1 \
-                 WHERE t.album_id = a.id \
-                   AND t.monitored = TRUE \
-                 GROUP BY tf.id \
-                 HAVING \
-                   tf.codec IS NULL \
-                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) IS NULL \
-                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) \
-                      > MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) \
-                   OR MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) IS NULL \
-               ) \
-             ORDER BY a.title LIMIT ? OFFSET ?",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("albums::list_cutoff_unmet_albums", move || async move {
+                sqlx::query(
+                    "SELECT a.* \
+                     FROM albums a \
+                     JOIN artists ar ON ar.id = a.artist_id \
+                     JOIN quality_profiles qp ON qp.id = ar.quality_profile_id \
+                     WHERE a.monitored = TRUE \
+                       AND qp.upgrade_allowed = TRUE \
+                       AND qp.cutoff_quality IS NOT NULL \
+                       AND EXISTS ( \
+                         SELECT 1 FROM tracks t \
+                         JOIN track_files tf ON tf.track_id = t.id \
+                         LEFT JOIN json_each(qp.allowed_qualities) je ON 1 = 1 \
+                         WHERE t.album_id = a.id \
+                           AND t.monitored = TRUE \
+                         GROUP BY tf.id \
+                         HAVING \
+                           tf.codec IS NULL \
+                           OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) IS NULL \
+                           OR MIN(CASE WHEN LOWER(je.value) = LOWER(tf.codec) THEN je.key END) \
+                              > MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) \
+                           OR MIN(CASE WHEN LOWER(je.value) = LOWER(qp.cutoff_quality) THEN je.key END) IS NULL \
+                       ) \
+                     ORDER BY a.title LIMIT ? OFFSET ?",
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -744,23 +858,29 @@ impl AlbumRepository for SqliteAlbumRepository {
                 %start, %end, limit, offset,
                 "listing upcoming releases in date range"
         );
+        let pool = self.pool.clone();
         let start_str = start.format("%Y-%m-%d").to_string();
         let end_str = end.format("%Y-%m-%d").to_string();
-        let rows = sqlx::query(
-            "SELECT * FROM albums \
+        let rows = self
+            .profiler
+            .timed("albums::list_upcoming_releases", move || async move {
+                sqlx::query(
+                    "SELECT * FROM albums \
                          WHERE monitored = TRUE \
                              AND release_date IS NOT NULL \
                              AND release_date >= ? \
                              AND release_date <= ? \
                          ORDER BY release_date ASC, title ASC \
                          LIMIT ? OFFSET ?",
-        )
-        .bind(start_str)
-        .bind(end_str)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+                )
+                .bind(start_str)
+                .bind(end_str)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_album(&r)?);
@@ -775,11 +895,18 @@ impl AlbumRepository for SqliteAlbumRepository {
 #[allow(dead_code)]
 pub struct SqliteTrackRepository {
     pool: SqlitePool,
+    profiler: QueryProfiler,
 }
 
 impl SqliteTrackRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
     }
 }
 
@@ -826,9 +953,15 @@ impl Repository<Track> for SqliteTrackRepository {
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Track>> {
         let id = id.into();
         debug!(target: "repository", %id, "fetching track by id");
-        let row = sqlx::query("SELECT * FROM tracks WHERE id = ? LIMIT 1")
-            .bind(id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let row = self
+            .profiler
+            .timed("tracks::get_by_id", move || async move {
+                sqlx::query("SELECT * FROM tracks WHERE id = ? LIMIT 1")
+                    .bind(id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_track(&r)?))
@@ -839,12 +972,17 @@ impl Repository<Track> for SqliteTrackRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks");
-        let rows =
-            sqlx::query("SELECT * FROM tracks ORDER BY track_number, title LIMIT ? OFFSET ?")
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("tracks::list", move || async move {
+                sqlx::query("SELECT * FROM tracks ORDER BY track_number, title LIMIT ? OFFSET ?")
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -901,15 +1039,21 @@ impl Repository<Track> for SqliteTrackRepository {
 impl TrackRepository for SqliteTrackRepository {
     async fn get_by_album(&self, album_id: AlbumId, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", %album_id, limit, offset, "fetching tracks by album");
+        let pool = self.pool.clone();
         let album_id_str = album_id.to_string();
-        let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE album_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?",
-        )
-        .bind(album_id_str)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("tracks::get_by_album", move || async move {
+                sqlx::query(
+                    "SELECT * FROM tracks WHERE album_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?",
+                )
+                .bind(album_id_str)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -924,15 +1068,21 @@ impl TrackRepository for SqliteTrackRepository {
         offset: i64,
     ) -> Result<Vec<Track>> {
         debug!(target: "repository", %artist_id, limit, offset, "fetching tracks by artist");
+        let pool = self.pool.clone();
         let artist_id_str = artist_id.to_string();
-        let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE artist_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?"
-        )
-        .bind(artist_id_str)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("tracks::get_by_artist", move || async move {
+                sqlx::query(
+                    "SELECT * FROM tracks WHERE artist_id = ? ORDER BY track_number, title LIMIT ? OFFSET ?"
+                )
+                .bind(artist_id_str)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -942,9 +1092,16 @@ impl TrackRepository for SqliteTrackRepository {
 
     async fn get_by_foreign_id(&self, foreign_id: &str) -> Result<Option<Track>> {
         debug!(target: "repository", foreign_id, "fetching track by foreign_id");
-        let row = sqlx::query("SELECT * FROM tracks WHERE foreign_track_id = ? LIMIT 1")
-            .bind(foreign_id)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let foreign_id = foreign_id.to_owned();
+        let row = self
+            .profiler
+            .timed("tracks::get_by_foreign_id", move || async move {
+                sqlx::query("SELECT * FROM tracks WHERE foreign_track_id = ? LIMIT 1")
+                    .bind(foreign_id)
+                    .fetch_optional(&pool)
+                    .await
+            })
             .await?;
         if let Some(r) = row {
             Ok(Some(row_to_track(&r)?))
@@ -955,13 +1112,19 @@ impl TrackRepository for SqliteTrackRepository {
 
     async fn list_monitored(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing monitored tracks");
-        let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE monitored = 1 ORDER BY track_number, title LIMIT ? OFFSET ?"
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("tracks::list_monitored", move || async move {
+                sqlx::query(
+                    "SELECT * FROM tracks WHERE monitored = 1 ORDER BY track_number, title LIMIT ? OFFSET ?"
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -971,13 +1134,19 @@ impl TrackRepository for SqliteTrackRepository {
 
     async fn list_without_files(&self, limit: i64, offset: i64) -> Result<Vec<Track>> {
         debug!(target: "repository", limit, offset, "listing tracks without files");
-        let rows = sqlx::query(
-            "SELECT * FROM tracks WHERE has_file = 0 ORDER BY track_number, title LIMIT ? OFFSET ?",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("tracks::list_without_files", move || async move {
+                sqlx::query(
+                    "SELECT * FROM tracks WHERE has_file = 0 ORDER BY track_number, title LIMIT ? OFFSET ?",
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            })
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             out.push(row_to_track(&r)?);
@@ -1622,11 +1791,18 @@ impl DownloadClientDefinitionRepository for SqliteDownloadClientDefinitionReposi
 /// SQLx-backed TrackFile repository
 pub struct SqliteTrackFileRepository {
     pool: SqlitePool,
+    profiler: QueryProfiler,
 }
 
 impl SqliteTrackFileRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
     }
 }
 
@@ -1727,13 +1903,15 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
     async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<TrackFile>> {
         let id_str = id.into();
         debug!(target: "repository", track_file_id = %id_str, "fetching track file by id");
-
-        let q = "SELECT * FROM track_files WHERE id = ?";
-        let row = sqlx::query(q)
-            .bind(&id_str)
-            .fetch_optional(&self.pool)
+        let pool = self.pool.clone();
+        let id_clone = id_str.clone();
+        let row = self
+            .profiler
+            .timed("track_files::get_by_id", move || async move {
+                let q = "SELECT * FROM track_files WHERE id = ?";
+                sqlx::query(q).bind(id_clone).fetch_optional(&pool).await
+            })
             .await?;
-
         match row {
             Some(r) => Ok(Some(row_to_track_file(&r)?)),
             None => Ok(None),
@@ -1742,14 +1920,18 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
 
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files");
-
-        let q = "SELECT * FROM track_files ORDER BY created_at DESC LIMIT ? OFFSET ?";
-        let rows = sqlx::query(q)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("track_files::list", move || async move {
+                let q = "SELECT * FROM track_files ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                sqlx::query(q)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
             .await?;
-
         rows.iter().map(row_to_track_file).collect()
     }
 
@@ -1816,24 +1998,34 @@ impl TrackFileRepository for SqliteTrackFileRepository {
         offset: i64,
     ) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", track_id = %track_id, limit, offset, "fetching track files by track");
-
-        let q = "SELECT * FROM track_files WHERE track_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
-        let rows = sqlx::query(q)
-            .bind(track_id.to_string())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let track_id_str = track_id.to_string();
+        let rows = self
+            .profiler
+            .timed("track_files::get_by_track", move || async move {
+                let q = "SELECT * FROM track_files WHERE track_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                sqlx::query(q)
+                    .bind(track_id_str)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(&pool)
+                    .await
+            })
             .await?;
-
         rows.iter().map(row_to_track_file).collect()
     }
 
     async fn get_by_path(&self, path: &str) -> Result<Option<TrackFile>> {
         debug!(target: "repository", path, "fetching track file by path");
-
-        let q = "SELECT * FROM track_files WHERE path = ?";
-        let row = sqlx::query(q).bind(path).fetch_optional(&self.pool).await?;
-
+        let pool = self.pool.clone();
+        let path = path.to_owned();
+        let row = self
+            .profiler
+            .timed("track_files::get_by_path", move || async move {
+                let q = "SELECT * FROM track_files WHERE path = ?";
+                sqlx::query(q).bind(path).fetch_optional(&pool).await
+            })
+            .await?;
         match row {
             Some(r) => Ok(Some(row_to_track_file(&r)?)),
             None => Ok(None),
@@ -1842,27 +2034,30 @@ impl TrackFileRepository for SqliteTrackFileRepository {
 
     async fn list_with_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files with fingerprints");
-
-        let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NOT NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
-        let rows = sqlx::query(q)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed("track_files::list_with_fingerprints", move || async move {
+                let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NOT NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                sqlx::query(q).bind(limit).bind(offset).fetch_all(&pool).await
+            })
             .await?;
-
         rows.iter().map(row_to_track_file).collect()
     }
 
     async fn list_without_fingerprints(&self, limit: i64, offset: i64) -> Result<Vec<TrackFile>> {
         debug!(target: "repository", limit, offset, "listing track files without fingerprints");
-
-        let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
-        let rows = sqlx::query(q)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+        let pool = self.pool.clone();
+        let rows = self
+            .profiler
+            .timed(
+                "track_files::list_without_fingerprints",
+                move || async move {
+                    let q = "SELECT * FROM track_files WHERE fingerprint_hash IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                    sqlx::query(q).bind(limit).bind(offset).fetch_all(&pool).await
+                },
+            )
             .await?;
-
         rows.iter().map(row_to_track_file).collect()
     }
 }

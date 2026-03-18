@@ -26,9 +26,18 @@ async fn main() -> Result<()> {
 
     let config = load_config(None)?;
     let pool = init_database(&config).await?;
-    let artist_repository = Arc::new(SqliteArtistRepository::new(pool.clone()));
-    let album_repository = Arc::new(SqliteAlbumRepository::new(pool.clone()));
-    let track_repository = Arc::new(SqliteTrackRepository::new(pool.clone()));
+    let artist_repository = Arc::new(SqliteArtistRepository::new_with_threshold(
+        pool.clone(),
+        config.database.slow_query_threshold_ms,
+    ));
+    let album_repository = Arc::new(SqliteAlbumRepository::new_with_threshold(
+        pool.clone(),
+        config.database.slow_query_threshold_ms,
+    ));
+    let track_repository = Arc::new(SqliteTrackRepository::new_with_threshold(
+        pool.clone(),
+        config.database.slow_query_threshold_ms,
+    ));
     let quality_profile_repository = Arc::new(SqliteQualityProfileRepository::new(pool.clone()));
     let metadata_profile_repository = Arc::new(SqliteMetadataProfileRepository::new(pool.clone()));
     let indexer_definition_repository =

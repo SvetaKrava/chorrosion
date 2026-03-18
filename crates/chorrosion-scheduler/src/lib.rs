@@ -44,7 +44,10 @@ impl Scheduler {
             .await;
 
         // Backlog search every hour, reusing the caller-provided database pool
-        let album_repository = Arc::new(SqliteAlbumRepository::new(self.pool.clone()));
+        let album_repository = Arc::new(SqliteAlbumRepository::new_with_threshold(
+            self.pool.clone(),
+            self.config.database.slow_query_threshold_ms,
+        ));
         self.registry
             .register(
                 "backlog-search",

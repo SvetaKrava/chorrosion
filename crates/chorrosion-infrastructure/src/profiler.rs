@@ -109,9 +109,9 @@ impl QueryProfiler {
             let notused: i64 = row.try_get("notused").map_err(|e| {
                 anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'notused': {e}")
             })?;
-            let detail: String = row.try_get("detail").map_err(|e| {
-                anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'detail': {e}")
-            })?;
+            let detail: String = row
+                .try_get("detail")
+                .map_err(|e| anyhow::anyhow!("EXPLAIN QUERY PLAN: failed to read 'detail': {e}"))?;
             lines.push(format!("{id}|{parent}|{notused}|{detail}"));
         }
         Ok(lines)
