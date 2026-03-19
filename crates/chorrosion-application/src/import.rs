@@ -14,6 +14,7 @@ use chrono::Utc;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::Instrument as _;
 
 /// Errors that can occur during file import.
 #[derive(Debug, Error)]
@@ -33,6 +34,14 @@ pub enum ImportError {
     /// File does not exist
     #[error("File does not exist: {0}")]
     FileNotFound(String),
+
+    /// Import was cancelled (e.g. semaphore closed during shutdown)
+    #[error("Import cancelled: {0}")]
+    Cancelled(String),
+
+    /// Spawned import task panicked or was cancelled by the runtime
+    #[error("Import task failed unexpectedly: {0}")]
+    TaskFailed(String),
 }
 
 /// Result type for import operations.
@@ -51,24 +60,31 @@ pub struct ImportedFile {
     pub has_fingerprint: bool,
 }
 
-/// Maximum number of files to process concurrently in a batch import.
-///
-/// Bounded concurrency prevents overwhelming the fingerprint engine and OS
-/// file-descriptor limits while still providing a large speedup over serial processing.
-const MAX_CONCURRENT_IMPORTS: usize = 8;
-
 /// Service for importing audio files with fingerprint generation.
 #[derive(Clone)]
 pub struct FileImportService {
     /// AcoustID client for fingerprint generation
     #[allow(dead_code)]
     acoustid_client: Arc<AcoustidClient>,
+    /// Maximum number of files processed concurrently in a batch import.
+    /// Validated to be >= 1 at construction time.
+    max_concurrent_imports: usize,
 }
 
 impl FileImportService {
     /// Create a new file import service.
-    pub fn new(acoustid_client: Arc<AcoustidClient>) -> Self {
-        Self { acoustid_client }
+    ///
+    /// # Panics
+    /// Panics if `max_concurrent_imports` is 0.
+    pub fn new(acoustid_client: Arc<AcoustidClient>, max_concurrent_imports: usize) -> Self {
+        assert!(
+            max_concurrent_imports >= 1,
+            "max_concurrent_imports must be >= 1"
+        );
+        Self {
+            acoustid_client,
+            max_concurrent_imports,
+        }
     }
 
     /// Import a single audio file, generating its fingerprint.
@@ -93,14 +109,14 @@ impl FileImportService {
     ) -> ImportResult<ImportedFile> {
         let path = path.as_ref();
 
-        // Validate file exists
-        if !path.exists() {
-            return Err(ImportError::FileNotFound(path.display().to_string()));
-        }
-
-        // Read file metadata
-        let metadata =
-            std::fs::metadata(path).map_err(|e| ImportError::MetadataError(e.to_string()))?;
+        // Validate file exists and read metadata without blocking the async runtime.
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ImportError::FileNotFound(path.display().to_string())
+            } else {
+                ImportError::MetadataError(e.to_string())
+            }
+        })?;
 
         let size_bytes = metadata.len();
 
@@ -140,14 +156,22 @@ impl FileImportService {
         })
     }
 
-    /// Import multiple files in batch, processing up to `MAX_CONCURRENT_IMPORTS` concurrently.
+    /// Import multiple files in batch, processing up to `max_concurrent_imports` concurrently.
+    ///
+    /// Permits are acquired *before* spawning each task so the number of live Tokio tasks is
+    /// bounded to `max_concurrent_imports` at any point in time, avoiding the overhead of
+    /// parking a large number of idle tasks for very large batches.
+    ///
+    /// Spawned tasks are instrumented with the caller's tracing span so per-file log lines
+    /// remain correlated with the batch.
     ///
     /// # Arguments
     /// * `files` - Collection of (path, track_id) tuples to import
     ///
     /// # Returns
     /// A tuple of (successes, failures) where successes are ImportedFile entries
-    /// and failures are (path, error) tuples
+    /// and failures are (path, error) tuples.  The sum `successes + failures` equals
+    /// `files.len()` unless the runtime itself is shutting down.
     #[tracing::instrument(skip(self, files), fields(count = files.len()))]
     pub async fn import_batch(
         &self,
@@ -157,33 +181,57 @@ impl FileImportService {
         use tokio::task::JoinSet;
 
         let total = files.len();
-        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_IMPORTS));
-        let mut set: JoinSet<Result<ImportedFile, (String, ImportError)>> = JoinSet::new();
-
-        for (path, track_id) in files {
-            let service = self.clone();
-            let sem = Arc::clone(&semaphore);
-            set.spawn(async move {
-                let _permit = sem
-                    .acquire_owned()
-                    .await
-                    .expect("import semaphore was closed");
-                service
-                    .import_file(&path, track_id)
-                    .await
-                    .map_err(|e| (path, e))
-            });
-        }
+        let semaphore = Arc::new(Semaphore::new(self.max_concurrent_imports));
+        // Task return type always includes the path so join errors can be attributed.
+        let mut set: JoinSet<(String, Result<ImportedFile, ImportError>)> = JoinSet::new();
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
+        for (path, track_id) in files {
+            // Acquire the permit *before* spawning so we only create tasks when capacity
+            // is available, keeping the number of in-flight Tokio tasks bounded.
+            let permit = match Arc::clone(&semaphore).acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    // Semaphore was closed - this only happens during shutdown.
+                    failures.push((
+                        path,
+                        ImportError::Cancelled("import semaphore closed".to_string()),
+                    ));
+                    continue;
+                }
+            };
+
+            let service = self.clone();
+            let path_for_task = path.clone();
+            // Propagate the current span into the spawned task so per-file logs are
+            // correlated with the batch span.
+            let span = tracing::Span::current();
+            set.spawn(
+                async move {
+                    let _permit = permit;
+                    let result = service.import_file(&path_for_task, track_id).await;
+                    (path_for_task, result)
+                }
+                .instrument(span),
+            );
+        }
+
         while let Some(result) = set.join_next().await {
             match result {
-                Ok(Ok(imported)) => successes.push(imported),
-                Ok(Err((path, error))) => failures.push((path, error)),
+                Ok((_path, Ok(imported))) => successes.push(imported),
+                Ok((path, Err(error))) => failures.push((path, error)),
                 Err(join_err) => {
+                    // Task panicked or was cancelled by the runtime; when a task panics,
+                    // JoinSet::join_next() returns Err(JoinError) and the task's return
+                    // value (which held the path) is lost.  We still record a failure entry
+                    // to preserve the `successes + failures == total` invariant.
                     tracing::warn!(error = %join_err, "import task panicked unexpectedly");
+                    failures.push((
+                        "<unknown>".to_string(),
+                        ImportError::TaskFailed(join_err.to_string()),
+                    ));
                 }
             }
         }
@@ -221,7 +269,7 @@ mod tests {
 
     fn create_test_service() -> FileImportService {
         let client = AcoustidClient::new("test_key".to_string()).expect("client creation");
-        FileImportService::new(Arc::new(client))
+        FileImportService::new(Arc::new(client), 8)
     }
 
     #[tokio::test]
@@ -276,5 +324,42 @@ mod tests {
         assert_eq!(successes.len(), 2);
         assert_eq!(failures.len(), 1);
         assert!(matches!(failures[0].1, ImportError::FileNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_batch_import_total_equals_successes_plus_failures() {
+        let service = create_test_service();
+
+        let test_file = std::env::current_dir()
+            .unwrap()
+            .join("Cargo.toml")
+            .display()
+            .to_string();
+
+        let files: Vec<(String, TrackId)> = (0..5)
+            .map(|i| {
+                if i % 2 == 0 {
+                    (test_file.clone(), TrackId::new())
+                } else {
+                    (format!("nonexistent_{}.mp3", i), TrackId::new())
+                }
+            })
+            .collect();
+        let total = files.len();
+
+        let (successes, failures) = service.import_batch(files).await;
+
+        assert_eq!(
+            successes.len() + failures.len(),
+            total,
+            "successes + failures must equal total"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "max_concurrent_imports must be >= 1")]
+    fn test_zero_concurrency_panics() {
+        let client = AcoustidClient::new("test_key".to_string()).expect("client creation");
+        FileImportService::new(Arc::new(client), 0);
     }
 }
