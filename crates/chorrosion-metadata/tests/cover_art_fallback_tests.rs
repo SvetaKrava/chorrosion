@@ -55,7 +55,7 @@ async fn test_fetch_album_cover_falls_back_to_cover_art_archive() {
     Mock::given(method("GET"))
         .and(path("/music/albums/rg-2"))
         .respond_with(ResponseTemplate::new(500).set_body_string("fanart down"))
-        .expect(1)
+        .expect(3)
         .mount(&fanart_server)
         .await;
 
@@ -98,7 +98,7 @@ async fn test_fetch_album_cover_result_is_cached() {
     Mock::given(method("GET"))
         .and(path("/music/albums/rg-cache"))
         .respond_with(ResponseTemplate::new(500).set_body_string("fanart down"))
-        .expect(1)
+        .expect(3)
         .mount(&fanart_server)
         .await;
 
@@ -163,14 +163,14 @@ async fn test_fetch_album_cover_returns_error_when_all_providers_fail() {
     Mock::given(method("GET"))
         .and(path("/music/albums/rg-fail"))
         .respond_with(ResponseTemplate::new(500).set_body_string("fanart down"))
-        .expect(1)
+        .expect(3)
         .mount(&fanart_server)
         .await;
 
     Mock::given(method("GET"))
         .and(path("/release-group/rg-fail"))
         .respond_with(ResponseTemplate::new(503).set_body_string("cover archive down"))
-        .expect(1)
+        .expect(3)
         .mount(&cover_art_server)
         .await;
 

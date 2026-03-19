@@ -7,6 +7,8 @@ use tracing::{debug, instrument};
 
 use std::sync::Arc;
 
+use crate::http_retry;
+
 pub struct LyricsClient {
     client: Client,
     rate_limiter: Arc<Semaphore>,
@@ -86,7 +88,8 @@ impl LyricsClient {
 
         debug!(target: "lyrics", url = %url, "Fetching lyrics metadata");
 
-        let response = self.client.get(url).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.client.get(url.clone()), "lyrics").await?;
         let status = response.status();
         let response_body = response.text().await?;
         let payload = parse_lyrics_body(status, &response_body)?;

@@ -1437,7 +1437,10 @@ mod tests {
         // Immediate second call should be a no-op (throttled within interval)
         cache.prune_stale_entries();
         let ts2 = cache.last_prune_secs_value();
-        assert_eq!(ts1, ts2, "second prune within interval should not update last_prune_secs");
+        assert_eq!(
+            ts1, ts2,
+            "second prune within interval should not update last_prune_secs"
+        );
     }
 
     #[test]
@@ -1452,7 +1455,10 @@ mod tests {
         // Prune should run again since the interval has elapsed
         cache.prune_stale_entries();
         let new_ts = cache.last_prune_secs_value();
-        assert!(new_ts > old_ts, "prune after interval expiry should update last_prune_secs");
+        assert!(
+            new_ts > old_ts,
+            "prune after interval expiry should update last_prune_secs"
+        );
     }
 
     #[test]

@@ -10,6 +10,8 @@ use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, instrument};
 
+use crate::http_retry;
+
 /// Internal time-based rate limiter for Discogs API calls.
 ///
 /// Discogs rate limit: 60 authenticated requests per minute (~1/sec).
@@ -144,10 +146,12 @@ impl DiscogsClient {
 
         let search_response = {
             let _permit = self.rate_limiter.acquire().await?;
-            self.request(self.client.get(&search_url))
-                .query(&[("type", "artist"), ("q", artist_name)])
-                .send()
-                .await?
+            let query = [("type", "artist"), ("q", artist_name)];
+            http_retry::send_with_retry(
+                || self.request(self.client.get(&search_url)).query(&query),
+                "discogs",
+            )
+            .await?
         };
         let search_status = search_response.status();
         let search_body = search_response.text().await?;
@@ -167,7 +171,8 @@ impl DiscogsClient {
 
         let detail_response = {
             let _permit = self.rate_limiter.acquire().await?;
-            self.request(self.client.get(&artist_url)).send().await?
+            http_retry::send_with_retry(|| self.request(self.client.get(&artist_url)), "discogs")
+                .await?
         };
         let detail_status = detail_response.status();
         let detail_body = detail_response.text().await?;
@@ -206,14 +211,16 @@ impl DiscogsClient {
 
         let search_response = {
             let _permit = self.rate_limiter.acquire().await?;
-            self.request(self.client.get(&search_url))
-                .query(&[
-                    ("type", "release"),
-                    ("artist", artist_name),
-                    ("release_title", album_name),
-                ])
-                .send()
-                .await?
+            let query = [
+                ("type", "release"),
+                ("artist", artist_name),
+                ("release_title", album_name),
+            ];
+            http_retry::send_with_retry(
+                || self.request(self.client.get(&search_url)).query(&query),
+                "discogs",
+            )
+            .await?
         };
         let search_status = search_response.status();
         let search_body = search_response.text().await?;
@@ -233,7 +240,8 @@ impl DiscogsClient {
 
         let detail_response = {
             let _permit = self.rate_limiter.acquire().await?;
-            self.request(self.client.get(&release_url)).send().await?
+            http_retry::send_with_retry(|| self.request(self.client.get(&release_url)), "discogs")
+                .await?
         };
         let detail_status = detail_response.status();
         let detail_body = detail_response.text().await?;
