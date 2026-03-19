@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
-use chorrosion_config::{DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig};
+use chorrosion_config::{
+    CacheConfig, DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig,
+};
 use chorrosion_infrastructure::{
     repositories::AlbumRepository, sqlite_adapters::SqliteAlbumRepository,
 };
@@ -181,6 +183,13 @@ pub struct LastFmMetadataRefreshJob {
 
 impl LastFmMetadataRefreshJob {
     pub fn from_config(config: &LastFmConfig) -> Option<Self> {
+        Self::from_config_with_cache(config, &CacheConfig::default())
+    }
+
+    pub fn from_config_with_cache(
+        config: &LastFmConfig,
+        cache_config: &CacheConfig,
+    ) -> Option<Self> {
         let api_key = config.api_key.as_deref()?.trim();
         if api_key.is_empty() {
             return None;
@@ -204,9 +213,11 @@ impl LastFmMetadataRefreshJob {
             })
             .collect();
 
-        let client = LastFmClient::new_with_limits_and_base_url(
+        let client = LastFmClient::new_with_limits_cache_and_base_url(
             api_key.to_string(),
             config.max_concurrent_requests.max(1),
+            cache_config.metadata_artist_max_capacity,
+            cache_config.metadata_album_max_capacity,
             config.base_url.clone(),
         );
 
@@ -349,6 +360,13 @@ pub struct DiscogsMetadataRefreshJob {
 
 impl DiscogsMetadataRefreshJob {
     pub fn from_config(config: &DiscogsConfig) -> Option<Self> {
+        Self::from_config_with_cache(config, &CacheConfig::default())
+    }
+
+    pub fn from_config_with_cache(
+        config: &DiscogsConfig,
+        cache_config: &CacheConfig,
+    ) -> Option<Self> {
         let artists: Vec<String> = config
             .seed_artists
             .iter()
@@ -371,9 +389,11 @@ impl DiscogsMetadataRefreshJob {
             return None;
         }
 
-        let client = DiscogsClient::new_with_limits_and_base_url(
+        let client = DiscogsClient::new_with_limits_cache_and_base_url(
             config.token.clone(),
             config.max_concurrent_requests.max(1),
+            cache_config.metadata_artist_max_capacity,
+            cache_config.metadata_album_max_capacity,
             config.base_url.clone(),
         );
 
@@ -708,6 +728,8 @@ impl Job for RefreshArtistJob {
     }
 
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        self.cache.prune_stale_entries();
+
         match &self.artist_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, "refreshing single artist metadata");
@@ -827,6 +849,8 @@ impl Job for RefreshAlbumJob {
     }
 
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        self.cache.prune_stale_entries();
+
         match &self.album_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, "refreshing single album metadata");

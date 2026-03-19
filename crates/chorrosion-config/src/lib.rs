@@ -289,6 +289,10 @@ pub struct CacheConfig {
     /// response cache.  Responses whose `Content-Length` header exceeds this value are
     /// passed through without caching to avoid unbounded memory use.
     pub api_response_max_body_bytes: usize,
+    /// Maximum number of cached metadata artist entries per client.
+    pub metadata_artist_max_capacity: u64,
+    /// Maximum number of cached metadata album entries per client.
+    pub metadata_album_max_capacity: u64,
 }
 
 impl Default for CacheConfig {
@@ -297,6 +301,8 @@ impl Default for CacheConfig {
             api_response_ttl_seconds: 60,
             api_response_max_capacity: 1_000,
             api_response_max_body_bytes: 16 * 1024 * 1024,
+            metadata_artist_max_capacity: 5_000,
+            metadata_album_max_capacity: 5_000,
         }
     }
 }
