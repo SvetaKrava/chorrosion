@@ -289,6 +289,18 @@ pub struct CacheConfig {
     /// response cache.  Responses whose `Content-Length` header exceeds this value are
     /// passed through without caching to avoid unbounded memory use.
     pub api_response_max_body_bytes: usize,
+    /// Maximum number of cached metadata artist entries per client.
+    pub metadata_artist_max_capacity: u64,
+    /// Maximum number of cached metadata album entries per client.
+    pub metadata_album_max_capacity: u64,
+    /// Maximum number of cached cover art entries (FanartTV / Cover Art Archive).
+    /// Pre-defined for future use when the cover-art client is wired into the scheduler;
+    /// currently not yet consumed by any construction site.
+    pub metadata_cover_art_max_capacity: u64,
+    /// Maximum number of cached lyrics entries.
+    /// Pre-defined for future use when the lyrics client is wired into the scheduler;
+    /// currently not yet consumed by any construction site.
+    pub metadata_lyrics_max_capacity: u64,
 }
 
 impl Default for CacheConfig {
@@ -297,6 +309,10 @@ impl Default for CacheConfig {
             api_response_ttl_seconds: 60,
             api_response_max_capacity: 1_000,
             api_response_max_body_bytes: 16 * 1024 * 1024,
+            metadata_artist_max_capacity: 5_000,
+            metadata_album_max_capacity: 5_000,
+            metadata_cover_art_max_capacity: 5_000,
+            metadata_lyrics_max_capacity: 5_000,
         }
     }
 }

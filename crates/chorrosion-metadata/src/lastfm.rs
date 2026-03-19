@@ -41,10 +41,27 @@ impl LastFmClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_limits_cache_and_base_url(
+            api_key,
+            max_concurrent_requests,
+            5_000,
+            5_000,
+            base_url,
+        )
+    }
+
+    /// Creates a new Last.fm API client with concurrency limits and explicit cache capacities.
+    pub fn new_with_limits_cache_and_base_url(
+        api_key: String,
+        max_concurrent_requests: usize,
+        artist_cache_capacity: u64,
+        album_cache_capacity: u64,
+        base_url: Option<String>,
+    ) -> Self {
         let client = Client::new();
         let rate_limiter = Arc::new(Semaphore::new(max_concurrent_requests.max(1)));
-        let cache_artist = Cache::new(10_000); // Cache up to 10,000 entries
-        let cache_album = Cache::new(10_000); // Cache up to 10,000 entries
+        let cache_artist = Cache::new(artist_cache_capacity.max(1));
+        let cache_album = Cache::new(album_cache_capacity.max(1));
 
         Self {
             api_key,

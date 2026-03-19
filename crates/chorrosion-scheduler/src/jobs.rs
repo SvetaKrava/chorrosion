@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
-use chorrosion_config::{DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig};
+use chorrosion_config::{
+    CacheConfig, DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig,
+};
 use chorrosion_infrastructure::{
     repositories::AlbumRepository, sqlite_adapters::SqliteAlbumRepository,
 };
@@ -9,7 +11,10 @@ use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, RwLock,
+};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
@@ -25,6 +30,11 @@ pub struct MetadataRefreshCache {
     album_refreshes: Arc<RwLock<HashMap<Uuid, DateTime<Utc>>>>,
     /// Cache TTL in seconds - minimum time between refreshes for same entity
     ttl_seconds: i64,
+    /// Unix timestamp (seconds) recorded at the *start* of the last prune scan; 0 means never
+    /// attempted.  Stored atomically so the throttle check is lock-free.
+    last_prune_secs: Arc<AtomicU64>,
+    /// Minimum interval between consecutive prune scans in seconds (default: 3600)
+    prune_interval_seconds: u64,
 }
 
 impl MetadataRefreshCache {
@@ -34,6 +44,8 @@ impl MetadataRefreshCache {
             artist_refreshes: Arc::new(RwLock::new(HashMap::new())),
             album_refreshes: Arc::new(RwLock::new(HashMap::new())),
             ttl_seconds: 24 * 60 * 60, // 24 hours default
+            last_prune_secs: Arc::new(AtomicU64::new(0)),
+            prune_interval_seconds: 3600, // prune at most once per hour
         }
     }
 
@@ -131,35 +143,82 @@ impl MetadataRefreshCache {
         }
     }
 
-    /// Prune stale entries older than TTL to prevent unbounded memory growth
-    /// Call this periodically (e.g., from housekeeping job) to reclaim memory
+    /// Prune stale entries older than TTL to prevent unbounded memory growth.
+    ///
+    /// Pruning is throttled: if called more often than `prune_interval_seconds` (default 1 hour)
+    /// the call is a no-op so that the full-scan overhead is bounded even when refresh jobs run
+    /// frequently.  A compare-exchange is used to atomically claim the prune run so that
+    /// concurrent callers (shared cache via `clone()`) don't all perform a redundant scan.
+    /// Poisoned locks are recovered via `into_inner()` so pruning never silently stops.
     pub fn prune_stale_entries(&self) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        // Throttle check: if the last prune started recently, skip without taking any locks.
+        let last = self.last_prune_secs.load(Ordering::Relaxed);
+        if last > 0 && now_secs.saturating_sub(last) < self.prune_interval_seconds {
+            return;
+        }
+
+        // Atomically claim this prune run via CAS.  If another concurrent caller already
+        // updated last_prune_secs between our load and here, we skip rather than double-scan.
+        if self
+            .last_prune_secs
+            .compare_exchange(last, now_secs, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+
         let now = Utc::now();
         let ttl = self.ttl_seconds;
 
-        if let Ok(mut cache) = self.artist_refreshes.write() {
-            let initial_size = cache.len();
-            cache.retain(|_, last_refresh| {
-                let elapsed = now.signed_duration_since(*last_refresh);
-                elapsed.num_seconds() <= ttl
-            });
-            let pruned = initial_size.saturating_sub(cache.len());
-            if pruned > 0 {
-                debug!(target: "jobs", "pruned {} stale artist cache entries", pruned);
-            }
+        let mut cache = self.artist_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "artist cache rwlock poisoned during prune, recovering");
+            poisoned.into_inner()
+        });
+        let initial_size = cache.len();
+        cache.retain(|_, last_refresh| {
+            now.signed_duration_since(*last_refresh).num_seconds() <= ttl
+        });
+        let pruned = initial_size.saturating_sub(cache.len());
+        if pruned > 0 {
+            debug!(target: "jobs", "pruned {} stale artist cache entries", pruned);
         }
 
-        if let Ok(mut cache) = self.album_refreshes.write() {
-            let initial_size = cache.len();
-            cache.retain(|_, last_refresh| {
-                let elapsed = now.signed_duration_since(*last_refresh);
-                elapsed.num_seconds() <= ttl
-            });
-            let pruned = initial_size.saturating_sub(cache.len());
-            if pruned > 0 {
-                debug!(target: "jobs", "pruned {} stale album cache entries", pruned);
-            }
+        let mut cache = self.album_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "album cache rwlock poisoned during prune, recovering");
+            poisoned.into_inner()
+        });
+        let initial_size = cache.len();
+        cache.retain(|_, last_refresh| {
+            now.signed_duration_since(*last_refresh).num_seconds() <= ttl
+        });
+        let pruned = initial_size.saturating_sub(cache.len());
+        if pruned > 0 {
+            debug!(target: "jobs", "pruned {} stale album cache entries", pruned);
         }
+    }
+
+    /// Returns the Unix-second timestamp stored as the start of the last prune attempt.
+    /// Used in tests to verify throttle behavior; not part of the public API.
+    #[cfg(test)]
+    fn last_prune_secs_value(&self) -> u64 {
+        self.last_prune_secs.load(Ordering::Relaxed)
+    }
+
+    /// Overrides the last-prune timestamp to simulate a prune that happened `secs_ago` seconds
+    /// in the past.  Used in tests to exercise the throttle cadence without sleeping.
+    #[cfg(test)]
+    fn simulate_last_prune_secs_ago(&self, secs_ago: u64) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_prune_secs
+            .store(now_secs.saturating_sub(secs_ago), Ordering::Relaxed);
     }
 }
 
@@ -181,6 +240,13 @@ pub struct LastFmMetadataRefreshJob {
 
 impl LastFmMetadataRefreshJob {
     pub fn from_config(config: &LastFmConfig) -> Option<Self> {
+        Self::from_config_with_cache(config, &CacheConfig::default())
+    }
+
+    pub fn from_config_with_cache(
+        config: &LastFmConfig,
+        cache_config: &CacheConfig,
+    ) -> Option<Self> {
         let api_key = config.api_key.as_deref()?.trim();
         if api_key.is_empty() {
             return None;
@@ -204,9 +270,11 @@ impl LastFmMetadataRefreshJob {
             })
             .collect();
 
-        let client = LastFmClient::new_with_limits_and_base_url(
+        let client = LastFmClient::new_with_limits_cache_and_base_url(
             api_key.to_string(),
             config.max_concurrent_requests.max(1),
+            cache_config.metadata_artist_max_capacity,
+            cache_config.metadata_album_max_capacity,
             config.base_url.clone(),
         );
 
@@ -349,6 +417,13 @@ pub struct DiscogsMetadataRefreshJob {
 
 impl DiscogsMetadataRefreshJob {
     pub fn from_config(config: &DiscogsConfig) -> Option<Self> {
+        Self::from_config_with_cache(config, &CacheConfig::default())
+    }
+
+    pub fn from_config_with_cache(
+        config: &DiscogsConfig,
+        cache_config: &CacheConfig,
+    ) -> Option<Self> {
         let artists: Vec<String> = config
             .seed_artists
             .iter()
@@ -371,9 +446,11 @@ impl DiscogsMetadataRefreshJob {
             return None;
         }
 
-        let client = DiscogsClient::new_with_limits_and_base_url(
+        let client = DiscogsClient::new_with_limits_cache_and_base_url(
             config.token.clone(),
             config.max_concurrent_requests.max(1),
+            cache_config.metadata_artist_max_capacity,
+            cache_config.metadata_album_max_capacity,
             config.base_url.clone(),
         );
 
@@ -708,6 +785,8 @@ impl Job for RefreshArtistJob {
     }
 
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        self.cache.prune_stale_entries();
+
         match &self.artist_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, "refreshing single artist metadata");
@@ -827,6 +906,8 @@ impl Job for RefreshAlbumJob {
     }
 
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
+        self.cache.prune_stale_entries();
+
         match &self.album_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, "refreshing single album metadata");
@@ -1339,6 +1420,39 @@ mod tests {
 
         // Note: Testing actual TTL expiration would require mocking time or very long test delays
         // The implementation is correct - this test verifies the pruning mechanism exists
+    }
+
+    #[test]
+    fn test_prune_throttle_skips_within_interval() {
+        let cache = MetadataRefreshCache::new();
+
+        // Fresh cache: last_prune_secs should be 0 (never pruned)
+        assert_eq!(cache.last_prune_secs_value(), 0);
+
+        // First call should proceed and record a non-zero timestamp
+        cache.prune_stale_entries();
+        let ts1 = cache.last_prune_secs_value();
+        assert!(ts1 > 0, "first prune should set last_prune_secs");
+
+        // Immediate second call should be a no-op (throttled within interval)
+        cache.prune_stale_entries();
+        let ts2 = cache.last_prune_secs_value();
+        assert_eq!(ts1, ts2, "second prune within interval should not update last_prune_secs");
+    }
+
+    #[test]
+    fn test_prune_runs_again_after_interval_expires() {
+        let cache = MetadataRefreshCache::new();
+
+        // Simulate that the last prune happened 2 hours ago (beyond the 1-hour interval)
+        cache.simulate_last_prune_secs_ago(2 * 3600);
+        let old_ts = cache.last_prune_secs_value();
+        assert!(old_ts > 0);
+
+        // Prune should run again since the interval has elapsed
+        cache.prune_stale_entries();
+        let new_ts = cache.last_prune_secs_value();
+        assert!(new_ts > old_ts, "prune after interval expiry should update last_prune_secs");
     }
 
     #[test]

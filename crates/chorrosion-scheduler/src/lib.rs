@@ -83,9 +83,10 @@ impl Scheduler {
             )
             .await;
 
-        if let Some(lastfm_job) =
-            LastFmMetadataRefreshJob::from_config(&self.config.metadata.lastfm)
-        {
+        if let Some(lastfm_job) = LastFmMetadataRefreshJob::from_config_with_cache(
+            &self.config.metadata.lastfm,
+            &self.config.cache,
+        ) {
             self.registry
                 .register(
                     "lastfm-metadata-refresh",
@@ -98,9 +99,10 @@ impl Scheduler {
             info!(target: "scheduler", "Last.fm metadata refresh job skipped (no API key configured)");
         }
 
-        if let Some(discogs_job) =
-            DiscogsMetadataRefreshJob::from_config(&self.config.metadata.discogs)
-        {
+        if let Some(discogs_job) = DiscogsMetadataRefreshJob::from_config_with_cache(
+            &self.config.metadata.discogs,
+            &self.config.cache,
+        ) {
             self.registry
                 .register(
                     "discogs-metadata-refresh",
