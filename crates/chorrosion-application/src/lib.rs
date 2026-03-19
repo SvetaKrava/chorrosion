@@ -96,8 +96,6 @@ pub struct AppState {
     pub download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
-    /// In-memory cache for directory scan results.
-    pub dir_scan_cache: DirScanCache,
 }
 
 impl AppState {
@@ -112,7 +110,6 @@ impl AppState {
         indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
         download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
         response_cache: ResponseCache,
-        dir_scan_cache: DirScanCache,
     ) -> Self {
         Self {
             config,
@@ -124,7 +121,6 @@ impl AppState {
             indexer_definition_repository,
             download_client_definition_repository,
             response_cache,
-            dir_scan_cache,
         }
     }
 

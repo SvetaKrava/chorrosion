@@ -275,6 +275,10 @@ pub struct CacheConfig {
     pub api_response_ttl_seconds: u64,
     /// Maximum number of cached API responses kept in memory.
     pub api_response_max_capacity: u64,
+    /// Maximum response body size in bytes that will be buffered and stored in the API
+    /// response cache.  Responses whose `Content-Length` header exceeds this value are
+    /// passed through without caching to avoid unbounded memory use.
+    pub api_response_max_body_bytes: usize,
 }
 
 impl Default for CacheConfig {
@@ -282,6 +286,7 @@ impl Default for CacheConfig {
         Self {
             api_response_ttl_seconds: 60,
             api_response_max_capacity: 1_000,
+            api_response_max_body_bytes: 16 * 1024 * 1024,
         }
     }
 }

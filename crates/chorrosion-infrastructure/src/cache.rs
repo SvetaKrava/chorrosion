@@ -9,18 +9,32 @@ use bytes::Bytes;
 use moka::sync::Cache;
 use std::time::Duration;
 
+/// A cached HTTP response: status code, all response headers, and the serialized body.
+///
+/// Headers are stored as raw `(name_bytes, value_bytes)` pairs so that no HTTP-crate
+/// types need to leak out of this module.
+#[derive(Clone, Debug)]
+pub struct CachedResponse {
+    /// HTTP status code as a `u16`.
+    pub status: u16,
+    /// Response headers captured at cache-fill time.
+    pub headers: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The raw response body.
+    pub body: Bytes,
+}
+
 /// Bounded, TTL-evicting cache for serialized API response bodies.
 ///
-/// Keyed by the request URI (path + query string).  Values are the raw JSON bytes that
-/// would be written to the response body.  Uses a `moka` sync cache so concurrent reads
-/// never block.
+/// Keyed by the request URI (path + query string).  Values are [`CachedResponse`]
+/// instances that include the original status code, headers, and body bytes.  Uses a
+/// `moka` sync cache so concurrent reads never block.
 ///
 /// Created with a configurable maximum capacity and TTL.  Passing `ttl_seconds = 0` uses
 /// a 1-second minimum TTL (entries expire almost immediately, effectively disabling the
 /// cache without requiring a separate code path).
 #[derive(Clone, Debug)]
 pub struct ResponseCache {
-    inner: Cache<String, Bytes>,
+    inner: Cache<String, CachedResponse>,
     ttl_seconds: u64,
 }
 
@@ -45,14 +59,14 @@ impl ResponseCache {
         self.ttl_seconds > 0
     }
 
-    /// Look up a cached response body.  Returns `None` on a cache miss or if the entry
+    /// Look up a cached response.  Returns `None` on a cache miss or if the entry
     /// has expired.
-    pub fn get(&self, key: &str) -> Option<Bytes> {
+    pub fn get(&self, key: &str) -> Option<CachedResponse> {
         self.inner.get(key)
     }
 
-    /// Store a response body.  Overwrites any existing entry for the same key.
-    pub fn insert(&self, key: String, value: Bytes) {
+    /// Store a response.  Overwrites any existing entry for the same key.
+    pub fn insert(&self, key: String, value: CachedResponse) {
         self.inner.insert(key, value);
     }
 
@@ -71,6 +85,14 @@ impl ResponseCache {
 mod tests {
     use super::*;
 
+    fn make_cached(body: &'static [u8]) -> CachedResponse {
+        CachedResponse {
+            status: 200,
+            headers: vec![(b"content-type".to_vec(), b"application/json".to_vec())],
+            body: Bytes::from_static(body),
+        }
+    }
+
     #[test]
     fn get_returns_none_on_miss() {
         let cache = ResponseCache::new(100, 60);
@@ -80,17 +102,16 @@ mod tests {
     #[test]
     fn insert_then_get_returns_value() {
         let cache = ResponseCache::new(100, 60);
-        cache.insert("key".to_string(), Bytes::from_static(b"{\"ok\":true}"));
-        assert_eq!(
-            cache.get("key").unwrap(),
-            Bytes::from_static(b"{\"ok\":true}")
-        );
+        cache.insert("key".to_string(), make_cached(b"{\"ok\":true}"));
+        let got = cache.get("key").unwrap();
+        assert_eq!(got.status, 200);
+        assert_eq!(got.body, Bytes::from_static(b"{\"ok\":true}"));
     }
 
     #[test]
     fn invalidate_removes_entry() {
         let cache = ResponseCache::new(100, 60);
-        cache.insert("key".to_string(), Bytes::from_static(b"data"));
+        cache.insert("key".to_string(), make_cached(b"data"));
         cache.invalidate("key");
         assert!(cache.get("key").is_none());
     }
@@ -98,8 +119,8 @@ mod tests {
     #[test]
     fn invalidate_all_removes_all_entries() {
         let cache = ResponseCache::new(100, 60);
-        cache.insert("a".to_string(), Bytes::from_static(b"1"));
-        cache.insert("b".to_string(), Bytes::from_static(b"2"));
+        cache.insert("a".to_string(), make_cached(b"1"));
+        cache.insert("b".to_string(), make_cached(b"2"));
         cache.invalidate_all();
         assert!(cache.get("a").is_none());
         assert!(cache.get("b").is_none());

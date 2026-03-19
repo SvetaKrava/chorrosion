@@ -484,7 +484,6 @@ mod tests {
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
             Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
             chorrosion_infrastructure::ResponseCache::new(100, 60),
-            chorrosion_application::DirScanCache::new(),
         )
     }
 
