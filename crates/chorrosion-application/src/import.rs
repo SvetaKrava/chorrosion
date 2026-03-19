@@ -51,6 +51,12 @@ pub struct ImportedFile {
     pub has_fingerprint: bool,
 }
 
+/// Maximum number of files to process concurrently in a batch import.
+///
+/// Bounded concurrency prevents overwhelming the fingerprint engine and OS
+/// file-descriptor limits while still providing a large speedup over serial processing.
+const MAX_CONCURRENT_IMPORTS: usize = 8;
+
 /// Service for importing audio files with fingerprint generation.
 #[derive(Clone)]
 pub struct FileImportService {
@@ -134,7 +140,7 @@ impl FileImportService {
         })
     }
 
-    /// Import multiple files in batch.
+    /// Import multiple files in batch, processing up to `MAX_CONCURRENT_IMPORTS` concurrently.
     ///
     /// # Arguments
     /// * `files` - Collection of (path, track_id) tuples to import
@@ -147,16 +153,37 @@ impl FileImportService {
         &self,
         files: Vec<(String, TrackId)>,
     ) -> (Vec<ImportedFile>, Vec<(String, ImportError)>) {
+        use tokio::sync::Semaphore;
+        use tokio::task::JoinSet;
+
+        let total = files.len();
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_IMPORTS));
+        let mut set: JoinSet<Result<ImportedFile, (String, ImportError)>> = JoinSet::new();
+
+        for (path, track_id) in files {
+            let service = self.clone();
+            let sem = Arc::clone(&semaphore);
+            set.spawn(async move {
+                let _permit = sem
+                    .acquire_owned()
+                    .await
+                    .expect("import semaphore was closed");
+                service
+                    .import_file(&path, track_id)
+                    .await
+                    .map_err(|e| (path, e))
+            });
+        }
+
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
-        for (path, track_id) in files {
-            match self.import_file(&path, track_id).await {
-                Ok(imported_file) => {
-                    successes.push(imported_file);
-                }
-                Err(error) => {
-                    failures.push((path, error));
+        while let Some(result) = set.join_next().await {
+            match result {
+                Ok(Ok(imported)) => successes.push(imported),
+                Ok(Err((path, error))) => failures.push((path, error)),
+                Err(join_err) => {
+                    tracing::warn!(error = %join_err, "import task panicked unexpectedly");
                 }
             }
         }
@@ -164,6 +191,7 @@ impl FileImportService {
         tracing::info!(
             successes = successes.len(),
             failures = failures.len(),
+            total,
             "Batch import completed"
         );
 

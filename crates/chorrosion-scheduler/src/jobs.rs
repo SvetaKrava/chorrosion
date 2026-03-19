@@ -9,7 +9,8 @@ use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
+use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -19,8 +20,8 @@ use uuid::Uuid;
 pub struct MetadataRefreshCache {
     /// Map of entity ID to last refresh timestamp
     /// Items older than configured TTL are eligible for refresh
-    artist_refreshes: Arc<Mutex<HashMap<Uuid, DateTime<Utc>>>>,
-    album_refreshes: Arc<Mutex<HashMap<Uuid, DateTime<Utc>>>>,
+    artist_refreshes: Arc<RwLock<HashMap<Uuid, DateTime<Utc>>>>,
+    album_refreshes: Arc<RwLock<HashMap<Uuid, DateTime<Utc>>>>,
     /// Cache TTL in seconds - minimum time between refreshes for same entity
     ttl_seconds: i64,
 }
@@ -29,8 +30,8 @@ impl MetadataRefreshCache {
     /// Create a new metadata refresh cache with 24-hour TTL
     pub fn new() -> Self {
         Self {
-            artist_refreshes: Arc::new(Mutex::new(HashMap::new())),
-            album_refreshes: Arc::new(Mutex::new(HashMap::new())),
+            artist_refreshes: Arc::new(RwLock::new(HashMap::new())),
+            album_refreshes: Arc::new(RwLock::new(HashMap::new())),
             ttl_seconds: 24 * 60 * 60, // 24 hours default
         }
     }
@@ -38,8 +39,8 @@ impl MetadataRefreshCache {
     /// Check if an artist should be refreshed based on cache TTL
     /// Returns true if refresh should proceed, false if rate limited or on error
     pub fn should_refresh_artist(&self, artist_id: Uuid) -> bool {
-        let cache = self.artist_refreshes.lock().unwrap_or_else(|poisoned| {
-            warn!(target: "jobs", "artist cache mutex poisoned, recovering");
+        let cache = self.artist_refreshes.read().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "artist cache rwlock poisoned, recovering");
             poisoned.into_inner()
         });
         match cache.get(&artist_id) {
@@ -54,8 +55,8 @@ impl MetadataRefreshCache {
     /// Check if an album should be refreshed based on cache TTL
     /// Returns true if refresh should proceed, false if rate limited or on error
     pub fn should_refresh_album(&self, album_id: Uuid) -> bool {
-        let cache = self.album_refreshes.lock().unwrap_or_else(|poisoned| {
-            warn!(target: "jobs", "album cache mutex poisoned, recovering");
+        let cache = self.album_refreshes.read().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "album cache rwlock poisoned, recovering");
             poisoned.into_inner()
         });
         match cache.get(&album_id) {
@@ -71,8 +72,8 @@ impl MetadataRefreshCache {
     /// Returns true if the refresh should proceed (wasn't already marked within TTL)
     /// This prevents race conditions where multiple jobs could refresh the same entity
     pub fn try_mark_artist_refreshed(&self, artist_id: Uuid) -> bool {
-        let mut cache = self.artist_refreshes.lock().unwrap_or_else(|poisoned| {
-            warn!(target: "jobs", "artist cache mutex poisoned during mark, recovering");
+        let mut cache = self.artist_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "artist cache rwlock poisoned during mark, recovering");
             poisoned.into_inner()
         });
 
@@ -97,8 +98,8 @@ impl MetadataRefreshCache {
     /// Returns true if the refresh should proceed (wasn't already marked within TTL)
     /// This prevents race conditions where multiple jobs could refresh the same entity
     pub fn try_mark_album_refreshed(&self, album_id: Uuid) -> bool {
-        let mut cache = self.album_refreshes.lock().unwrap_or_else(|poisoned| {
-            warn!(target: "jobs", "album cache mutex poisoned during mark, recovering");
+        let mut cache = self.album_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "album cache rwlock poisoned during mark, recovering");
             poisoned.into_inner()
         });
 
@@ -121,10 +122,10 @@ impl MetadataRefreshCache {
 
     /// Clear all cached refresh times (useful for testing)
     pub fn clear(&self) {
-        if let Ok(mut cache) = self.artist_refreshes.lock() {
+        if let Ok(mut cache) = self.artist_refreshes.write() {
             cache.clear();
         }
-        if let Ok(mut cache) = self.album_refreshes.lock() {
+        if let Ok(mut cache) = self.album_refreshes.write() {
             cache.clear();
         }
     }
@@ -135,7 +136,7 @@ impl MetadataRefreshCache {
         let now = Utc::now();
         let ttl = self.ttl_seconds;
 
-        if let Ok(mut cache) = self.artist_refreshes.lock() {
+        if let Ok(mut cache) = self.artist_refreshes.write() {
             let initial_size = cache.len();
             cache.retain(|_, last_refresh| {
                 let elapsed = now.signed_duration_since(*last_refresh);
@@ -147,7 +148,7 @@ impl MetadataRefreshCache {
             }
         }
 
-        if let Ok(mut cache) = self.album_refreshes.lock() {
+        if let Ok(mut cache) = self.album_refreshes.write() {
             let initial_size = cache.len();
             cache.retain(|_, last_refresh| {
                 let elapsed = now.signed_duration_since(*last_refresh);
@@ -169,7 +170,7 @@ impl Default for MetadataRefreshCache {
 
 /// Last.fm metadata refresh job - enriches artist/album metadata using configured seeds.
 pub struct LastFmMetadataRefreshJob {
-    client: LastFmClient,
+    client: Arc<LastFmClient>,
     artists: Vec<String>,
     albums: Vec<LastFmAlbumSeed>,
 }
@@ -206,7 +207,7 @@ impl LastFmMetadataRefreshJob {
         );
 
         Some(Self {
-            client,
+            client: Arc::new(client),
             artists,
             albums,
         })
@@ -239,36 +240,57 @@ impl Job for LastFmMetadataRefreshJob {
             return Ok(JobResult::Success);
         }
 
-        let mut failures = 0usize;
+        // Dispatch all artist and album fetches concurrently.
+        // Rate limiting is enforced by the client's internal semaphore.
+        let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
 
         for artist in &self.artists {
-            if let Err(error) = self.client.fetch_artist_metadata(artist).await {
-                failures += 1;
-                warn!(
-                    target: "jobs",
-                    job_id = %ctx.job_id,
-                    artist = %artist,
-                    error = %error,
-                    "failed to refresh artist metadata from Last.fm"
-                );
-            }
+            let client = Arc::clone(&self.client);
+            let artist = artist.clone();
+            set.spawn(async move {
+                client
+                    .fetch_artist_metadata(&artist)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| (artist, e.to_string()))
+            });
         }
 
         for seed in &self.albums {
-            if let Err(error) = self
-                .client
-                .fetch_album_metadata(&seed.artist, &seed.album)
-                .await
-            {
-                failures += 1;
-                warn!(
-                    target: "jobs",
-                    job_id = %ctx.job_id,
-                    artist = %seed.artist,
-                    album = %seed.album,
-                    error = %error,
-                    "failed to refresh album metadata from Last.fm"
-                );
+            let client = Arc::clone(&self.client);
+            let seed = seed.clone();
+            set.spawn(async move {
+                client
+                    .fetch_album_metadata(&seed.artist, &seed.album)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| (format!("{}/{}", seed.artist, seed.album), e.to_string()))
+            });
+        }
+
+        let mut failures = 0usize;
+        while let Some(result) = set.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err((name, error))) => {
+                    failures += 1;
+                    warn!(
+                        target: "jobs",
+                        job_id = %ctx.job_id,
+                        entity = %name,
+                        error = %error,
+                        "failed to refresh metadata from Last.fm"
+                    );
+                }
+                Err(join_err) => {
+                    failures += 1;
+                    warn!(
+                        target: "jobs",
+                        job_id = %ctx.job_id,
+                        error = %join_err,
+                        "Last.fm metadata task panicked"
+                    );
+                }
             }
         }
 
@@ -297,7 +319,7 @@ impl Job for LastFmMetadataRefreshJob {
 
 /// Discogs metadata refresh job - enriches artist/album metadata using configured seeds.
 pub struct DiscogsMetadataRefreshJob {
-    client: DiscogsClient,
+    client: Arc<DiscogsClient>,
     artists: Vec<String>,
     albums: Vec<DiscogsAlbumSeed>,
 }
@@ -333,7 +355,7 @@ impl DiscogsMetadataRefreshJob {
         );
 
         Some(Self {
-            client,
+            client: Arc::new(client),
             artists,
             albums,
         })
@@ -363,34 +385,56 @@ impl Job for DiscogsMetadataRefreshJob {
 
         let mut failures = 0usize;
 
+        // Dispatch all artist and album fetches concurrently.
+        // Rate limiting is enforced by the client's internal semaphore and interval limiter.
+        let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
+
         for artist in &self.artists {
-            if let Err(error) = self.client.fetch_artist_metadata(artist).await {
-                failures += 1;
-                warn!(
-                    target: "jobs",
-                    job_id = %ctx.job_id,
-                    artist = %artist,
-                    error = %error,
-                    "failed to refresh artist metadata from Discogs"
-                );
-            }
+            let client = Arc::clone(&self.client);
+            let artist = artist.clone();
+            set.spawn(async move {
+                client
+                    .fetch_artist_metadata(&artist)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| (artist, e.to_string()))
+            });
         }
 
         for seed in &self.albums {
-            if let Err(error) = self
-                .client
-                .fetch_album_metadata(&seed.artist, &seed.album)
-                .await
-            {
-                failures += 1;
-                warn!(
-                    target: "jobs",
-                    job_id = %ctx.job_id,
-                    artist = %seed.artist,
-                    album = %seed.album,
-                    error = %error,
-                    "failed to refresh album metadata from Discogs"
-                );
+            let client = Arc::clone(&self.client);
+            let seed = seed.clone();
+            set.spawn(async move {
+                client
+                    .fetch_album_metadata(&seed.artist, &seed.album)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| (format!("{}/{}", seed.artist, seed.album), e.to_string()))
+            });
+        }
+
+        while let Some(result) = set.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err((name, error))) => {
+                    failures += 1;
+                    warn!(
+                        target: "jobs",
+                        job_id = %ctx.job_id,
+                        entity = %name,
+                        error = %error,
+                        "failed to refresh metadata from Discogs"
+                    );
+                }
+                Err(join_err) => {
+                    failures += 1;
+                    warn!(
+                        target: "jobs",
+                        job_id = %ctx.job_id,
+                        error = %join_err,
+                        "Discogs metadata task panicked"
+                    );
+                }
             }
         }
 

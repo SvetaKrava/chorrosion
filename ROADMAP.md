@@ -390,7 +390,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Metadata caching ✓
   - [x] API response caching ✓
   - [x] File system cache ✓
-- [ ] Concurrent operation improvements
+- [x] Concurrent operation improvements (Issue #281) ✓
 - [ ] Memory usage optimization
 
 ### 8.2 Reliability
