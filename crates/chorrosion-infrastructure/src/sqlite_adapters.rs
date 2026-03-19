@@ -1886,7 +1886,10 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
             .profiler
             .timed("track_files::get_by_id", || async {
                 let q = "SELECT * FROM track_files WHERE id = ?";
-                sqlx::query(q).bind(&id_str).fetch_optional(&self.pool).await
+                sqlx::query(q)
+                    .bind(&id_str)
+                    .fetch_optional(&self.pool)
+                    .await
             })
             .await?;
         match row {

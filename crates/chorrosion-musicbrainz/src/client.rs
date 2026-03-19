@@ -6,12 +6,10 @@ use crate::models::{
     SearchResponse,
 };
 use crate::rate_limiter::RateLimiter;
+use moka::sync::Cache;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tracing::{debug, trace};
 use url::Url;
 use uuid::Uuid;
@@ -24,6 +22,22 @@ const USER_AGENT: &str = concat!(
     " ( https://github.com/SvetaKrava/chorrosion )"
 );
 
+/// TTL for MBID lookup results: 24 hours.  MusicBrainz data changes infrequently.
+const LOOKUP_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Maximum entries per lookup cache (artist / album / recording / cover-art).
+const LOOKUP_CACHE_MAX: u64 = 5_000;
+
+fn make_lookup_cache<K, V>() -> Cache<K, V>
+where
+    K: Clone + std::hash::Hash + Eq + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    Cache::builder()
+        .max_capacity(LOOKUP_CACHE_MAX)
+        .time_to_live(LOOKUP_CACHE_TTL)
+        .build()
+}
+
 /// MusicBrainz API client with rate limiting.
 #[derive(Debug, Clone)]
 pub struct MusicBrainzClient {
@@ -31,7 +45,10 @@ pub struct MusicBrainzClient {
     base_url: String,
     cover_art_base_url: String,
     rate_limiter: RateLimiter,
-    cover_art_cache: Arc<Mutex<HashMap<Uuid, CoverArtResponse>>>,
+    artist_lookup_cache: Cache<Uuid, Artist>,
+    album_lookup_cache: Cache<Uuid, Album>,
+    recording_lookup_cache: Cache<Uuid, Recording>,
+    cover_art_cache: Cache<Uuid, CoverArtResponse>,
 }
 
 impl MusicBrainzClient {
@@ -101,8 +118,14 @@ impl MusicBrainzClient {
     /// # }
     /// ```
     pub async fn lookup_artist(&self, mbid: Uuid) -> Result<Artist> {
+        if let Some(cached) = self.artist_lookup_cache.get(&mbid) {
+            debug!(target: "musicbrainz", %mbid, "artist lookup cache HIT");
+            return Ok(cached);
+        }
         let url = format!("{}/artist/{}?fmt=json", self.base_url, mbid);
-        self.get(&url).await
+        let artist: Artist = self.get(&url).await?;
+        self.artist_lookup_cache.insert(mbid, artist.clone());
+        Ok(artist)
     }
 
     /// Search for albums (release groups) by title or artist.
@@ -161,11 +184,17 @@ impl MusicBrainzClient {
     /// # }
     /// ```
     pub async fn lookup_album(&self, mbid: Uuid) -> Result<Album> {
+        if let Some(cached) = self.album_lookup_cache.get(&mbid) {
+            debug!(target: "musicbrainz", %mbid, "album lookup cache HIT");
+            return Ok(cached);
+        }
         let url = format!(
             "{}/release-group/{}?fmt=json&inc=artist-credits",
             self.base_url, mbid
         );
-        self.get(&url).await
+        let album: Album = self.get(&url).await?;
+        self.album_lookup_cache.insert(mbid, album.clone());
+        Ok(album)
     }
 
     /// Look up a recording (track) by MusicBrainz ID, including artist credits and releases.
@@ -185,23 +214,24 @@ impl MusicBrainzClient {
     /// # }
     /// ```
     pub async fn lookup_recording(&self, mbid: Uuid) -> Result<Recording> {
+        if let Some(cached) = self.recording_lookup_cache.get(&mbid) {
+            debug!(target: "musicbrainz", %mbid, "recording lookup cache HIT");
+            return Ok(cached);
+        }
         let url = format!(
             "{}/recording/{}?fmt=json&inc=artists+releases+release-groups",
             self.base_url, mbid
         );
-        self.get(&url).await
+        let recording: Recording = self.get(&url).await?;
+        self.recording_lookup_cache.insert(mbid, recording.clone());
+        Ok(recording)
     }
 
     /// Fetch cover art metadata for a release group from the Cover Art Archive.
-    /// Results are cached in-memory for the lifetime of the client.
+    /// Results are cached in-memory with a 24-hour TTL.
     pub async fn fetch_cover_art(&self, release_group_mbid: Uuid) -> Result<CoverArtResponse> {
-        if let Some(cached) = self
-            .cover_art_cache
-            .lock()
-            .await
-            .get(&release_group_mbid)
-            .cloned()
-        {
+        if let Some(cached) = self.cover_art_cache.get(&release_group_mbid) {
+            debug!(target: "musicbrainz", mbid = %release_group_mbid, "cover art cache HIT");
             return Ok(cached);
         }
 
@@ -212,8 +242,6 @@ impl MusicBrainzClient {
         let response: CoverArtResponse = self.get(&url).await?;
 
         self.cover_art_cache
-            .lock()
-            .await
             .insert(release_group_mbid, response.clone());
 
         Ok(response)
@@ -280,7 +308,10 @@ impl Default for MusicBrainzClient {
             base_url: MUSICBRAINZ_API_BASE.to_string(),
             cover_art_base_url: COVER_ART_ARCHIVE_BASE.to_string(),
             rate_limiter,
-            cover_art_cache: Arc::new(Mutex::new(HashMap::new())),
+            artist_lookup_cache: make_lookup_cache(),
+            album_lookup_cache: make_lookup_cache(),
+            recording_lookup_cache: make_lookup_cache(),
+            cover_art_cache: make_lookup_cache(),
         }
     }
 }
@@ -344,7 +375,10 @@ impl MusicBrainzClientBuilder {
             base_url: self.base_url,
             cover_art_base_url: self.cover_art_base_url,
             rate_limiter,
-            cover_art_cache: Arc::new(Mutex::new(HashMap::new())),
+            artist_lookup_cache: make_lookup_cache(),
+            album_lookup_cache: make_lookup_cache(),
+            recording_lookup_cache: make_lookup_cache(),
+            cover_art_cache: make_lookup_cache(),
         })
     }
 }

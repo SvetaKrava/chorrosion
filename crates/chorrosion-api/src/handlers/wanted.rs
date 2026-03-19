@@ -393,6 +393,7 @@ mod tests {
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
             Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
         );
         (pool, state)
     }

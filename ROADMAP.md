@@ -386,10 +386,10 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Database query optimization
   - [x] Add indexes for common queries (Issue #270) ✓
   - [x] Query profiling and tuning (Issue #273) ✓
-- [ ] Caching layer
-  - [ ] Metadata caching
-  - [ ] API response caching
-  - [ ] File system cache
+- [x] Caching layer (Issue #278) ✓
+  - [x] Metadata caching ✓
+  - [x] API response caching ✓
+  - [x] File system cache ✓
 - [ ] Concurrent operation improvements
 - [ ] Memory usage optimization
 

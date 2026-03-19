@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
-use chorrosion_infrastructure::sqlite_adapters::{
-    SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
-    SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-    SqliteQualityProfileRepository, SqliteTrackRepository,
+use chorrosion_infrastructure::{
+    sqlite_adapters::{
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTrackRepository,
+    },
+    ResponseCache,
 };
 use std::sync::Arc;
 pub mod download_clients;
@@ -20,6 +23,7 @@ pub mod matching;
 pub mod matching_precedence;
 pub mod notifications;
 pub mod release_parsing;
+pub mod scan_cache;
 pub mod search_automation;
 pub mod tag_embedding;
 
@@ -67,6 +71,7 @@ pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
     AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
 };
+pub use scan_cache::{cached_scan_audio_files, DirScanCache};
 pub use search_automation::{
     automatic_search_missing_albums, detect_missing_albums, manual_search, AlbumSearchTarget,
     AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
@@ -89,6 +94,8 @@ pub struct AppState {
     pub metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
     pub indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
     pub download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
+    /// In-memory cache for serialized API GET responses.
+    pub response_cache: ResponseCache,
 }
 
 impl AppState {
@@ -102,6 +109,7 @@ impl AppState {
         metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
         indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
         download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
+        response_cache: ResponseCache,
     ) -> Self {
         Self {
             config,
@@ -112,6 +120,7 @@ impl AppState {
             metadata_profile_repository,
             indexer_definition_repository,
             download_client_definition_repository,
+            response_cache,
         }
     }
 

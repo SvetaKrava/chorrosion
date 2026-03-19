@@ -13,6 +13,7 @@ use chorrosion_infrastructure::{
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
         SqliteQualityProfileRepository, SqliteTrackRepository,
     },
+    ResponseCache,
 };
 use chorrosion_scheduler::Scheduler;
 use std::sync::Arc;
@@ -45,6 +46,11 @@ async fn main() -> Result<()> {
     let download_client_definition_repository =
         Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone()));
 
+    let response_cache = ResponseCache::new(
+        config.cache.api_response_max_capacity,
+        config.cache.api_response_ttl_seconds,
+    );
+
     let state = AppState::new(
         config.clone(),
         artist_repository,
@@ -54,6 +60,7 @@ async fn main() -> Result<()> {
         metadata_profile_repository,
         indexer_definition_repository,
         download_client_definition_repository,
+        response_cache,
     );
     state.on_start();
 

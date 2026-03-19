@@ -376,6 +376,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bytes",
  "chorrosion-application",
  "chorrosion-config",
  "chorrosion-domain",
@@ -411,6 +412,7 @@ dependencies = [
  "chrono",
  "lazy_static",
  "lofty",
+ "moka",
  "percent-encoding",
  "quick-xml",
  "regex",
@@ -484,9 +486,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "chorrosion-config",
  "chorrosion-domain",
  "chrono",
+ "moka",
  "reqwest",
  "serde_json",
  "sqlx",
@@ -515,6 +519,7 @@ dependencies = [
 name = "chorrosion-musicbrainz"
 version = "0.1.0"
 dependencies = [
+ "moka",
  "reqwest",
  "serde",
  "serde_json",
