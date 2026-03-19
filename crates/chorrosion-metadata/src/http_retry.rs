@@ -2,7 +2,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use tokio::time::{sleep, Duration};
 use tracing::warn;
 
-const MAX_ATTEMPTS: usize = 3;
+pub(crate) const MAX_ATTEMPTS: usize = 3;
 const INITIAL_BACKOFF_MS: u64 = 200;
 const MAX_BACKOFF_MS: u64 = 2_000;
 
@@ -21,7 +21,8 @@ where
                 let status = response.status();
                 if should_retry_status(status) && attempt < MAX_ATTEMPTS {
                     warn!(
-                        retry_target = target,
+                        target: "metadata",
+                        client = target,
                         attempt,
                         max_attempts = MAX_ATTEMPTS,
                         status = %status,
@@ -38,7 +39,8 @@ where
             Err(error) => {
                 if should_retry_error(&error) && attempt < MAX_ATTEMPTS {
                     warn!(
-                        retry_target = target,
+                        target: "metadata",
+                        client = target,
                         attempt,
                         max_attempts = MAX_ATTEMPTS,
                         error = %error,
@@ -55,15 +57,15 @@ where
     }
 }
 
-fn should_retry_status(status: StatusCode) -> bool {
+pub(crate) fn should_retry_status(status: StatusCode) -> bool {
     status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
 }
 
-fn should_retry_error(error: &reqwest::Error) -> bool {
+pub(crate) fn should_retry_error(error: &reqwest::Error) -> bool {
     error.is_timeout() || error.is_connect()
 }
 
-fn backoff_for_attempt(attempt: usize) -> Duration {
+pub(crate) fn backoff_for_attempt(attempt: usize) -> Duration {
     let factor = 1u64 << attempt.saturating_sub(1);
     let millis = (INITIAL_BACKOFF_MS * factor).min(MAX_BACKOFF_MS);
     Duration::from_millis(millis)
