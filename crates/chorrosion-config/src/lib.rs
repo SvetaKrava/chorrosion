@@ -294,8 +294,12 @@ pub struct CacheConfig {
     /// Maximum number of cached metadata album entries per client.
     pub metadata_album_max_capacity: u64,
     /// Maximum number of cached cover art entries (FanartTV / Cover Art Archive).
+    /// Pre-defined for future use when the cover-art client is wired into the scheduler;
+    /// currently not yet consumed by any construction site.
     pub metadata_cover_art_max_capacity: u64,
     /// Maximum number of cached lyrics entries.
+    /// Pre-defined for future use when the lyrics client is wired into the scheduler;
+    /// currently not yet consumed by any construction site.
     pub metadata_lyrics_max_capacity: u64,
 }
 

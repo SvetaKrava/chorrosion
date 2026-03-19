@@ -30,8 +30,8 @@ pub struct MetadataRefreshCache {
     album_refreshes: Arc<RwLock<HashMap<Uuid, DateTime<Utc>>>>,
     /// Cache TTL in seconds - minimum time between refreshes for same entity
     ttl_seconds: i64,
-    /// Unix timestamp (seconds) of the last completed prune scan; 0 means never pruned.
-    /// Stored atomically to avoid lock overhead on frequent job executions.
+    /// Unix timestamp (seconds) recorded at the *start* of the last prune scan; 0 means never
+    /// attempted.  Stored atomically so the throttle check is lock-free.
     last_prune_secs: Arc<AtomicU64>,
     /// Minimum interval between consecutive prune scans in seconds (default: 3600)
     prune_interval_seconds: u64,
@@ -147,20 +147,30 @@ impl MetadataRefreshCache {
     ///
     /// Pruning is throttled: if called more often than `prune_interval_seconds` (default 1 hour)
     /// the call is a no-op so that the full-scan overhead is bounded even when refresh jobs run
-    /// frequently.  Poisoned locks are recovered via `into_inner()` so pruning never silently
-    /// stops.
+    /// frequently.  A compare-exchange is used to atomically claim the prune run so that
+    /// concurrent callers (shared cache via `clone()`) don't all perform a redundant scan.
+    /// Poisoned locks are recovered via `into_inner()` so pruning never silently stops.
     pub fn prune_stale_entries(&self) {
-        // Throttle: skip if pruned recently.  Use an AtomicU64 (Unix-seconds) for lock-free access.
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
 
+        // Throttle check: if the last prune started recently, skip without taking any locks.
         let last = self.last_prune_secs.load(Ordering::Relaxed);
         if last > 0 && now_secs.saturating_sub(last) < self.prune_interval_seconds {
             return;
         }
-        self.last_prune_secs.store(now_secs, Ordering::Relaxed);
+
+        // Atomically claim this prune run via CAS.  If another concurrent caller already
+        // updated last_prune_secs between our load and here, we skip rather than double-scan.
+        if self
+            .last_prune_secs
+            .compare_exchange(last, now_secs, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
 
         let now = Utc::now();
         let ttl = self.ttl_seconds;
@@ -190,6 +200,25 @@ impl MetadataRefreshCache {
         if pruned > 0 {
             debug!(target: "jobs", "pruned {} stale album cache entries", pruned);
         }
+    }
+
+    /// Returns the Unix-second timestamp stored as the start of the last prune attempt.
+    /// Used in tests to verify throttle behavior; not part of the public API.
+    #[cfg(test)]
+    fn last_prune_secs_value(&self) -> u64 {
+        self.last_prune_secs.load(Ordering::Relaxed)
+    }
+
+    /// Overrides the last-prune timestamp to simulate a prune that happened `secs_ago` seconds
+    /// in the past.  Used in tests to exercise the throttle cadence without sleeping.
+    #[cfg(test)]
+    fn simulate_last_prune_secs_ago(&self, secs_ago: u64) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_prune_secs
+            .store(now_secs.saturating_sub(secs_ago), Ordering::Relaxed);
     }
 }
 
@@ -1391,6 +1420,39 @@ mod tests {
 
         // Note: Testing actual TTL expiration would require mocking time or very long test delays
         // The implementation is correct - this test verifies the pruning mechanism exists
+    }
+
+    #[test]
+    fn test_prune_throttle_skips_within_interval() {
+        let cache = MetadataRefreshCache::new();
+
+        // Fresh cache: last_prune_secs should be 0 (never pruned)
+        assert_eq!(cache.last_prune_secs_value(), 0);
+
+        // First call should proceed and record a non-zero timestamp
+        cache.prune_stale_entries();
+        let ts1 = cache.last_prune_secs_value();
+        assert!(ts1 > 0, "first prune should set last_prune_secs");
+
+        // Immediate second call should be a no-op (throttled within interval)
+        cache.prune_stale_entries();
+        let ts2 = cache.last_prune_secs_value();
+        assert_eq!(ts1, ts2, "second prune within interval should not update last_prune_secs");
+    }
+
+    #[test]
+    fn test_prune_runs_again_after_interval_expires() {
+        let cache = MetadataRefreshCache::new();
+
+        // Simulate that the last prune happened 2 hours ago (beyond the 1-hour interval)
+        cache.simulate_last_prune_secs_ago(2 * 3600);
+        let old_ts = cache.last_prune_secs_value();
+        assert!(old_ts > 0);
+
+        // Prune should run again since the interval has elapsed
+        cache.prune_stale_entries();
+        let new_ts = cache.last_prune_secs_value();
+        assert!(new_ts > old_ts, "prune after interval expiry should update last_prune_secs");
     }
 
     #[test]
