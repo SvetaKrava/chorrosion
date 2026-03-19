@@ -35,10 +35,6 @@ pub enum ImportError {
     #[error("File does not exist: {0}")]
     FileNotFound(String),
 
-    /// Import was cancelled (e.g. semaphore closed during shutdown)
-    #[error("Import cancelled: {0}")]
-    Cancelled(String),
-
     /// Spawned import task panicked or was cancelled by the runtime
     #[error("Import task failed unexpectedly: {0}")]
     TaskFailed(String),
@@ -170,8 +166,8 @@ impl FileImportService {
     ///
     /// # Returns
     /// A tuple of (successes, failures) where successes are ImportedFile entries
-    /// and failures are (path, error) tuples.  The sum `successes + failures` equals
-    /// `files.len()` unless the runtime itself is shutting down.
+    /// and failures are (path, error) tuples.  The sum `successes + failures` always
+    /// equals `files.len()`.
     #[tracing::instrument(skip(self, files), fields(count = files.len()))]
     pub async fn import_batch(
         &self,
@@ -191,28 +187,22 @@ impl FileImportService {
         for (path, track_id) in files {
             // Acquire the permit *before* spawning so we only create tasks when capacity
             // is available, keeping the number of in-flight Tokio tasks bounded.
-            let permit = match Arc::clone(&semaphore).acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => {
-                    // Semaphore was closed - this only happens during shutdown.
-                    failures.push((
-                        path,
-                        ImportError::Cancelled("import semaphore closed".to_string()),
-                    ));
-                    continue;
-                }
-            };
+            // The semaphore is created locally and never explicitly closed, so acquire_owned()
+            // is infallible here.
+            let permit = Arc::clone(&semaphore)
+                .acquire_owned()
+                .await
+                .expect("import semaphore closed unexpectedly");
 
             let service = self.clone();
-            let path_for_task = path.clone();
             // Propagate the current span into the spawned task so per-file logs are
             // correlated with the batch span.
             let span = tracing::Span::current();
             set.spawn(
                 async move {
                     let _permit = permit;
-                    let result = service.import_file(&path_for_task, track_id).await;
-                    (path_for_task, result)
+                    let result = service.import_file(&path, track_id).await;
+                    (path, result)
                 }
                 .instrument(span),
             );

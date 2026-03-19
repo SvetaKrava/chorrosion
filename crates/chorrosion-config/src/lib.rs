@@ -63,6 +63,10 @@ pub struct SchedulerConfig {
     /// Must be >= 1. Bounded concurrency prevents overwhelming the fingerprint
     /// engine and OS file-descriptor limits while still providing a large speedup
     /// over serial processing.
+    ///
+    /// This value is passed as the `max_concurrent_imports` parameter when
+    /// constructing a `FileImportService` in the application layer.
+    /// Env override: `CHORROSION_SCHEDULER__MAX_CONCURRENT_IMPORTS`.
     pub max_concurrent_imports: usize,
 }
 

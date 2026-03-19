@@ -253,10 +253,12 @@ impl Job for LastFmMetadataRefreshJob {
         let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
 
         for artist in &self.artists {
-            let permit = match Arc::clone(&task_sem).acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break, // semaphore closed (shutdown); stop dispatching
-            };
+            // The semaphore is created locally and never explicitly closed, so
+            // acquire_owned() is infallible here.
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let artist = artist.clone();
             set.spawn(async move {
@@ -270,10 +272,10 @@ impl Job for LastFmMetadataRefreshJob {
         }
 
         for seed in &self.albums {
-            let permit = match Arc::clone(&task_sem).acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break,
-            };
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let seed = seed.clone();
             set.spawn(async move {
@@ -415,10 +417,12 @@ impl Job for DiscogsMetadataRefreshJob {
         let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
 
         for artist in &self.artists {
-            let permit = match Arc::clone(&task_sem).acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break, // semaphore closed (shutdown); stop dispatching
-            };
+            // The semaphore is created locally and never explicitly closed, so
+            // acquire_owned() is infallible here.
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let artist = artist.clone();
             set.spawn(async move {
@@ -432,10 +436,10 @@ impl Job for DiscogsMetadataRefreshJob {
         }
 
         for seed in &self.albums {
-            let permit = match Arc::clone(&task_sem).acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break,
-            };
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let seed = seed.clone();
             set.spawn(async move {
