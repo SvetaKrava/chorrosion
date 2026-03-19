@@ -60,12 +60,30 @@ impl CoverArtFallbackClient {
         provider_order: Vec<CoverArtProvider>,
         max_concurrent_requests: usize,
     ) -> Self {
+        Self::new_with_order_limits_and_capacity(
+            fanart_client,
+            cover_art_archive_base_url,
+            provider_order,
+            max_concurrent_requests,
+            5_000,
+        )
+    }
+
+    /// Creates a `CoverArtFallbackClient` with custom provider order, concurrency limit, and
+    /// explicit cache capacity.
+    pub fn new_with_order_limits_and_capacity(
+        fanart_client: Option<FanartTvClient>,
+        cover_art_archive_base_url: Option<String>,
+        provider_order: Vec<CoverArtProvider>,
+        max_concurrent_requests: usize,
+        cache_capacity: u64,
+    ) -> Self {
         Self {
             fanart_client,
             cover_art_archive_client: CoverArtArchiveClient::new(cover_art_archive_base_url),
             provider_order,
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
-            cache: Cache::new(10_000),
+            cache: Cache::new(cache_capacity.max(1)),
         }
     }
 
