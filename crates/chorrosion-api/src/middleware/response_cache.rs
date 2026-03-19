@@ -103,7 +103,31 @@ pub async fn response_cache_middleware(
             .is_some_and(|value| value.starts_with("application/json"))
     {
         let (parts, body) = response.into_parts();
-        match axum::body::to_bytes(body, 16 * 1024 * 1024).await {
+
+        let body_limit = state.config.cache.api_response_max_body_bytes;
+
+        // If Content-Length is present and exceeds the configured limit, skip caching
+        // and pass the response through immediately — the body stream has not been
+        // consumed yet so the caller receives the full response unchanged.
+        let content_length = parts
+            .headers
+            .get(axum::http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok());
+        if let Some(content_len) = content_length {
+            if content_len > body_limit {
+                debug!(
+                    target: "cache",
+                    key = %key,
+                    content_length = content_len,
+                    limit = body_limit,
+                    "skipping cache: response body exceeds size limit"
+                );
+                return Response::from_parts(parts, body);
+            }
+        }
+
+        match axum::body::to_bytes(body, body_limit).await {
             Ok(bytes) => {
                 debug!(
                     target: "cache",

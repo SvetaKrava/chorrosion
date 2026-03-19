@@ -9,7 +9,7 @@ use bytes::Bytes;
 use moka::sync::Cache;
 use std::time::Duration;
 
-/// A cached HTTP response: status code, selected headers, and the serialized body.
+/// A cached HTTP response: status code, all response headers, and the serialized body.
 ///
 /// Headers are stored as raw `(name_bytes, value_bytes)` pairs so that no HTTP-crate
 /// types need to leak out of this module.
