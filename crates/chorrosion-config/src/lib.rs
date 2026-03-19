@@ -59,12 +59,22 @@ impl Default for TelemetryConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerConfig {
     pub max_concurrent_jobs: usize,
+    /// Maximum number of files to process concurrently in a batch import.
+    /// Must be >= 1. Bounded concurrency prevents overwhelming the fingerprint
+    /// engine and OS file-descriptor limits while still providing a large speedup
+    /// over serial processing.
+    ///
+    /// This value is passed as the `max_concurrent_imports` parameter when
+    /// constructing a `FileImportService` in the application layer.
+    /// Env override: `CHORROSION_SCHEDULER__MAX_CONCURRENT_IMPORTS`.
+    pub max_concurrent_imports: usize,
 }
 
 impl Default for SchedulerConfig {
     fn default() -> Self {
         Self {
             max_concurrent_jobs: 8,
+            max_concurrent_imports: 8,
         }
     }
 }

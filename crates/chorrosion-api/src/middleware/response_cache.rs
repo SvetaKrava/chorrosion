@@ -49,7 +49,10 @@ pub async fn response_cache_middleware(
 
     if method != Method::GET {
         let response = next.run(req).await;
-        if is_mutating(&method) && state.response_cache.is_enabled() && response.status().is_success() {
+        if is_mutating(&method)
+            && state.response_cache.is_enabled()
+            && response.status().is_success()
+        {
             debug!(target: "cache", method = %method, path = %path, "invalidating API response cache after write");
             state.response_cache.invalidate_all();
         }
