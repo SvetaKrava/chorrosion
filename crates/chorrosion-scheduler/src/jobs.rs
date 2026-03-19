@@ -10,6 +10,7 @@ use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -173,6 +174,9 @@ pub struct LastFmMetadataRefreshJob {
     client: Arc<LastFmClient>,
     artists: Vec<String>,
     albums: Vec<LastFmAlbumSeed>,
+    /// Maximum number of in-flight Tokio tasks at any point.
+    /// Prevents excessive memory/scheduling overhead for large seed lists.
+    max_concurrent_tasks: usize,
 }
 
 impl LastFmMetadataRefreshJob {
@@ -210,6 +214,7 @@ impl LastFmMetadataRefreshJob {
             client: Arc::new(client),
             artists,
             albums,
+            max_concurrent_tasks: config.max_concurrent_requests.max(1),
         })
     }
 }
@@ -240,14 +245,24 @@ impl Job for LastFmMetadataRefreshJob {
             return Ok(JobResult::Success);
         }
 
-        // Dispatch all artist and album fetches concurrently.
-        // Rate limiting is enforced by the client's internal semaphore.
+        // Dispatch artist and album fetches concurrently, bounded by `max_concurrent_tasks`.
+        // Permits are acquired *before* spawning so only `max_concurrent_tasks` Tokio tasks
+        // are live at any point, avoiding excessive memory/scheduler overhead for large seed lists.
+        // Rate limiting is additionally enforced by the client's internal semaphore.
+        let task_sem = Arc::new(Semaphore::new(self.max_concurrent_tasks));
         let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
 
         for artist in &self.artists {
+            // The semaphore is created locally and never explicitly closed, so
+            // acquire_owned() is infallible here.
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let artist = artist.clone();
             set.spawn(async move {
+                let _permit = permit;
                 client
                     .fetch_artist_metadata(&artist)
                     .await
@@ -257,9 +272,14 @@ impl Job for LastFmMetadataRefreshJob {
         }
 
         for seed in &self.albums {
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let seed = seed.clone();
             set.spawn(async move {
+                let _permit = permit;
                 client
                     .fetch_album_metadata(&seed.artist, &seed.album)
                     .await
@@ -322,6 +342,9 @@ pub struct DiscogsMetadataRefreshJob {
     client: Arc<DiscogsClient>,
     artists: Vec<String>,
     albums: Vec<DiscogsAlbumSeed>,
+    /// Maximum number of in-flight Tokio tasks at any point.
+    /// Prevents excessive memory/scheduling overhead for large seed lists.
+    max_concurrent_tasks: usize,
 }
 
 impl DiscogsMetadataRefreshJob {
@@ -358,6 +381,7 @@ impl DiscogsMetadataRefreshJob {
             client: Arc::new(client),
             artists,
             albums,
+            max_concurrent_tasks: config.max_concurrent_requests.max(1),
         })
     }
 }
@@ -385,14 +409,24 @@ impl Job for DiscogsMetadataRefreshJob {
 
         let mut failures = 0usize;
 
-        // Dispatch all artist and album fetches concurrently.
-        // Rate limiting is enforced by the client's internal semaphore and interval limiter.
+        // Dispatch artist and album fetches concurrently, bounded by `max_concurrent_tasks`.
+        // Permits are acquired *before* spawning so only `max_concurrent_tasks` Tokio tasks
+        // are live at any point.  Rate limiting is additionally enforced by the client's
+        // internal semaphore and interval limiter.
+        let task_sem = Arc::new(Semaphore::new(self.max_concurrent_tasks));
         let mut set: JoinSet<Result<(), (String, String)>> = JoinSet::new();
 
         for artist in &self.artists {
+            // The semaphore is created locally and never explicitly closed, so
+            // acquire_owned() is infallible here.
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let artist = artist.clone();
             set.spawn(async move {
+                let _permit = permit;
                 client
                     .fetch_artist_metadata(&artist)
                     .await
@@ -402,9 +436,14 @@ impl Job for DiscogsMetadataRefreshJob {
         }
 
         for seed in &self.albums {
+            let permit = Arc::clone(&task_sem)
+                .acquire_owned()
+                .await
+                .expect("task semaphore closed unexpectedly");
             let client = Arc::clone(&self.client);
             let seed = seed.clone();
             set.spawn(async move {
+                let _permit = permit;
                 client
                     .fetch_album_metadata(&seed.artist, &seed.album)
                     .await
