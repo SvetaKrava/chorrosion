@@ -293,6 +293,10 @@ pub struct CacheConfig {
     pub metadata_artist_max_capacity: u64,
     /// Maximum number of cached metadata album entries per client.
     pub metadata_album_max_capacity: u64,
+    /// Maximum number of cached cover art entries (FanartTV / Cover Art Archive).
+    pub metadata_cover_art_max_capacity: u64,
+    /// Maximum number of cached lyrics entries.
+    pub metadata_lyrics_max_capacity: u64,
 }
 
 impl Default for CacheConfig {
@@ -303,6 +307,8 @@ impl Default for CacheConfig {
             api_response_max_body_bytes: 16 * 1024 * 1024,
             metadata_artist_max_capacity: 5_000,
             metadata_album_max_capacity: 5_000,
+            metadata_cover_art_max_capacity: 5_000,
+            metadata_lyrics_max_capacity: 5_000,
         }
     }
 }

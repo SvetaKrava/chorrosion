@@ -37,10 +37,20 @@ impl LyricsClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_limits_cache_and_base_url(max_concurrent_requests, 5_000, base_url)
+    }
+
+    /// Creates a `LyricsClient` with a custom concurrency limit, explicit cache capacity, and
+    /// optional base URL.
+    pub fn new_with_limits_cache_and_base_url(
+        max_concurrent_requests: usize,
+        cache_capacity: u64,
+        base_url: Option<String>,
+    ) -> Self {
         Self {
             client: Client::new(),
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
-            cache: Cache::new(1_000),
+            cache: Cache::new(cache_capacity.max(1)),
             base_url: base_url
                 .unwrap_or_else(|| "https://api.lyrics.ovh".to_string())
                 .trim_end_matches('/')

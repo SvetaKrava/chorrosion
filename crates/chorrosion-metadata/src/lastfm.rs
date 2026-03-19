@@ -44,8 +44,8 @@ impl LastFmClient {
         Self::new_with_limits_cache_and_base_url(
             api_key,
             max_concurrent_requests,
-            10_000,
-            10_000,
+            5_000,
+            5_000,
             base_url,
         )
     }

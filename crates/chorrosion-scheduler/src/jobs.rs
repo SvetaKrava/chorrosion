@@ -11,7 +11,10 @@ use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, RwLock,
+};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
@@ -27,6 +30,11 @@ pub struct MetadataRefreshCache {
     album_refreshes: Arc<RwLock<HashMap<Uuid, DateTime<Utc>>>>,
     /// Cache TTL in seconds - minimum time between refreshes for same entity
     ttl_seconds: i64,
+    /// Unix timestamp (seconds) of the last completed prune scan; 0 means never pruned.
+    /// Stored atomically to avoid lock overhead on frequent job executions.
+    last_prune_secs: Arc<AtomicU64>,
+    /// Minimum interval between consecutive prune scans in seconds (default: 3600)
+    prune_interval_seconds: u64,
 }
 
 impl MetadataRefreshCache {
@@ -36,6 +44,8 @@ impl MetadataRefreshCache {
             artist_refreshes: Arc::new(RwLock::new(HashMap::new())),
             album_refreshes: Arc::new(RwLock::new(HashMap::new())),
             ttl_seconds: 24 * 60 * 60, // 24 hours default
+            last_prune_secs: Arc::new(AtomicU64::new(0)),
+            prune_interval_seconds: 3600, // prune at most once per hour
         }
     }
 
@@ -133,34 +143,52 @@ impl MetadataRefreshCache {
         }
     }
 
-    /// Prune stale entries older than TTL to prevent unbounded memory growth
-    /// Call this periodically (e.g., from housekeeping job) to reclaim memory
+    /// Prune stale entries older than TTL to prevent unbounded memory growth.
+    ///
+    /// Pruning is throttled: if called more often than `prune_interval_seconds` (default 1 hour)
+    /// the call is a no-op so that the full-scan overhead is bounded even when refresh jobs run
+    /// frequently.  Poisoned locks are recovered via `into_inner()` so pruning never silently
+    /// stops.
     pub fn prune_stale_entries(&self) {
+        // Throttle: skip if pruned recently.  Use an AtomicU64 (Unix-seconds) for lock-free access.
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let last = self.last_prune_secs.load(Ordering::Relaxed);
+        if last > 0 && now_secs.saturating_sub(last) < self.prune_interval_seconds {
+            return;
+        }
+        self.last_prune_secs.store(now_secs, Ordering::Relaxed);
+
         let now = Utc::now();
         let ttl = self.ttl_seconds;
 
-        if let Ok(mut cache) = self.artist_refreshes.write() {
-            let initial_size = cache.len();
-            cache.retain(|_, last_refresh| {
-                let elapsed = now.signed_duration_since(*last_refresh);
-                elapsed.num_seconds() <= ttl
-            });
-            let pruned = initial_size.saturating_sub(cache.len());
-            if pruned > 0 {
-                debug!(target: "jobs", "pruned {} stale artist cache entries", pruned);
-            }
+        let mut cache = self.artist_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "artist cache rwlock poisoned during prune, recovering");
+            poisoned.into_inner()
+        });
+        let initial_size = cache.len();
+        cache.retain(|_, last_refresh| {
+            now.signed_duration_since(*last_refresh).num_seconds() <= ttl
+        });
+        let pruned = initial_size.saturating_sub(cache.len());
+        if pruned > 0 {
+            debug!(target: "jobs", "pruned {} stale artist cache entries", pruned);
         }
 
-        if let Ok(mut cache) = self.album_refreshes.write() {
-            let initial_size = cache.len();
-            cache.retain(|_, last_refresh| {
-                let elapsed = now.signed_duration_since(*last_refresh);
-                elapsed.num_seconds() <= ttl
-            });
-            let pruned = initial_size.saturating_sub(cache.len());
-            if pruned > 0 {
-                debug!(target: "jobs", "pruned {} stale album cache entries", pruned);
-            }
+        let mut cache = self.album_refreshes.write().unwrap_or_else(|poisoned| {
+            warn!(target: "jobs", "album cache rwlock poisoned during prune, recovering");
+            poisoned.into_inner()
+        });
+        let initial_size = cache.len();
+        cache.retain(|_, last_refresh| {
+            now.signed_duration_since(*last_refresh).num_seconds() <= ttl
+        });
+        let pruned = initial_size.saturating_sub(cache.len());
+        if pruned > 0 {
+            debug!(target: "jobs", "pruned {} stale album cache entries", pruned);
         }
     }
 }
