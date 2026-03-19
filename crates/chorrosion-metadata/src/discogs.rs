@@ -290,6 +290,8 @@ impl DiscogsClient {
     ///
     /// The permit is re-acquired before every attempt so that each HTTP request
     /// (including retries) observes the Discogs 1 req/sec minimum interval.
+    /// The permit is released before the backoff sleep so other Discogs calls
+    /// are not blocked while waiting to retry.
     async fn send_with_rate_limited_retry<F>(
         &self,
         mut build_request: F,
@@ -299,7 +301,7 @@ impl DiscogsClient {
     {
         let mut attempt = 1usize;
         loop {
-            let _permit = self.rate_limiter.acquire().await?;
+            let permit = self.rate_limiter.acquire().await?;
             match build_request().send().await {
                 Ok(response) => {
                     let status = response.status();
@@ -315,6 +317,8 @@ impl DiscogsClient {
                         );
                         // Drain the response body to allow connection reuse; errors are non-critical.
                         let _ = response.bytes().await;
+                        // Release the permit before sleeping so other callers are not blocked.
+                        drop(permit);
                         sleep(http_retry::backoff_for_attempt(attempt)).await;
                         attempt += 1;
                         continue;
@@ -332,6 +336,8 @@ impl DiscogsClient {
                             error = %error,
                             "transient request error received, retrying request"
                         );
+                        // Release the permit before sleeping so other callers are not blocked.
+                        drop(permit);
                         sleep(http_retry::backoff_for_attempt(attempt)).await;
                         attempt += 1;
                         continue;

@@ -8,7 +8,7 @@ const MAX_BACKOFF_MS: u64 = 2_000;
 
 pub async fn send_with_retry<F>(
     mut build_request: F,
-    target: &'static str,
+    client_name: &'static str,
 ) -> Result<Response, reqwest::Error>
 where
     F: FnMut() -> RequestBuilder,
@@ -22,7 +22,7 @@ where
                 if should_retry_status(status) && attempt < MAX_ATTEMPTS {
                     warn!(
                         target: "metadata",
-                        client = target,
+                        client = client_name,
                         attempt,
                         max_attempts = MAX_ATTEMPTS,
                         status = %status,
@@ -40,7 +40,7 @@ where
                 if should_retry_error(&error) && attempt < MAX_ATTEMPTS {
                     warn!(
                         target: "metadata",
-                        client = target,
+                        client = client_name,
                         attempt,
                         max_attempts = MAX_ATTEMPTS,
                         error = %error,
