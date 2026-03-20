@@ -3,6 +3,7 @@ use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{self, Value};
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument, warn};
@@ -44,7 +45,7 @@ impl CoverArtFallbackClient {
         fanart_client: Option<FanartTvClient>,
         cover_art_archive_base_url: Option<String>,
     ) -> Self {
-        Self::new_with_order_and_limits(
+        Self::new_with_order_limits_timeout_and_capacity(
             fanart_client,
             cover_art_archive_base_url,
             vec![
@@ -52,6 +53,8 @@ impl CoverArtFallbackClient {
                 CoverArtProvider::CoverArtArchive,
             ],
             1,
+            15,
+            5_000,
         )
     }
 
@@ -61,11 +64,12 @@ impl CoverArtFallbackClient {
         provider_order: Vec<CoverArtProvider>,
         max_concurrent_requests: usize,
     ) -> Self {
-        Self::new_with_order_limits_and_capacity(
+        Self::new_with_order_limits_timeout_and_capacity(
             fanart_client,
             cover_art_archive_base_url,
             provider_order,
             max_concurrent_requests,
+            15,
             5_000,
         )
     }
@@ -79,9 +83,32 @@ impl CoverArtFallbackClient {
         max_concurrent_requests: usize,
         cache_capacity: u64,
     ) -> Self {
+        Self::new_with_order_limits_timeout_and_capacity(
+            fanart_client,
+            cover_art_archive_base_url,
+            provider_order,
+            max_concurrent_requests,
+            15,
+            cache_capacity,
+        )
+    }
+
+    /// Creates a `CoverArtFallbackClient` with custom provider order, concurrency,
+    /// request timeout, and cache capacity.
+    pub fn new_with_order_limits_timeout_and_capacity(
+        fanart_client: Option<FanartTvClient>,
+        cover_art_archive_base_url: Option<String>,
+        provider_order: Vec<CoverArtProvider>,
+        max_concurrent_requests: usize,
+        request_timeout_seconds: u64,
+        cache_capacity: u64,
+    ) -> Self {
         Self {
             fanart_client,
-            cover_art_archive_client: CoverArtArchiveClient::new(cover_art_archive_base_url),
+            cover_art_archive_client: CoverArtArchiveClient::new_with_timeout(
+                cover_art_archive_base_url,
+                request_timeout_seconds,
+            ),
             provider_order,
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
             cache: Cache::new(cache_capacity.max(1)),
@@ -198,9 +225,20 @@ struct CoverArtArchiveClient {
 }
 
 impl CoverArtArchiveClient {
-    fn new(base_url: Option<String>) -> Self {
+    fn new_with_timeout(base_url: Option<String>, request_timeout_seconds: u64) -> Self {
+        let timeout = Duration::from_secs(request_timeout_seconds.max(1));
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_else(|error| {
+                debug!(
+                    ?error,
+                    "Failed to build Cover Art Archive HTTP client with timeout, falling back to default client"
+                );
+                Client::new()
+            });
         Self {
-            client: Client::new(),
+            client,
             base_url: base_url
                 .unwrap_or_else(|| "https://coverartarchive.org".to_string())
                 .trim_end_matches('/')

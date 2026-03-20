@@ -1,6 +1,7 @@
 use moka::sync::Cache;
 use reqwest::{Client, StatusCode, Url};
 use serde::Deserialize;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument};
@@ -39,7 +40,12 @@ impl LyricsClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
-        Self::new_with_limits_cache_and_base_url(max_concurrent_requests, 5_000, base_url)
+        Self::new_with_limits_cache_timeout_and_base_url(
+            max_concurrent_requests,
+            5_000,
+            15,
+            base_url,
+        )
     }
 
     /// Creates a `LyricsClient` with a custom concurrency limit, explicit cache capacity, and
@@ -49,8 +55,35 @@ impl LyricsClient {
         cache_capacity: u64,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_limits_cache_timeout_and_base_url(
+            max_concurrent_requests,
+            cache_capacity,
+            15,
+            base_url,
+        )
+    }
+
+    /// Creates a `LyricsClient` with explicit cache capacity, request timeout, and optional
+    /// base URL.
+    pub fn new_with_limits_cache_timeout_and_base_url(
+        max_concurrent_requests: usize,
+        cache_capacity: u64,
+        request_timeout_seconds: u64,
+        base_url: Option<String>,
+    ) -> Self {
+        let timeout = Duration::from_secs(request_timeout_seconds.max(1));
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_else(|error| {
+                debug!(
+                    ?error,
+                    "Failed to build Lyrics HTTP client with timeout, falling back to default client"
+                );
+                Client::new()
+            });
         Self {
-            client: Client::new(),
+            client,
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
             cache: Cache::new(cache_capacity.max(1)),
             base_url: base_url

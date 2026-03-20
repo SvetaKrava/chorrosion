@@ -5,6 +5,7 @@ use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{self, Value};
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument};
@@ -43,11 +44,12 @@ impl LastFmClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
-        Self::new_with_limits_cache_and_base_url(
+        Self::new_with_limits_cache_timeout_and_base_url(
             api_key,
             max_concurrent_requests,
             5_000,
             5_000,
+            15,
             base_url,
         )
     }
@@ -60,7 +62,37 @@ impl LastFmClient {
         album_cache_capacity: u64,
         base_url: Option<String>,
     ) -> Self {
-        let client = Client::new();
+        Self::new_with_limits_cache_timeout_and_base_url(
+            api_key,
+            max_concurrent_requests,
+            artist_cache_capacity,
+            album_cache_capacity,
+            15,
+            base_url,
+        )
+    }
+
+    /// Creates a new Last.fm API client with concurrency limits, explicit cache capacities,
+    /// explicit request timeout, and optional base URL.
+    pub fn new_with_limits_cache_timeout_and_base_url(
+        api_key: String,
+        max_concurrent_requests: usize,
+        artist_cache_capacity: u64,
+        album_cache_capacity: u64,
+        request_timeout_seconds: u64,
+        base_url: Option<String>,
+    ) -> Self {
+        let timeout = Duration::from_secs(request_timeout_seconds.max(1));
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_else(|error| {
+                debug!(
+                    ?error,
+                    "Failed to build Last.fm HTTP client with timeout, falling back to default client"
+                );
+                Client::new()
+            });
         let rate_limiter = Arc::new(Semaphore::new(max_concurrent_requests.max(1)));
         let cache_artist = Cache::new(artist_cache_capacity.max(1));
         let cache_album = Cache::new(album_cache_capacity.max(1));
