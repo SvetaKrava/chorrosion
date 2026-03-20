@@ -31,11 +31,23 @@ pub fn create_sqlite_backup(database_url: &str, backup_dir: &Path) -> Result<Pat
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("db");
-    let timestamp = Utc::now().format("%Y%m%d%H%M%S");
+    let timestamp = Utc::now().format("%Y%m%d%H%M%S%f");
 
     let backup_path = backup_dir.join(format!("{stem}-{timestamp}.backup.{extension}"));
 
     fs::copy(&source, &backup_path)?;
+
+    // If the database is in WAL mode, also copy the sidecar files to keep the
+    // backup consistent. SQLite names these by appending "-wal" / "-shm" to
+    // the full database path (including extension).
+    let source_wal = wal_path(&source);
+    let source_shm = shm_path(&source);
+    if source_wal.exists() {
+        fs::copy(&source_wal, wal_path(&backup_path))?;
+    }
+    if source_shm.exists() {
+        fs::copy(&source_shm, shm_path(&backup_path))?;
+    }
 
     info!(
         target: "infrastructure",
@@ -74,6 +86,27 @@ pub fn restore_sqlite_backup(database_url: &str, backup_file: &Path) -> Result<(
         fs::remove_file(&destination)?;
     }
     fs::rename(&temp_destination, &destination)?;
+
+    // Remove stale WAL/SHM sidecar files from the destination so SQLite does
+    // not replay stale transactions after the restore.
+    let dest_wal = wal_path(&destination);
+    let dest_shm = shm_path(&destination);
+    if dest_wal.exists() {
+        fs::remove_file(&dest_wal)?;
+    }
+    if dest_shm.exists() {
+        fs::remove_file(&dest_shm)?;
+    }
+
+    // Restore the backup sidecar files if they were captured during backup.
+    let backup_wal = wal_path(backup_file);
+    let backup_shm = shm_path(backup_file);
+    if backup_wal.exists() {
+        fs::copy(&backup_wal, &dest_wal)?;
+    }
+    if backup_shm.exists() {
+        fs::copy(&backup_shm, &dest_shm)?;
+    }
 
     info!(
         target: "infrastructure",
@@ -117,6 +150,18 @@ fn resolve_sqlite_file_path(database_url: &str) -> Result<PathBuf> {
     };
 
     Ok(absolute_path)
+}
+
+fn wal_path(db_path: &Path) -> PathBuf {
+    let mut os = db_path.as_os_str().to_os_string();
+    os.push("-wal");
+    PathBuf::from(os)
+}
+
+fn shm_path(db_path: &Path) -> PathBuf {
+    let mut os = db_path.as_os_str().to_os_string();
+    os.push("-shm");
+    PathBuf::from(os)
 }
 
 fn restore_temp_path_for(destination: &Path) -> PathBuf {
@@ -187,6 +232,117 @@ mod tests {
         assert_eq!(
             fs::read(&db_path).expect("restored db should be readable"),
             b"original-db-content"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn test_backup_copies_wal_and_shm_sidecars() {
+        let temp_root = unique_temp_dir("backup-wal");
+        let db_path = temp_root.join("data").join("chorrosion.db");
+        fs::create_dir_all(db_path.parent().expect("parent should exist"))
+            .expect("data directory should be created");
+        fs::write(&db_path, b"database-state-v1").expect("db file should be written");
+        fs::write(wal_path(&db_path), b"wal-content").expect("wal file should be written");
+        fs::write(shm_path(&db_path), b"shm-content").expect("shm file should be written");
+
+        let backup_dir = temp_root.join("backups");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
+
+        let backup_path =
+            create_sqlite_backup(&db_url, &backup_dir).expect("backup should be created");
+
+        assert!(
+            wal_path(&backup_path).exists(),
+            "backup wal sidecar should exist"
+        );
+        assert!(
+            shm_path(&backup_path).exists(),
+            "backup shm sidecar should exist"
+        );
+        assert_eq!(
+            fs::read(wal_path(&backup_path)).expect("backup wal should be readable"),
+            b"wal-content"
+        );
+        assert_eq!(
+            fs::read(shm_path(&backup_path)).expect("backup shm should be readable"),
+            b"shm-content"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn test_restore_removes_stale_wal_shm_and_restores_backup_sidecars() {
+        let temp_root = unique_temp_dir("restore-wal");
+        let db_path = temp_root.join("data").join("chorrosion.db");
+        fs::create_dir_all(db_path.parent().expect("parent should exist"))
+            .expect("data directory should be created");
+        fs::write(&db_path, b"original-db-content").expect("db file should be written");
+        fs::write(wal_path(&db_path), b"original-wal").expect("wal should be written");
+        fs::write(shm_path(&db_path), b"original-shm").expect("shm should be written");
+
+        let backup_dir = temp_root.join("backups");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
+        let backup_path =
+            create_sqlite_backup(&db_url, &backup_dir).expect("backup should be created");
+
+        // Simulate changes after backup (stale WAL/SHM at destination)
+        fs::write(&db_path, b"mutated-db-content").expect("db mutation should succeed");
+        fs::write(wal_path(&db_path), b"stale-wal").expect("stale wal should be written");
+        fs::write(shm_path(&db_path), b"stale-shm").expect("stale shm should be written");
+
+        restore_sqlite_backup(&db_url, &backup_path).expect("restore should succeed");
+
+        assert_eq!(
+            fs::read(&db_path).expect("restored db should be readable"),
+            b"original-db-content"
+        );
+        assert_eq!(
+            fs::read(wal_path(&db_path)).expect("restored wal should be readable"),
+            b"original-wal"
+        );
+        assert_eq!(
+            fs::read(shm_path(&db_path)).expect("restored shm should be readable"),
+            b"original-shm"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn test_restore_removes_stale_wal_shm_when_no_backup_sidecars() {
+        let temp_root = unique_temp_dir("restore-no-wal");
+        let db_path = temp_root.join("data").join("chorrosion.db");
+        fs::create_dir_all(db_path.parent().expect("parent should exist"))
+            .expect("data directory should be created");
+        // No WAL/SHM at backup time
+        fs::write(&db_path, b"original-db-content").expect("db file should be written");
+
+        let backup_dir = temp_root.join("backups");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
+        let backup_path =
+            create_sqlite_backup(&db_url, &backup_dir).expect("backup should be created");
+
+        // Stale WAL/SHM appear after backup
+        fs::write(&db_path, b"mutated-db-content").expect("db mutation should succeed");
+        fs::write(wal_path(&db_path), b"stale-wal").expect("stale wal should be written");
+        fs::write(shm_path(&db_path), b"stale-shm").expect("stale shm should be written");
+
+        restore_sqlite_backup(&db_url, &backup_path).expect("restore should succeed");
+
+        assert_eq!(
+            fs::read(&db_path).expect("restored db should be readable"),
+            b"original-db-content"
+        );
+        assert!(
+            !wal_path(&db_path).exists(),
+            "stale wal should be removed after restore"
+        );
+        assert!(
+            !shm_path(&db_path).exists(),
+            "stale shm should be removed after restore"
         );
 
         let _ = fs::remove_dir_all(&temp_root);
