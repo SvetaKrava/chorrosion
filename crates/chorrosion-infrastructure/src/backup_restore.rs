@@ -5,6 +5,7 @@ use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
+use uuid::Uuid;
 
 /// Create a timestamped backup copy of a SQLite database file.
 ///
@@ -32,21 +33,38 @@ pub fn create_sqlite_backup(database_url: &str, backup_dir: &Path) -> Result<Pat
         .and_then(|value| value.to_str())
         .unwrap_or("db");
     let timestamp = Utc::now().format("%Y%m%d%H%M%S%f");
+    let unique_id = Uuid::new_v4().simple();
 
-    let backup_path = backup_dir.join(format!("{stem}-{timestamp}.backup.{extension}"));
+    let backup_path = backup_dir.join(format!("{stem}-{timestamp}-{unique_id}.backup.{extension}"));
 
     fs::copy(&source, &backup_path)?;
 
     // If the database is in WAL mode, also copy the sidecar files to keep the
     // backup consistent. SQLite names these by appending "-wal" / "-shm" to
     // the full database path (including extension).
+    //
+    // If copying a sidecar fails after the main DB has been written, roll back
+    // all partially-created backup artifacts so callers don't accidentally use
+    // an incomplete backup.
     let source_wal = wal_path(&source);
     let source_shm = shm_path(&source);
-    if source_wal.exists() {
-        fs::copy(&source_wal, wal_path(&backup_path))?;
-    }
-    if source_shm.exists() {
-        fs::copy(&source_shm, shm_path(&backup_path))?;
+
+    let sidecar_result: Result<()> = (|| {
+        if source_wal.exists() {
+            fs::copy(&source_wal, wal_path(&backup_path))?;
+        }
+        if source_shm.exists() {
+            fs::copy(&source_shm, shm_path(&backup_path))?;
+        }
+        Ok(())
+    })();
+
+    if let Err(err) = sidecar_result {
+        // Best-effort rollback: ignore any errors during cleanup.
+        let _ = fs::remove_file(&backup_path);
+        let _ = fs::remove_file(wal_path(&backup_path));
+        let _ = fs::remove_file(shm_path(&backup_path));
+        return Err(err);
     }
 
     info!(
@@ -79,33 +97,71 @@ pub fn restore_sqlite_backup(database_url: &str, backup_file: &Path) -> Result<(
         }
     }
 
-    let temp_destination = restore_temp_path_for(&destination);
-
-    fs::copy(backup_file, &temp_destination)?;
-    if destination.exists() {
-        fs::remove_file(&destination)?;
-    }
-    fs::rename(&temp_destination, &destination)?;
-
-    // Remove stale WAL/SHM sidecar files from the destination so SQLite does
-    // not replay stale transactions after the restore.
     let dest_wal = wal_path(&destination);
     let dest_shm = shm_path(&destination);
-    if dest_wal.exists() {
-        fs::remove_file(&dest_wal)?;
-    }
-    if dest_shm.exists() {
-        fs::remove_file(&dest_shm)?;
-    }
-
-    // Restore the backup sidecar files if they were captured during backup.
     let backup_wal = wal_path(backup_file);
     let backup_shm = shm_path(backup_file);
-    if backup_wal.exists() {
-        fs::copy(&backup_wal, &dest_wal)?;
+
+    // Stage backup sidecar files into temp paths *before* touching the
+    // destination. This ensures that if the main DB rename fails we can clean
+    // up cleanly, and once it succeeds the final rename of staged sidecars is
+    // atomic on the same filesystem.
+    let staged_wal = if backup_wal.exists() {
+        let t = restore_temp_path_for(&dest_wal);
+        fs::copy(&backup_wal, &t)?;
+        Some(t)
+    } else {
+        None
+    };
+
+    let staged_shm = if backup_shm.exists() {
+        let t = restore_temp_path_for(&dest_shm);
+        match fs::copy(&backup_shm, &t) {
+            Ok(_) => Some(t),
+            Err(e) => {
+                // Roll back staged WAL temp before propagating the error.
+                if let Some(ref w) = staged_wal {
+                    let _ = fs::remove_file(w);
+                }
+                return Err(e.into());
+            }
+        }
+    } else {
+        None
+    };
+
+    // Atomically swap the main DB file. On failure, clean up temp and staged
+    // sidecars (temp_destination may be partially written).
+    let temp_destination = restore_temp_path_for(&destination);
+    let main_swap_result = fs::copy(backup_file, &temp_destination).and_then(|_| {
+        // On Windows `rename` fails if the destination already exists; remove
+        // it first. On Unix the rename atomically replaces the destination.
+        if destination.exists() {
+            fs::remove_file(&destination)?;
+        }
+        fs::rename(&temp_destination, &destination)
+    });
+    if let Err(e) = main_swap_result {
+        let _ = fs::remove_file(&temp_destination);
+        if let Some(ref w) = staged_wal {
+            let _ = fs::remove_file(w);
+        }
+        if let Some(ref s) = staged_shm {
+            let _ = fs::remove_file(s);
+        }
+        return Err(e.into());
     }
-    if backup_shm.exists() {
-        fs::copy(&backup_shm, &dest_shm)?;
+
+    // Main DB is now restored. Remove stale sidecars (best-effort, the DB is
+    // already in a valid state at this point) then atomically rename the
+    // staged sidecar temps into their final positions.
+    let _ = fs::remove_file(&dest_wal);
+    let _ = fs::remove_file(&dest_shm);
+    if let Some(t) = staged_wal {
+        fs::rename(t, &dest_wal)?;
+    }
+    if let Some(t) = staged_shm {
+        fs::rename(t, &dest_shm)?;
     }
 
     info!(
@@ -175,12 +231,37 @@ fn restore_temp_path_for(destination: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("chorrosion-{prefix}-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("temp test directory should be created");
         dir
+    }
+
+    #[test]
+    fn test_two_rapid_backups_produce_distinct_paths() {
+        let temp_root = unique_temp_dir("backup-unique");
+        let db_path = temp_root.join("data").join("chorrosion.db");
+        fs::create_dir_all(db_path.parent().expect("parent should exist"))
+            .expect("data directory should be created");
+        fs::write(&db_path, b"database-state").expect("db file should be written");
+
+        let backup_dir = temp_root.join("backups");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
+
+        let path1 =
+            create_sqlite_backup(&db_url, &backup_dir).expect("first backup should succeed");
+        let path2 =
+            create_sqlite_backup(&db_url, &backup_dir).expect("second backup should succeed");
+
+        assert_ne!(
+            path1, path2,
+            "consecutive backups should have distinct file paths"
+        );
+        assert!(path1.exists(), "first backup file should exist");
+        assert!(path2.exists(), "second backup file should exist");
+
+        let _ = fs::remove_dir_all(&temp_root);
     }
 
     #[test]
