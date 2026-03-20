@@ -53,7 +53,7 @@ impl CoverArtFallbackClient {
                 CoverArtProvider::CoverArtArchive,
             ],
             1,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             5_000,
         )
     }
@@ -69,13 +69,18 @@ impl CoverArtFallbackClient {
             cover_art_archive_base_url,
             provider_order,
             max_concurrent_requests,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             5_000,
         )
     }
 
     /// Creates a `CoverArtFallbackClient` with custom provider order, concurrency limit, and
     /// explicit cache capacity.
+    ///
+    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied to the
+    /// Cover Art Archive HTTP client. Use
+    /// [`CoverArtFallbackClient::new_with_order_limits_timeout_and_capacity`] to supply an
+    /// explicit timeout instead.
     pub fn new_with_order_limits_and_capacity(
         fanart_client: Option<FanartTvClient>,
         cover_art_archive_base_url: Option<String>,
@@ -88,7 +93,7 @@ impl CoverArtFallbackClient {
             cover_art_archive_base_url,
             provider_order,
             max_concurrent_requests,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             cache_capacity,
         )
     }

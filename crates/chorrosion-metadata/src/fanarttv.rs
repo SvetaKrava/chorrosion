@@ -45,13 +45,17 @@ impl FanartTvClient {
             max_concurrent_requests,
             5_000,
             5_000,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
 
     /// Creates a `FanartTvClient` with concurrency limits, explicit cache capacities, and optional
     /// base URL.
+    ///
+    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// Use [`FanartTvClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
+    /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(
         api_key: String,
         client_key: Option<String>,
@@ -66,7 +70,7 @@ impl FanartTvClient {
             max_concurrent_requests,
             artist_cache_capacity,
             album_cache_capacity,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
