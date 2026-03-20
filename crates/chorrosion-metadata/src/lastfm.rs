@@ -9,6 +9,8 @@ use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument};
 
+use crate::http_retry;
+
 /// Struct representing the Last.fm API client.
 pub struct LastFmClient {
     api_key: String,
@@ -98,7 +100,8 @@ impl LastFmClient {
 
         debug!(target: "lastfm", url = %url, "Fetching artist metadata");
 
-        let response = self.client.get(url).query(&params).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.client.get(url).query(&params), "lastfm").await?;
         let status = response.status();
         let response_body = response.text().await?;
         let value = parse_lastfm_body(status, &response_body)?;
@@ -136,7 +139,8 @@ impl LastFmClient {
 
         debug!(target: "lastfm", url = %url, "Fetching album metadata");
 
-        let response = self.client.get(url).query(&params).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.client.get(url).query(&params), "lastfm").await?;
         let status = response.status();
         let response_body = response.text().await?;
         let value = parse_lastfm_body(status, &response_body)?;

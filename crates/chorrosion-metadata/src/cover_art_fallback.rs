@@ -8,6 +8,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, instrument, warn};
 
 use crate::fanarttv::FanartTvClient;
+use crate::http_retry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverArtProvider {
@@ -214,7 +215,8 @@ impl CoverArtArchiveClient {
         let url = format!("{}/release-group/{}", self.base_url, release_group_mbid);
         debug!(target: "cover-art", url = %url, "fetching cover art from Cover Art Archive");
 
-        let response = self.client.get(url).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.client.get(url.clone()), "cover-art").await?;
         let status = response.status();
 
         if status == StatusCode::NOT_FOUND {

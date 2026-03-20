@@ -7,6 +7,8 @@ use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument};
 
+use crate::http_retry;
+
 pub struct FanartTvClient {
     api_key: String,
     client_key: Option<String>,
@@ -88,7 +90,8 @@ impl FanartTvClient {
         let url = format!("{}/music/{}", self.base_url, artist_mbid);
         debug!(target: "fanarttv", url = %url, "fetching artist artwork");
 
-        let response = self.request(self.client.get(&url)).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.request(self.client.get(&url)), "fanarttv").await?;
 
         let status = response.status();
         let body = response.text().await?;
@@ -117,7 +120,8 @@ impl FanartTvClient {
         let url = format!("{}/music/albums/{}", self.base_url, release_group_mbid);
         debug!(target: "fanarttv", url = %url, "fetching album artwork");
 
-        let response = self.request(self.client.get(&url)).send().await?;
+        let response =
+            http_retry::send_with_retry(|| self.request(self.client.get(&url)), "fanarttv").await?;
 
         let status = response.status();
         let body = response.text().await?;
