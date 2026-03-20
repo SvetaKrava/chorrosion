@@ -398,7 +398,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Comprehensive error handling
   - [x] Retry logic for external APIs (Issue #288) ✓
   - [x] Timeout handling (Issue #291) ✓
-  - [ ] Rate limit handling
+  - [x] Rate limit handling (Issue #294) ✓
 - [ ] Data integrity
   - [ ] Database constraints
   - [ ] Transaction management
