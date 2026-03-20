@@ -402,7 +402,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Data integrity
   - [x] Database constraints (Issue #297) ✓
   - [x] Transaction management (Issue #300) ✓
-  - [ ] Backup/restore functionality
+  - [x] Backup/restore functionality (Issue #302) ✓
 - [ ] Monitoring and observability
   - [ ] Metrics collection (Prometheus)
   - [ ] Health checks
