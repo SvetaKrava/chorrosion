@@ -88,7 +88,6 @@ pub async fn init_database(config: &AppConfig) -> Result<SqlitePool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chorrosion_config::AppConfig;
 
     #[test]
     fn test_path_conversion_windows_style() {

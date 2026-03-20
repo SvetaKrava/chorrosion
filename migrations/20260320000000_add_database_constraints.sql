@@ -17,6 +17,34 @@ ON albums(musicbrainz_release_id)
 WHERE musicbrainz_release_id IS NOT NULL;
 
 -- A file path should map to a single tracked file record.
+-- Drop the old non-unique index first to avoid redundancy.
+DROP INDEX IF EXISTS idx_track_files_path;
+
+-- Preflight check: abort with a clear message if any duplicate paths exist
+-- before we attempt to create the UNIQUE index on track_files(path).
+-- SQLite's RAISE() requires a string literal (not an expression), so we check
+-- for duplicates via a conditional INSERT and use a hardcoded message.
+DROP TABLE IF EXISTS _migration_guard;
+DROP TRIGGER IF EXISTS _migration_abort_on_dup_paths;
+
+CREATE TABLE _migration_guard (ok INTEGER NOT NULL);
+
+CREATE TRIGGER _migration_abort_on_dup_paths
+BEFORE INSERT ON _migration_guard
+WHEN NEW.ok = 0
+BEGIN
+  SELECT RAISE(ABORT, 'Duplicate track_files.path values found; resolve duplicates before this migration can create ux_track_files_path');
+END;
+
+-- Inserts a 0 (failing) row only when duplicates exist, triggering the ABORT above.
+INSERT INTO _migration_guard (ok)
+SELECT 0 WHERE EXISTS (
+  SELECT 1 FROM track_files GROUP BY path HAVING COUNT(*) > 1
+);
+
+DROP TRIGGER IF EXISTS _migration_abort_on_dup_paths;
+DROP TABLE IF EXISTS _migration_guard;
+
 CREATE UNIQUE INDEX IF NOT EXISTS ux_track_files_path ON track_files(path);
 
 -- Prevent self-referential artist relationships.
