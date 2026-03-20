@@ -503,6 +503,8 @@ dependencies = [
 name = "chorrosion-metadata"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "http 1.4.0",
  "moka",
  "rand 0.8.5",
  "reqwest",

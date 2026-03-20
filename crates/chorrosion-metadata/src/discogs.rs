@@ -333,18 +333,25 @@ impl DiscogsClient {
                     let status = response.status();
                     if http_retry::should_retry_status(status) && attempt < http_retry::MAX_ATTEMPTS
                     {
+                        let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                            http_retry::retry_after_delay(&response)
+                                .unwrap_or_else(|| http_retry::backoff_for_attempt(attempt))
+                        } else {
+                            http_retry::backoff_for_attempt(attempt)
+                        };
                         warn!(
                             target: "discogs",
                             attempt,
                             max_attempts = http_retry::MAX_ATTEMPTS,
                             status = %status,
+                            wait_ms = wait.as_millis(),
                             "transient HTTP status received, retrying request"
                         );
                         // Drain the response body to allow connection reuse; errors are non-critical.
                         let _ = response.bytes().await;
                         // Release the permit before sleeping so other callers are not blocked.
                         drop(permit);
-                        sleep(http_retry::backoff_for_attempt(attempt)).await;
+                        sleep(wait).await;
                         attempt += 1;
                         continue;
                     }
