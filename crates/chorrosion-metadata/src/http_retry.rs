@@ -71,7 +71,7 @@ where
 ///
 /// Returns `None` when the header is absent, non-UTF-8, non-numeric, or zero.
 /// The returned duration is capped at [`MAX_RETRY_AFTER_SECS`].
-pub fn retry_after_delay(response: &Response) -> Option<Duration> {
+pub(crate) fn retry_after_delay(response: &Response) -> Option<Duration> {
     let value = response.headers().get(reqwest::header::RETRY_AFTER)?;
     let text = value.to_str().ok()?.trim();
     let secs: u64 = text.parse().ok()?;
