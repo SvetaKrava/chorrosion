@@ -56,7 +56,7 @@ impl LastFmClient {
 
     /// Creates a new Last.fm API client with concurrency limits and explicit cache capacities.
     ///
-    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
     /// Use [`LastFmClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
     /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(

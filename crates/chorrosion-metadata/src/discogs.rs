@@ -96,7 +96,7 @@ impl DiscogsClient {
 
     /// Creates a new Discogs API client with explicit cache capacities.
     ///
-    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
     /// Use [`DiscogsClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
     /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(

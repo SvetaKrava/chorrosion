@@ -53,7 +53,7 @@ impl FanartTvClient {
     /// Creates a `FanartTvClient` with concurrency limits, explicit cache capacities, and optional
     /// base URL.
     ///
-    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
     /// Use [`FanartTvClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
     /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(

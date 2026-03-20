@@ -77,7 +77,7 @@ impl CoverArtFallbackClient {
     /// Creates a `CoverArtFallbackClient` with custom provider order, concurrency limit, and
     /// explicit cache capacity.
     ///
-    /// A default request timeout of [`DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied to the
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied to the
     /// Cover Art Archive HTTP client. Use
     /// [`CoverArtFallbackClient::new_with_order_limits_timeout_and_capacity`] to supply an
     /// explicit timeout instead.

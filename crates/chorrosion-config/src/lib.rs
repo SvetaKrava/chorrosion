@@ -11,9 +11,9 @@ use tracing::info;
 
 /// Default request timeout (in seconds) for external metadata API HTTP clients.
 ///
-/// Shared across all metadata config sections (`LastFmConfig`, `DiscogsConfig`,
-/// `LyricsConfig`, `CoverArtConfig`) so the default never drifts between config defaults
-/// and client-constructor defaults.
+/// Used as the default in all metadata-related config sections (`LastFmConfig`,
+/// `DiscogsConfig`, `LyricsConfig`, `CoverArtConfig`) so the configuration defaults
+/// stay consistent with each other.
 pub const DEFAULT_METADATA_REQUEST_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
