@@ -84,16 +84,21 @@ impl DiscogsClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
-        Self::new_with_limits_cache_and_base_url(
+        Self::new_with_limits_cache_timeout_and_base_url(
             token,
             max_concurrent_requests,
             5_000,
             5_000,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
 
     /// Creates a new Discogs API client with explicit cache capacities.
+    ///
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// Use [`DiscogsClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
+    /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(
         token: Option<String>,
         max_concurrent_requests: usize,
@@ -101,12 +106,33 @@ impl DiscogsClient {
         album_cache_capacity: u64,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_limits_cache_timeout_and_base_url(
+            token,
+            max_concurrent_requests,
+            artist_cache_capacity,
+            album_cache_capacity,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
+            base_url,
+        )
+    }
+
+    /// Creates a new Discogs API client with explicit cache capacities and request timeout.
+    pub fn new_with_limits_cache_timeout_and_base_url(
+        token: Option<String>,
+        max_concurrent_requests: usize,
+        artist_cache_capacity: u64,
+        album_cache_capacity: u64,
+        request_timeout_seconds: u64,
+        base_url: Option<String>,
+    ) -> Self {
+        let timeout = Duration::from_secs(request_timeout_seconds.max(1));
         let client = Client::builder()
             .user_agent(concat!(
                 "chorrosion/",
                 env!("CARGO_PKG_VERSION"),
                 " (+https://github.com/SvetaKrava/chorrosion)"
             ))
+            .timeout(timeout)
             .build()
             .unwrap_or_else(|error| {
                 debug!(
@@ -305,8 +331,7 @@ impl DiscogsClient {
             match build_request().send().await {
                 Ok(response) => {
                     let status = response.status();
-                    if http_retry::should_retry_status(status)
-                        && attempt < http_retry::MAX_ATTEMPTS
+                    if http_retry::should_retry_status(status) && attempt < http_retry::MAX_ATTEMPTS
                     {
                         warn!(
                             target: "discogs",
@@ -326,8 +351,7 @@ impl DiscogsClient {
                     return Ok(response);
                 }
                 Err(error) => {
-                    if http_retry::should_retry_error(&error)
-                        && attempt < http_retry::MAX_ATTEMPTS
+                    if http_retry::should_retry_error(&error) && attempt < http_retry::MAX_ATTEMPTS
                     {
                         warn!(
                             target: "discogs",

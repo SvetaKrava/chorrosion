@@ -270,11 +270,12 @@ impl LastFmMetadataRefreshJob {
             })
             .collect();
 
-        let client = LastFmClient::new_with_limits_cache_and_base_url(
+        let client = LastFmClient::new_with_limits_cache_timeout_and_base_url(
             api_key.to_string(),
             config.max_concurrent_requests.max(1),
             cache_config.metadata_artist_max_capacity,
             cache_config.metadata_album_max_capacity,
+            config.request_timeout_seconds,
             config.base_url.clone(),
         );
 
@@ -446,11 +447,12 @@ impl DiscogsMetadataRefreshJob {
             return None;
         }
 
-        let client = DiscogsClient::new_with_limits_cache_and_base_url(
+        let client = DiscogsClient::new_with_limits_cache_timeout_and_base_url(
             config.token.clone(),
             config.max_concurrent_requests.max(1),
             cache_config.metadata_artist_max_capacity,
             cache_config.metadata_album_max_capacity,
+            config.request_timeout_seconds,
             config.base_url.clone(),
         );
 
@@ -1032,6 +1034,7 @@ mod tests {
             api_key: Some("test-api-key".to_string()),
             base_url: Some("http://127.0.0.1:3030/2.0".to_string()),
             max_concurrent_requests: 2,
+            request_timeout_seconds: 15,
             seed_artists: vec!["  Daft Punk  ".to_string()],
             seed_albums: vec![LastFmAlbumSeed {
                 artist: "Nirvana".to_string(),
@@ -1049,6 +1052,7 @@ mod tests {
             api_key: Some("test-api-key".to_string()),
             base_url: Some("http://127.0.0.1:3030/2.0".to_string()),
             max_concurrent_requests: 1,
+            request_timeout_seconds: 15,
             seed_artists: Vec::new(),
             seed_albums: Vec::new(),
         };
@@ -1127,6 +1131,7 @@ mod tests {
             token: Some("discogs-token".to_string()),
             base_url: Some("http://127.0.0.1:3030".to_string()),
             max_concurrent_requests: 2,
+            request_timeout_seconds: 15,
             seed_artists: vec!["  Massive Attack  ".to_string()],
             seed_albums: Vec::new(),
         };
@@ -1143,6 +1148,7 @@ mod tests {
             token: Some("discogs-token".to_string()),
             base_url: Some("http://127.0.0.1:3030".to_string()),
             max_concurrent_requests: 1,
+            request_timeout_seconds: 15,
             seed_artists: vec!["   ".to_string()],
             seed_albums: vec![DiscogsAlbumSeed {
                 artist: "".to_string(),

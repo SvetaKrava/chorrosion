@@ -3,6 +3,7 @@ use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{self, Value};
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument};
@@ -38,18 +39,23 @@ impl FanartTvClient {
         max_concurrent_requests: usize,
         base_url: Option<String>,
     ) -> Self {
-        Self::new_with_limits_cache_and_base_url(
+        Self::new_with_limits_cache_timeout_and_base_url(
             api_key,
             client_key,
             max_concurrent_requests,
             5_000,
             5_000,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
 
     /// Creates a `FanartTvClient` with concurrency limits, explicit cache capacities, and optional
     /// base URL.
+    ///
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// Use [`FanartTvClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
+    /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(
         api_key: String,
         client_key: Option<String>,
@@ -58,10 +64,43 @@ impl FanartTvClient {
         album_cache_capacity: u64,
         base_url: Option<String>,
     ) -> Self {
+        Self::new_with_limits_cache_timeout_and_base_url(
+            api_key,
+            client_key,
+            max_concurrent_requests,
+            artist_cache_capacity,
+            album_cache_capacity,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
+            base_url,
+        )
+    }
+
+    /// Creates a `FanartTvClient` with concurrency limits, explicit cache capacities,
+    /// explicit request timeout, and optional base URL.
+    pub fn new_with_limits_cache_timeout_and_base_url(
+        api_key: String,
+        client_key: Option<String>,
+        max_concurrent_requests: usize,
+        artist_cache_capacity: u64,
+        album_cache_capacity: u64,
+        request_timeout_seconds: u64,
+        base_url: Option<String>,
+    ) -> Self {
+        let timeout = Duration::from_secs(request_timeout_seconds.max(1));
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_else(|error| {
+                debug!(
+                    ?error,
+                    "Failed to build Fanart.tv HTTP client with timeout, falling back to default client"
+                );
+                Client::new()
+            });
         Self {
             api_key,
             client_key,
-            client: Client::new(),
+            client,
             rate_limiter: Arc::new(Semaphore::new(max_concurrent_requests.max(1))),
             cache_artist: Cache::new(artist_cache_capacity.max(1)),
             cache_album: Cache::new(album_cache_capacity.max(1)),
