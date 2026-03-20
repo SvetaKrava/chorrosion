@@ -401,7 +401,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Rate limit handling (Issue #294) ✓
 - [ ] Data integrity
   - [x] Database constraints (Issue #297) ✓
-  - [ ] Transaction management
+    - [x] Transaction management (Issue #300) ✓
   - [ ] Backup/restore functionality
 - [ ] Monitoring and observability
   - [ ] Metrics collection (Prometheus)

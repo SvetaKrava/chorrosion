@@ -3,9 +3,11 @@ pub mod cache;
 pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
+pub mod transaction;
 
 pub use cache::{CachedResponse, ResponseCache};
 pub use profiler::QueryProfiler;
+pub use transaction::run_in_transaction;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
