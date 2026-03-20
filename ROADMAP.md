@@ -400,7 +400,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Timeout handling (Issue #291) ✓
   - [x] Rate limit handling (Issue #294) ✓
 - [ ] Data integrity
-  - [ ] Database constraints
+  - [x] Database constraints (Issue #297) ✓
   - [ ] Transaction management
   - [ ] Backup/restore functionality
 - [ ] Monitoring and observability

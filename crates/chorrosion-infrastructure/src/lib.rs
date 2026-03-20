@@ -59,6 +59,14 @@ pub async fn create_sqlite_pool(config: &AppConfig) -> Result<SqlitePool> {
 
     let pool = SqlitePoolOptions::new()
         .max_connections(config.database.pool_max_size)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("PRAGMA foreign_keys = ON")
+                    .execute(&mut *conn)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&db_url)
         .await?;
 
@@ -80,6 +88,7 @@ pub async fn init_database(config: &AppConfig) -> Result<SqlitePool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chorrosion_config::AppConfig;
 
     #[test]
     fn test_path_conversion_windows_style() {
@@ -112,5 +121,63 @@ mod tests {
         let parent = path.parent();
         assert!(parent.is_some());
         assert_eq!(parent.unwrap(), Path::new("data"));
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_foreign_keys_are_enabled_per_connection() {
+        let mut config = AppConfig::default();
+        config.database.url = "sqlite://:memory:".to_string();
+        // Keep a single connection for deterministic in-memory behavior.
+        config.database.pool_max_size = 1;
+
+        let pool = init_database(&config)
+            .await
+            .expect("init_database should succeed");
+
+        let foreign_keys_enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .expect("PRAGMA foreign_keys should be queryable");
+        assert_eq!(foreign_keys_enabled, 1, "foreign_keys pragma should be ON");
+    }
+
+    #[tokio::test]
+    async fn test_db_constraints_reject_invalid_status_and_fk_violations() {
+        let mut config = AppConfig::default();
+        config.database.url = "sqlite://:memory:".to_string();
+        config.database.pool_max_size = 1;
+
+        let pool = init_database(&config)
+            .await
+            .expect("init_database should succeed");
+
+        let bad_artist =
+            sqlx::query("INSERT INTO artists (id, name, status, monitored) VALUES (?, ?, ?, ?)")
+                .bind("artist-1")
+                .bind("Artist")
+                .bind("not-a-real-status")
+                .bind(true)
+                .execute(&pool)
+                .await;
+        assert!(
+            bad_artist.is_err(),
+            "invalid artist status should be rejected"
+        );
+
+        let fk_violation = sqlx::query(
+            "INSERT INTO albums (id, artist_id, title, status, monitored) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("album-1")
+        .bind("missing-artist")
+        .bind("Album")
+        .bind("wanted")
+        .bind(true)
+        .execute(&pool)
+        .await;
+
+        assert!(
+            fk_violation.is_err(),
+            "album insert with missing artist_id should fail FK checks"
+        );
     }
 }
