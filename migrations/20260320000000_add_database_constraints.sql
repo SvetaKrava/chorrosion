@@ -17,6 +17,8 @@ ON albums(musicbrainz_release_id)
 WHERE musicbrainz_release_id IS NOT NULL;
 
 -- A file path should map to a single tracked file record.
+-- Drop the old non-unique index first to avoid redundancy.
+DROP INDEX IF EXISTS idx_track_files_path;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_track_files_path ON track_files(path);
 
 -- Prevent self-referential artist relationships.
