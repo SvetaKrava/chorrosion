@@ -7,18 +7,19 @@ use chorrosion_metadata::http_retry;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Helper: start a mock server and return its URI and the server itself so that
-/// expectations are checked on drop.
+/// Helper: start a mock server and return it so that expectations are checked on drop.
 async fn mock_server() -> MockServer {
     MockServer::start().await
 }
 
-/// Verify that `send_with_retry` attempts the full three retries when the server
-/// returns 429 with a `Retry-After: 1` header and finally returns 200.
+/// Verify that `send_with_retry` performs up to three attempts (initial request
+/// plus two retries) when the server returns 429 with a `Retry-After: 1` header
+/// for the first two requests and finally returns 200 on the third.
 ///
-/// The test serialises by using three separate Mocks with `expect(1)` each —
-/// wiremock evaluates them in registration order.
-#[tokio::test]
+/// The test uses two Mocks: the first serves 429 twice (with `Retry-After: 1`)
+/// and the second serves a final 200; wiremock evaluates them in registration
+/// order.
+#[tokio::test(start_paused = true)]
 async fn send_with_retry_honours_retry_after_header() {
     let server = mock_server().await;
 
@@ -50,7 +51,7 @@ async fn send_with_retry_honours_retry_after_header() {
 
 /// When the server returns 429 with a zero `Retry-After` (treated as absent),
 /// `send_with_retry` should still retry using exponential backoff and succeed.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn send_with_retry_falls_back_to_backoff_when_retry_after_is_zero() {
     let server = mock_server().await;
 
@@ -80,7 +81,7 @@ async fn send_with_retry_falls_back_to_backoff_when_retry_after_is_zero() {
 
 /// When the maximum retry attempts are exhausted (three 429 responses) the
 /// function returns the last 429 response without panicking.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn send_with_retry_returns_last_response_after_max_attempts() {
     let server = mock_server().await;
 
