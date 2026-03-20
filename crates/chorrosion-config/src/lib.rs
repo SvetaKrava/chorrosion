@@ -9,6 +9,13 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+/// Default request timeout (in seconds) for external metadata API HTTP clients.
+///
+/// Used as the default in all metadata-related config sections (`LastFmConfig`,
+/// `DiscogsConfig`, `LyricsConfig`, `CoverArtConfig`) so the configuration defaults
+/// stay consistent with each other.
+pub const DEFAULT_METADATA_REQUEST_TIMEOUT_SECS: u64 = 15;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     pub url: String,
@@ -119,7 +126,7 @@ impl Default for LastFmConfig {
             api_key: None,
             base_url: None,
             max_concurrent_requests: 1,
-            request_timeout_seconds: 15,
+            request_timeout_seconds: DEFAULT_METADATA_REQUEST_TIMEOUT_SECS,
             seed_artists: Vec::new(),
             seed_albums: Vec::new(),
         }
@@ -142,7 +149,7 @@ impl Default for DiscogsConfig {
             token: None,
             base_url: None,
             max_concurrent_requests: 1,
-            request_timeout_seconds: 15,
+            request_timeout_seconds: DEFAULT_METADATA_REQUEST_TIMEOUT_SECS,
             seed_artists: Vec::new(),
             seed_albums: Vec::new(),
         }
@@ -162,7 +169,7 @@ impl Default for LyricsConfig {
         Self {
             base_url: None,
             max_concurrent_requests: 1,
-            request_timeout_seconds: 15,
+            request_timeout_seconds: DEFAULT_METADATA_REQUEST_TIMEOUT_SECS,
             seed_tracks: Vec::new(),
         }
     }
@@ -187,7 +194,7 @@ impl Default for CoverArtConfig {
             fanart_base_url: None,
             cover_art_archive_base_url: None,
             max_concurrent_requests: 1,
-            request_timeout_seconds: 15,
+            request_timeout_seconds: DEFAULT_METADATA_REQUEST_TIMEOUT_SECS,
             provider_order: vec!["fanarttv".to_string(), "coverartarchive".to_string()],
         }
     }

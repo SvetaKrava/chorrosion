@@ -49,12 +49,16 @@ impl LastFmClient {
             max_concurrent_requests,
             5_000,
             5_000,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
 
     /// Creates a new Last.fm API client with concurrency limits and explicit cache capacities.
+    ///
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// Use [`LastFmClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
+    /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(
         api_key: String,
         max_concurrent_requests: usize,
@@ -67,7 +71,7 @@ impl LastFmClient {
             max_concurrent_requests,
             artist_cache_capacity,
             album_cache_capacity,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }

@@ -43,13 +43,17 @@ impl LyricsClient {
         Self::new_with_limits_cache_timeout_and_base_url(
             max_concurrent_requests,
             5_000,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
 
     /// Creates a `LyricsClient` with a custom concurrency limit, explicit cache capacity, and
     /// optional base URL.
+    ///
+    /// A default request timeout of [`crate::DEFAULT_REQUEST_TIMEOUT_SECS`] seconds is applied.
+    /// Use [`LyricsClient::new_with_limits_cache_timeout_and_base_url`] to supply an explicit
+    /// timeout instead.
     pub fn new_with_limits_cache_and_base_url(
         max_concurrent_requests: usize,
         cache_capacity: u64,
@@ -58,7 +62,7 @@ impl LyricsClient {
         Self::new_with_limits_cache_timeout_and_base_url(
             max_concurrent_requests,
             cache_capacity,
-            15,
+            crate::DEFAULT_REQUEST_TIMEOUT_SECS,
             base_url,
         )
     }
