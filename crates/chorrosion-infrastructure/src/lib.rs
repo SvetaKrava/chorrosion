@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pub mod backup_restore;
 pub mod cache;
 pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
 pub mod transaction;
 
+pub use backup_restore::{create_sqlite_backup, restore_sqlite_backup};
 pub use cache::{CachedResponse, ResponseCache};
 pub use profiler::QueryProfiler;
 pub use transaction::run_in_transaction;
