@@ -103,6 +103,7 @@ use handlers::wanted::{
     __path_trigger_wanted_album_search,
 };
 use middleware::auth::auth_middleware;
+use middleware::metrics::{metrics_handler, metrics_middleware};
 use middleware::response_cache::response_cache_middleware;
 use serde::Serialize;
 use tracing::info;
@@ -164,10 +165,25 @@ async fn health() -> Json<HealthResponse> {
     health_handler().await
 }
 
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    responses(
+        (status = 200, description = "Prometheus metrics in text exposition format", body = String)
+    ),
+    security(()),
+    tag = "system"
+)]
+#[allow(dead_code)]
+async fn metrics() -> axum::response::Response {
+    metrics_handler().await
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
         health,
+        metrics,
         list_api_keys,
         create_api_key,
         delete_api_key,
@@ -438,7 +454,9 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health_handler))
+        .route("/metrics", get(metrics_handler))
         .nest(API_V1_BASE, api_v1)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
+        .layer(axum_middleware::from_fn(metrics_middleware))
         .with_state(state)
 }
