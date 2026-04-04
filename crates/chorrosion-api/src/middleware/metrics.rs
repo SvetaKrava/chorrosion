@@ -93,17 +93,16 @@ pub async fn metrics_handler() -> Response {
 
 pub async fn metrics_middleware(req: Request, next: Next) -> Response {
     let method = req.method().clone();
-    let raw_path = req.uri().path().to_string();
-    let matched_path = req
+    let path = req
         .extensions()
         .get::<MatchedPath>()
         .map(MatchedPath::as_str)
-        .map(str::to_owned);
+        .unwrap_or_else(|| req.uri().path())
+        .to_owned();
     let started_at = Instant::now();
 
     let response = next.run(req).await;
     let status = response.status();
-    let path = matched_path.unwrap_or(raw_path);
     let duration_seconds = started_at.elapsed().as_secs_f64();
 
     metrics().observe(&method, &path, status, duration_seconds);
@@ -144,7 +143,7 @@ mod tests {
     async fn middleware_records_metrics_for_matched_route() {
         let app = Router::new()
             .route("/metrics-test", get(ok_handler))
-            .layer(axum::middleware::from_fn(metrics_middleware));
+            .route_layer(axum::middleware::from_fn(metrics_middleware));
 
         let response = app
             .oneshot(
@@ -170,6 +169,47 @@ mod tests {
         ));
         assert!(
             text.contains("chorrosion_http_request_duration_seconds_bucket{method=\"GET\",path=\"/metrics-test\",status=\"200\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn middleware_uses_matched_path_template_for_parameterized_routes() {
+        async fn item_handler() -> &'static str {
+            "item"
+        }
+
+        let app = Router::new()
+            .route("/items/:id", get(item_handler))
+            .route_layer(axum::middleware::from_fn(metrics_middleware));
+
+        // Hit a concrete URL; the label must use the template, not the concrete value.
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/items/42")
+                    .method("GET")
+                    .body(axum::body::Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let metrics_response = metrics_handler().await;
+        let body = to_bytes(metrics_response.into_body(), usize::MAX)
+            .await
+            .expect("metrics body should be readable");
+        let text = String::from_utf8(body.to_vec()).expect("metrics body should be utf-8");
+
+        // The label path must be the route template ("/items/:id"), not the concrete path ("/items/42").
+        assert!(
+            text.contains("path=\"/items/:id\""),
+            "expected templated path label but got:\n{text}"
+        );
+        assert!(
+            !text.contains("path=\"/items/42\""),
+            "concrete path must not appear as a label:\n{text}"
         );
     }
 }

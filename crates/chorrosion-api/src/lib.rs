@@ -457,6 +457,6 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics_handler))
         .nest(API_V1_BASE, api_v1)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
-        .layer(axum_middleware::from_fn(metrics_middleware))
+        .route_layer(axum_middleware::from_fn(metrics_middleware))
         .with_state(state)
 }
