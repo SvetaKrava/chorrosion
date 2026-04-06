@@ -404,7 +404,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Transaction management (Issue #300) ✓
   - [x] Backup/restore functionality (Issue #302) ✓
 - [ ] Monitoring and observability
-  - [ ] Metrics collection (Prometheus)
+  - [x] Metrics collection (Prometheus) (Issue #306) ✓
   - [ ] Health checks
   - [ ] Performance tracing
 
