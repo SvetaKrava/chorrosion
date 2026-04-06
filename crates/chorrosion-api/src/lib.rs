@@ -9,11 +9,13 @@ pub const API_V1_BASE: &str = "/api/v1";
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use axum::{
+    http::StatusCode,
     middleware as axum_middleware,
     routing::{get, post},
     Json, Router,
 };
 use chorrosion_application::AppState;
+use chorrosion_infrastructure::repositories::Repository;
 use handlers::activity::{
     get_activity_history, get_activity_processing, get_activity_queue, ActivityItemResponse,
     ActivityListResponse, __path_get_activity_history, __path_get_activity_processing,
@@ -106,7 +108,7 @@ use middleware::auth::auth_middleware;
 use middleware::metrics::{metrics_handler, metrics_middleware};
 use middleware::response_cache::response_cache_middleware;
 use serde::Serialize;
-use tracing::info;
+use tracing::{info, warn};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -143,26 +145,62 @@ impl utoipa::Modify for SecurityAddon {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
-struct HealthResponse {
+struct HealthCheckDependency {
     status: &'static str,
+    message: Option<String>,
 }
 
-async fn health_handler() -> Json<HealthResponse> {
-    Json(HealthResponse { status: "ok" })
+#[derive(Serialize, utoipa::ToSchema)]
+struct HealthResponse {
+    status: &'static str,
+    database: HealthCheckDependency,
+}
+
+async fn health_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> (StatusCode, Json<HealthResponse>) {
+    match state.artist_repository.list(1, 0).await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(HealthResponse {
+                status: "ok",
+                database: HealthCheckDependency {
+                    status: "ok",
+                    message: None,
+                },
+            }),
+        ),
+        Err(error) => {
+            warn!(target: "api", error = %error, "health check database probe failed");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(HealthResponse {
+                    status: "degraded",
+                    database: HealthCheckDependency {
+                        status: "error",
+                        message: Some("database probe failed".to_string()),
+                    },
+                }),
+            )
+        }
+    }
 }
 
 #[utoipa::path(
     get,
     path = "/health",
     responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse)
+        (status = 200, description = "Service is healthy", body = HealthResponse),
+        (status = 503, description = "Service is degraded", body = HealthResponse)
     ),
     security(()),
     tag = "system"
 )]
 #[allow(dead_code)]
-async fn health() -> Json<HealthResponse> {
-    health_handler().await
+async fn health(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> (StatusCode, Json<HealthResponse>) {
+    health_handler(axum::extract::State(state)).await
 }
 
 #[utoipa::path(
@@ -459,4 +497,76 @@ pub fn router(state: AppState) -> Router {
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
         .route_layer(axum_middleware::from_fn(metrics_middleware))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use chorrosion_config::AppConfig;
+    use chorrosion_infrastructure::{
+        sqlite_adapters::{
+            SqliteAlbumRepository, SqliteArtistRepository,
+            SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
+            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+        },
+        ResponseCache,
+    };
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
+
+    fn make_state_with_pool(pool: SqlitePool) -> AppState {
+        AppState::new(
+            AppConfig::default(),
+            Arc::new(SqliteArtistRepository::new(pool.clone())),
+            Arc::new(SqliteAlbumRepository::new(pool.clone())),
+            Arc::new(SqliteTrackRepository::new(pool.clone())),
+            Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
+            Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
+            Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+            ResponseCache::new(100, 60),
+        )
+    }
+
+    #[tokio::test]
+    async fn health_returns_ok_when_database_is_ready() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("migrations should run");
+
+        let state = make_state_with_pool(pool);
+        let (status, Json(body)) = health_handler(axum::extract::State(state)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.status, "ok");
+        assert_eq!(body.database.status, "ok");
+        assert!(body.database.message.is_none());
+    }
+
+    #[tokio::test]
+    async fn health_returns_degraded_when_database_probe_fails() {
+        // Intentionally skip migrations to force the repository probe to fail.
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        let state = make_state_with_pool(pool);
+        let (status, Json(body)) = health_handler(axum::extract::State(state)).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body.status, "degraded");
+        assert_eq!(body.database.status, "error");
+        assert_eq!(
+            body.database.message.as_deref(),
+            Some("database probe failed")
+        );
+    }
 }
