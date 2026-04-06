@@ -159,7 +159,7 @@ struct HealthResponse {
 async fn health_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> (StatusCode, Json<HealthResponse>) {
-    match state.artist_repository.list(1, 0).await {
+    match state.artist_repository.list(0, 0).await {
         Ok(_) => (
             StatusCode::OK,
             Json(HealthResponse {
