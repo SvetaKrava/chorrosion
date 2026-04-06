@@ -122,6 +122,24 @@ mod tests {
 
     #[tokio::test]
     async fn metrics_endpoint_returns_prometheus_text() {
+        // Ensure at least one observation exists before scraping; the Prometheus
+        // text encoder only emits metric families that have at least one sample,
+        // so the test must not rely on other (potentially parallel) tests having
+        // populated the global registry first.
+        let setup_app = Router::new()
+            .route("/probe", get(ok_handler))
+            .route_layer(axum::middleware::from_fn(metrics_middleware));
+        setup_app
+            .oneshot(
+                Request::builder()
+                    .uri("/probe")
+                    .method("GET")
+                    .body(axum::body::Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
         let response = metrics_handler().await;
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         let content_type = response
