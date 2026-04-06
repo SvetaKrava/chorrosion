@@ -405,7 +405,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Backup/restore functionality (Issue #302) ✓
 - [ ] Monitoring and observability
   - [x] Metrics collection (Prometheus) (Issue #306) ✓
-  - [ ] Health checks
+  - [x] Health checks (Issue #308) ✓
   - [ ] Performance tracing
 
 ### 8.3 Testing
