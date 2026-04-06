@@ -406,7 +406,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Monitoring and observability
   - [x] Metrics collection (Prometheus) (Issue #306) ✓
   - [x] Health checks (Issue #308) ✓
-  - [ ] Performance tracing
+  - [x] Performance tracing (Issue #310) ✓
 
 ### 8.3 Testing
 

@@ -2,3 +2,4 @@
 pub mod auth;
 pub mod metrics;
 pub mod response_cache;
+pub mod tracing;
