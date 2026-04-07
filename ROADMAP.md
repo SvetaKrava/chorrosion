@@ -416,7 +416,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] API endpoint tests (Issue #312) ✓
 - [ ] Integration tests
   - [x] Database integration tests (Issue #318) ✓
-  - [ ] External API mock tests
+  - [x] External API mock tests (Issue #320) ✓
 - [ ] End-to-end tests
   - [ ] Full workflow tests
   - [ ] Performance benchmarks
