@@ -87,8 +87,6 @@ mod tests {
     use axum::{
         body::{to_bytes, Body},
         http::{Request, StatusCode},
-        routing::get,
-        Router,
     };
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
@@ -100,6 +98,8 @@ mod tests {
     use std::sync::Arc;
     use tower::util::ServiceExt;
 
+    /// Build a test `AppState` with basic auth configured so that requests can
+    /// be authenticated without touching the global API key store.
     async fn make_test_state() -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
 
@@ -113,8 +113,12 @@ mod tests {
             .await
             .expect("migrations");
 
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+
         AppState::new(
-            AppConfig::default(),
+            config,
             Arc::new(SqliteArtistRepository::new(pool.clone())),
             Arc::new(SqliteAlbumRepository::new(pool.clone())),
             Arc::new(SqliteTrackRepository::new(pool.clone())),
@@ -126,19 +130,17 @@ mod tests {
         )
     }
 
-    fn make_router(state: AppState) -> Router {
-        Router::new()
-            .route("/api/v1/activity/queue", get(get_activity_queue))
-            .route("/api/v1/activity/history", get(get_activity_history))
-            .route("/api/v1/activity/processing", get(get_activity_processing))
-            .with_state(state)
-    }
+    /// Issue a GET through the real router (including `auth_middleware`) with
+    /// `Authorization: Basic user:pass` and assert the placeholder response.
+    async fn assert_empty_activity_response(state: AppState, path: &str) {
+        let app = crate::router(state);
 
-    async fn assert_empty_activity_response(app: Router, path: &str) {
         let response = app
             .oneshot(
                 Request::builder()
                     .uri(path)
+                    // "user:pass" base64-encoded → dXNlcjpwYXNz
+                    .header("Authorization", "Basic dXNlcjpwYXNz")
                     .body(Body::empty())
                     .expect("request should build"),
             )
@@ -159,24 +161,37 @@ mod tests {
     #[tokio::test]
     async fn get_activity_queue_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
-        let app = make_router(state);
-
-        assert_empty_activity_response(app, "/api/v1/activity/queue").await;
+        assert_empty_activity_response(state, "/api/v1/activity/queue").await;
     }
 
     #[tokio::test]
     async fn get_activity_history_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
-        let app = make_router(state);
-
-        assert_empty_activity_response(app, "/api/v1/activity/history").await;
+        assert_empty_activity_response(state, "/api/v1/activity/history").await;
     }
 
     #[tokio::test]
     async fn get_activity_processing_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
-        let app = make_router(state);
+        assert_empty_activity_response(state, "/api/v1/activity/processing").await;
+    }
 
-        assert_empty_activity_response(app, "/api/v1/activity/processing").await;
+    #[tokio::test]
+    async fn activity_endpoints_require_authentication() {
+        let state = make_test_state().await;
+        let app = crate::router(state);
+
+        // Request without any credentials must be rejected.
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activity/queue")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
