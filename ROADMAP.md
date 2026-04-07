@@ -411,7 +411,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 8.3 Testing
 
 - [ ] Unit test coverage
-  - [ ] Repository tests
+  - [x] Repository tests (Issue #316) ✓
   - [x] Business logic tests (Issue #314) ✓
   - [x] API endpoint tests (Issue #312) ✓
 - [ ] Integration tests
