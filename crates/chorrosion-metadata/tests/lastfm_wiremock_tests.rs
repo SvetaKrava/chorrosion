@@ -5,7 +5,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn fetch_artist_metadata_from_wiremock_server() {
+async fn test_fetch_artist_metadata_from_wiremock_server() {
     let server = MockServer::start().await;
 
     let body = serde_json::json!({
@@ -30,6 +30,7 @@ async fn fetch_artist_metadata_from_wiremock_server() {
         .and(query_param("api_key", "test_api_key"))
         .and(query_param("format", "json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -51,7 +52,7 @@ async fn fetch_artist_metadata_from_wiremock_server() {
 }
 
 #[tokio::test]
-async fn fetch_album_metadata_from_wiremock_server() {
+async fn test_fetch_album_metadata_from_wiremock_server() {
     let server = MockServer::start().await;
 
     let body = serde_json::json!({
@@ -76,6 +77,7 @@ async fn fetch_album_metadata_from_wiremock_server() {
         .and(query_param("api_key", "test_api_key"))
         .and(query_param("format", "json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -101,7 +103,7 @@ async fn fetch_album_metadata_from_wiremock_server() {
 }
 
 #[tokio::test]
-async fn fetch_artist_metadata_maps_lastfm_api_error() {
+async fn test_fetch_artist_metadata_maps_lastfm_api_error() {
     let server = MockServer::start().await;
 
     let body = serde_json::json!({
@@ -112,7 +114,11 @@ async fn fetch_artist_metadata_maps_lastfm_api_error() {
     Mock::given(method("GET"))
         .and(path("/2.0/"))
         .and(query_param("method", "artist.getinfo"))
+        .and(query_param("artist", "Missing Artist"))
+        .and(query_param("api_key", "test_api_key"))
+        .and(query_param("format", "json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
         .mount(&server)
         .await;
 
