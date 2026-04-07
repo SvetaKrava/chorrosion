@@ -4,10 +4,11 @@ use std::time::Duration;
 
 const DEFAULT_HTTP_TIMEOUT_SECONDS: u64 = 30;
 
-fn default_user_agent() -> String {
-    format!(
-        "chorrosion/{} (+https://github.com/SvetaKrava/chorrosion)",
-        env!("CARGO_PKG_VERSION")
+fn default_user_agent() -> &'static str {
+    concat!(
+        "chorrosion/",
+        env!("CARGO_PKG_VERSION"),
+        " (+https://github.com/SvetaKrava/chorrosion)"
     )
 }
 
@@ -50,12 +51,19 @@ mod tests {
 
         tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.expect("accept should succeed");
-            let mut buffer = [0_u8; 4096];
-            let read = socket
-                .read(&mut buffer)
-                .await
-                .expect("socket read should succeed");
-            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let mut buffer = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                let read = socket
+                    .read(&mut chunk)
+                    .await
+                    .expect("socket read should succeed");
+                buffer.extend_from_slice(&chunk[..read]);
+                if read == 0 || buffer.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&buffer).to_string();
 
             let _ = tx.send(request);
 
