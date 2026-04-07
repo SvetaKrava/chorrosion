@@ -3546,11 +3546,7 @@ mod tests {
         updated.name = "Indexer One Updated".to_string();
         updated.base_url = "https://indexer-updated.example".to_string();
         updated.enabled = false;
-        let updated = repo.update(updated).await.expect("update indexer");
-
-        assert_eq!(updated.name, "Indexer One Updated");
-        assert_eq!(updated.base_url, "https://indexer-updated.example");
-        assert!(!updated.enabled);
+        repo.update(updated).await.expect("update indexer");
 
         let fetched = repo
             .get_by_id(indexer_id.to_string())
@@ -3558,6 +3554,9 @@ mod tests {
             .expect("get_by_id")
             .expect("indexer exists");
         assert_eq!(fetched.name, "Indexer One Updated");
+        assert_eq!(fetched.base_url, "https://indexer-updated.example");
+        assert!(!fetched.enabled);
+        assert_eq!(fetched.api_key.as_deref(), Some("secret-key"));
 
         let absent = repo
             .get_by_name("Indexer One")
@@ -3631,11 +3630,7 @@ mod tests {
         updated.name = "Transmission Backup".to_string();
         updated.client_type = "transmission".to_string();
         updated.enabled = false;
-        let updated = repo.update(updated).await.expect("update client");
-
-        assert_eq!(updated.name, "Transmission Backup");
-        assert_eq!(updated.client_type, "transmission");
-        assert!(!updated.enabled);
+        repo.update(updated).await.expect("update client");
 
         let fetched = repo
             .get_by_id(client_id.to_string())
@@ -3643,6 +3638,15 @@ mod tests {
             .expect("get_by_id")
             .expect("client exists");
         assert_eq!(fetched.name, "Transmission Backup");
+        assert_eq!(fetched.client_type, "transmission");
+        assert!(!fetched.enabled);
+        assert_eq!(fetched.base_url, "http://localhost:8080");
+        assert_eq!(fetched.username.as_deref(), Some("admin"));
+        assert_eq!(
+            fetched.password_encrypted.as_deref(),
+            Some("not-really-encrypted")
+        );
+        assert_eq!(fetched.category.as_deref(), Some("music"));
 
         let absent = repo
             .get_by_name("qBittorrent Main")
