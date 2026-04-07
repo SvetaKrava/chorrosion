@@ -3513,6 +3513,182 @@ mod tests {
     }
 
     // ========================================================================
+    // Indexer / Download Client Definition repository tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn indexer_definition_crud_and_get_by_name() {
+        let pool = setup_pool().await;
+        let repo = SqliteIndexerDefinitionRepository::new(pool);
+
+        let mut indexer = chorrosion_domain::IndexerDefinition::new(
+            "Indexer One",
+            "https://indexer.example",
+            "torznab",
+        );
+        indexer.api_key = Some("secret-key".to_string());
+        let indexer_id = indexer.id;
+
+        let created = repo.create(indexer.clone()).await.expect("create indexer");
+        assert_eq!(created.id, indexer_id);
+        assert_eq!(created.name, "Indexer One");
+        assert_eq!(created.protocol, "torznab");
+
+        let by_name = repo
+            .get_by_name("Indexer One")
+            .await
+            .expect("get_by_name")
+            .expect("indexer exists");
+        assert_eq!(by_name.id, indexer_id);
+        assert_eq!(by_name.api_key.as_deref(), Some("secret-key"));
+
+        let mut updated = by_name.clone();
+        updated.name = "Indexer One Updated".to_string();
+        updated.base_url = "https://indexer-updated.example".to_string();
+        updated.enabled = false;
+        repo.update(updated).await.expect("update indexer");
+
+        let fetched = repo
+            .get_by_id(indexer_id.to_string())
+            .await
+            .expect("get_by_id")
+            .expect("indexer exists");
+        assert_eq!(fetched.name, "Indexer One Updated");
+        assert_eq!(fetched.base_url, "https://indexer-updated.example");
+        assert!(!fetched.enabled);
+        assert_eq!(fetched.api_key.as_deref(), Some("secret-key"));
+
+        let absent = repo
+            .get_by_name("Indexer One")
+            .await
+            .expect("old name lookup");
+        assert!(absent.is_none());
+
+        repo.delete(indexer_id.to_string())
+            .await
+            .expect("delete indexer");
+        let deleted = repo
+            .get_by_id(indexer_id.to_string())
+            .await
+            .expect("get_by_id after delete");
+        assert!(deleted.is_none());
+    }
+
+    #[tokio::test]
+    async fn indexer_definition_list_ordering_and_pagination() {
+        let pool = setup_pool().await;
+        let repo = SqliteIndexerDefinitionRepository::new(pool);
+
+        for name in ["Zeta", "Alpha", "Bravo"] {
+            let indexer = chorrosion_domain::IndexerDefinition::new(
+                name,
+                format!("https://{}.example", name.to_lowercase()),
+                "torznab",
+            );
+            repo.create(indexer).await.expect("create indexer");
+        }
+
+        let page1 = repo.list(2, 0).await.expect("list page1");
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].name, "Alpha");
+        assert_eq!(page1[1].name, "Bravo");
+
+        let page2 = repo.list(2, 2).await.expect("list page2");
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].name, "Zeta");
+    }
+
+    #[tokio::test]
+    async fn download_client_definition_crud_and_get_by_name() {
+        let pool = setup_pool().await;
+        let repo = SqliteDownloadClientDefinitionRepository::new(pool);
+
+        let mut client = chorrosion_domain::DownloadClientDefinition::new(
+            "qBittorrent Main",
+            "qbittorrent",
+            "http://localhost:8080",
+        );
+        client.username = Some("admin".to_string());
+        client.password_encrypted = Some("not-really-encrypted".to_string());
+        client.category = Some("music".to_string());
+        let client_id = client.id;
+
+        let created = repo.create(client.clone()).await.expect("create client");
+        assert_eq!(created.id, client_id);
+        assert_eq!(created.client_type, "qbittorrent");
+
+        let by_name = repo
+            .get_by_name("qBittorrent Main")
+            .await
+            .expect("get_by_name")
+            .expect("client exists");
+        assert_eq!(by_name.id, client_id);
+        assert_eq!(by_name.username.as_deref(), Some("admin"));
+        assert_eq!(by_name.category.as_deref(), Some("music"));
+
+        let mut updated = by_name.clone();
+        updated.name = "Transmission Backup".to_string();
+        updated.client_type = "transmission".to_string();
+        updated.enabled = false;
+        repo.update(updated).await.expect("update client");
+
+        let fetched = repo
+            .get_by_id(client_id.to_string())
+            .await
+            .expect("get_by_id")
+            .expect("client exists");
+        assert_eq!(fetched.name, "Transmission Backup");
+        assert_eq!(fetched.client_type, "transmission");
+        assert!(!fetched.enabled);
+        assert_eq!(fetched.base_url, "http://localhost:8080");
+        assert_eq!(fetched.username.as_deref(), Some("admin"));
+        assert_eq!(
+            fetched.password_encrypted.as_deref(),
+            Some("not-really-encrypted")
+        );
+        assert_eq!(fetched.category.as_deref(), Some("music"));
+
+        let absent = repo
+            .get_by_name("qBittorrent Main")
+            .await
+            .expect("old name lookup");
+        assert!(absent.is_none());
+
+        repo.delete(client_id.to_string())
+            .await
+            .expect("delete client");
+        let deleted = repo
+            .get_by_id(client_id.to_string())
+            .await
+            .expect("get_by_id after delete");
+        assert!(deleted.is_none());
+    }
+
+    #[tokio::test]
+    async fn download_client_definition_list_ordering_and_pagination() {
+        let pool = setup_pool().await;
+        let repo = SqliteDownloadClientDefinitionRepository::new(pool);
+
+        for name in ["Zeta Client", "Alpha Client", "Bravo Client"] {
+            let client = chorrosion_domain::DownloadClientDefinition::new(
+                name,
+                "qbittorrent",
+                "http://localhost:8080",
+            );
+            repo.create(client).await.expect("create client");
+        }
+
+        let page1 = repo.list(2, 0).await.expect("list page1");
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].name, "Alpha Client");
+        assert_eq!(page1[1].name, "Bravo Client");
+
+        let page2 = repo.list(2, 2).await.expect("list page2");
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].name, "Zeta Client");
+    }
+
+    // ========================================================================
     // TrackFile Repository Tests
     // ========================================================================
 
