@@ -137,7 +137,8 @@ impl JobRegistry {
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
                         elapsed_ms,
                         "job completed successfully"
                     );
@@ -149,7 +150,8 @@ impl JobRegistry {
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
                         elapsed_ms,
                         %error,
                         retry,
@@ -180,7 +182,8 @@ impl JobRegistry {
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
                         elapsed_ms,
                         error = %err,
                         "job execution error"

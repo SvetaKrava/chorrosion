@@ -174,8 +174,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn middleware_works_with_zero_threshold() {
-        // threshold_ms = 0 disables slow-request warnings; request must still complete.
+    async fn middleware_completes_normally_when_threshold_disabled() {
+        // threshold_ms = 0 disables slow-request warnings; verify the request
+        // still completes and the response passes through unchanged.
         let mut config = AppConfig::default();
         config.telemetry.slow_request_threshold_ms = 0;
 
