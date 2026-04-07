@@ -2,6 +2,7 @@
 use crate::job::{Job, JobContext, JobResult};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{RwLock, Semaphore};
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
@@ -128,23 +129,30 @@ impl JobRegistry {
                 "executing job"
             );
 
+            let attempt_start = Instant::now();
             match job.execute(ctx.clone()).await {
                 Ok(JobResult::Success) => {
+                    let elapsed_ms = attempt_start.elapsed().as_millis() as u64;
                     info!(
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
+                        elapsed_ms,
                         "job completed successfully"
                     );
                     break;
                 }
                 Ok(JobResult::Failure { error, retry }) => {
+                    let elapsed_ms = attempt_start.elapsed().as_millis() as u64;
                     error!(
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
+                        elapsed_ms,
                         %error,
                         retry,
                         "job failed"
@@ -169,11 +177,14 @@ impl JobRegistry {
                     }
                 }
                 Err(err) => {
+                    let elapsed_ms = attempt_start.elapsed().as_millis() as u64;
                     error!(
                         target: "registry",
                         job_id = %job_id,
                         job_type = job.job_type(),
-                        attempts,
+                        attempt = attempts,
+                        max_attempts,
+                        elapsed_ms,
                         error = %err,
                         "job execution error"
                     );

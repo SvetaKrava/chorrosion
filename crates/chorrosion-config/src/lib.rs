@@ -53,12 +53,17 @@ impl Default for HttpConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     pub log_level: String,
+    /// HTTP requests that take longer than this threshold (in milliseconds) are logged at WARN
+    /// level.  Set to `0` to disable slow-request logging.
+    /// Env override: `CHORROSION_TELEMETRY__SLOW_REQUEST_THRESHOLD_MS`.
+    pub slow_request_threshold_ms: u64,
 }
 
 impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             log_level: "info".to_string(),
+            slow_request_threshold_ms: 500,
         }
     }
 }

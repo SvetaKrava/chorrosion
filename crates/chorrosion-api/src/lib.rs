@@ -107,6 +107,7 @@ use handlers::wanted::{
 use middleware::auth::auth_middleware;
 use middleware::metrics::{metrics_handler, metrics_middleware};
 use middleware::response_cache::response_cache_middleware;
+use middleware::tracing::request_tracing_middleware;
 use serde::Serialize;
 use tracing::{info, warn};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
@@ -495,6 +496,10 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics_handler))
         .nest(API_V1_BASE, api_v1)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", openapi))
+        .route_layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            request_tracing_middleware,
+        ))
         .route_layer(axum_middleware::from_fn(metrics_middleware))
         .with_state(state)
 }
