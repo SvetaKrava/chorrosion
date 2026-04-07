@@ -413,7 +413,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [ ] Unit test coverage
   - [ ] Repository tests
   - [ ] Business logic tests
-  - [ ] API endpoint tests
+  - [x] API endpoint tests (Issue #312) ✓
 - [ ] Integration tests
   - [ ] Database integration tests
   - [ ] External API mock tests
