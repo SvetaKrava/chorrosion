@@ -8,6 +8,7 @@ use chorrosion_api::router;
 use chorrosion_application::AppState;
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::{
+    init_database,
     sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
@@ -21,18 +22,13 @@ use std::sync::Arc;
 use tower::util::ServiceExt;
 
 async fn setup_pool() -> SqlitePool {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory sqlite");
+    let mut config = AppConfig::default();
+    config.database.url = "sqlite://:memory:".to_string();
+    config.database.pool_max_size = 1;
 
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
+    init_database(&config)
         .await
-        .expect("migrate");
-
-    pool
+        .expect("init in-memory sqlite with migrations")
 }
 
 fn make_state(pool: SqlitePool) -> AppState {
@@ -79,7 +75,7 @@ async fn request_json(
 
     let response = app.oneshot(request).await.expect("request should complete");
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), usize::MAX)
+    let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
         .await
         .expect("body should be readable");
 
