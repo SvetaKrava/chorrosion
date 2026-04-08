@@ -20,7 +20,8 @@ where
     let mut attempt = 1usize;
 
     loop {
-        match build_request().send().await {
+        let response_result = build_request().send().await;
+        match response_result {
             Ok(response) => {
                 let status = response.status();
                 if should_retry_status(status) && attempt < MAX_ATTEMPTS {

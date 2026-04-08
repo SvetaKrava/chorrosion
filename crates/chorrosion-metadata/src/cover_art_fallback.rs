@@ -146,7 +146,8 @@ impl CoverArtFallbackClient {
                     };
 
                     provider_attempts += 1;
-                    match client.fetch_album_artwork(release_group_mbid).await {
+                    let fanart_result = client.fetch_album_artwork(release_group_mbid).await;
+                    match fanart_result {
                         Ok(artwork) => {
                             if let Some(image) = artwork.covers.first() {
                                 let result = CoverArtResult {
@@ -170,11 +171,11 @@ impl CoverArtFallbackClient {
                 }
                 CoverArtProvider::CoverArtArchive => {
                     provider_attempts += 1;
-                    match self
+                    let cover_art_result = self
                         .cover_art_archive_client
                         .fetch_album_cover(release_group_mbid)
-                        .await
-                    {
+                        .await;
+                    match cover_art_result {
                         Ok(Some(image_url)) => {
                             let result = CoverArtResult {
                                 image_url,

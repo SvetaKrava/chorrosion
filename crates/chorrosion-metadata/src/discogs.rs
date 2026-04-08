@@ -328,7 +328,8 @@ impl DiscogsClient {
         let mut attempt = 1usize;
         loop {
             let permit = self.rate_limiter.acquire().await?;
-            match build_request().send().await {
+            let response_result = build_request().send().await;
+            match response_result {
                 Ok(response) => {
                     let status = response.status();
                     if http_retry::should_retry_status(status) && attempt < http_retry::MAX_ATTEMPTS

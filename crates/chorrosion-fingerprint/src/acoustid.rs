@@ -474,7 +474,8 @@ mod tests {
 
         // Should return AcoustidError when API returns no results
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup_best should fail when API returns no matches");
+        match err {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert!(
                     msg.contains("No matches"),
@@ -519,7 +520,8 @@ mod tests {
 
         // Should return LowConfidence with the actual score (0.6)
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup_best should fail for low confidence matches");
+        match err {
             crate::FingerprintError::LowConfidence { score } => {
                 assert!(
                     (score - 0.6).abs() < 0.001,
@@ -586,7 +588,8 @@ mod tests {
         // Test 2: min_score above best match - should return LowConfidence with best score
         let result = client.lookup_best(&fp, 0.9).await;
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup_best should fail when threshold exceeds best match");
+        match err {
             crate::FingerprintError::LowConfidence { score } => {
                 assert!(
                     (score - 0.85).abs() < 0.001,
@@ -641,7 +644,8 @@ mod tests {
         let result = client.lookup(&fp, 0.5).await;
 
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup should fail on HTTP error responses");
+        match err {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert!(
                     msg.contains(&status_code.to_string()),
@@ -699,7 +703,8 @@ mod tests {
         let result = client.lookup(&fp, 0.5).await;
 
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup should fail with HTTP 401 responses");
+        match err {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert!(
                     msg.contains("401"),
@@ -744,7 +749,8 @@ mod tests {
 
         // Should return AcoustidError with the error message from API
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup should fail when AcoustID status is error");
+        match err {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert_eq!(msg, "Invalid fingerprint format");
             }
@@ -778,7 +784,8 @@ mod tests {
 
         // Should return AcoustidError with default "Unknown error" message
         assert!(result.is_err());
-        match result.unwrap_err() {
+        let err = result.expect_err("lookup should fail with unknown AcoustID error status");
+        match err {
             crate::FingerprintError::AcoustidError(msg) => {
                 assert_eq!(msg, "Unknown error");
             }

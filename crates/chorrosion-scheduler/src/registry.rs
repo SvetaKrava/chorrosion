@@ -130,7 +130,8 @@ impl JobRegistry {
             );
 
             let attempt_start = Instant::now();
-            match job.execute(ctx.clone()).await {
+            let execution_result = job.execute(ctx.clone()).await;
+            match execution_result {
                 Ok(JobResult::Success) => {
                     let elapsed_ms = attempt_start.elapsed().as_millis() as u64;
                     info!(

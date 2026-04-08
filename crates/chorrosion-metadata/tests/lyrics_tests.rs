@@ -66,7 +66,8 @@ async fn test_fetch_lyrics_handles_http_error() {
     let result = client.fetch_lyrics("Test Artist", "Test Song").await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
+    let err = result.expect_err("lyrics lookup should fail for HTTP 429");
+    match err {
         LyricsError::HttpStatus { status, body } => {
             assert_eq!(status.as_u16(), 429);
             assert!(body.contains("rate limited"));
@@ -91,7 +92,8 @@ async fn test_fetch_lyrics_handles_api_error() {
     let result = client.fetch_lyrics("Unknown Artist", "Unknown Song").await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), LyricsError::Api { .. }));
+    let err = result.expect_err("lyrics lookup should fail for API error payload");
+    assert!(matches!(err, LyricsError::Api { .. }));
 }
 
 #[tokio::test]

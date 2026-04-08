@@ -149,7 +149,8 @@ async fn test_fetch_album_cover_treats_404_as_no_artwork() {
     let result = client.fetch_album_cover("rg-404").await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
+    let err = result.expect_err("cover art lookup should return no artwork for 404");
+    match err {
         CoverArtFallbackError::NoArtworkFound => {}
         other => panic!("expected NoArtworkFound error, got: {other:?}"),
     }
@@ -185,7 +186,8 @@ async fn test_fetch_album_cover_returns_error_when_all_providers_fail() {
     let result = client.fetch_album_cover("rg-fail").await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
+    let err = result.expect_err("cover art lookup should fail when all providers fail");
+    match err {
         CoverArtFallbackError::ProvidersFailed(errors) => {
             assert_eq!(errors.len(), 2);
             assert!(errors

@@ -83,36 +83,42 @@ impl Scheduler {
             )
             .await;
 
-        if let Some(lastfm_job) = LastFmMetadataRefreshJob::from_config_with_cache(
+        match LastFmMetadataRefreshJob::from_config_with_cache(
             &self.config.metadata.lastfm,
             &self.config.cache,
         ) {
-            self.registry
-                .register(
-                    "lastfm-metadata-refresh",
-                    lastfm_job,
-                    Schedule::Interval(6 * 60 * 60),
-                )
-                .await;
-            info!(target: "scheduler", "Last.fm metadata refresh job registered");
-        } else {
-            info!(target: "scheduler", "Last.fm metadata refresh job skipped (no API key configured)");
+            Some(lastfm_job) => {
+                self.registry
+                    .register(
+                        "lastfm-metadata-refresh",
+                        lastfm_job,
+                        Schedule::Interval(6 * 60 * 60),
+                    )
+                    .await;
+                info!(target: "scheduler", "Last.fm metadata refresh job registered");
+            }
+            None => {
+                info!(target: "scheduler", "Last.fm metadata refresh job skipped (no API key configured)");
+            }
         }
 
-        if let Some(discogs_job) = DiscogsMetadataRefreshJob::from_config_with_cache(
+        match DiscogsMetadataRefreshJob::from_config_with_cache(
             &self.config.metadata.discogs,
             &self.config.cache,
         ) {
-            self.registry
-                .register(
-                    "discogs-metadata-refresh",
-                    discogs_job,
-                    Schedule::Interval(6 * 60 * 60 + 30 * 60),
-                )
-                .await;
-            info!(target: "scheduler", "Discogs metadata refresh job registered");
-        } else {
-            info!(target: "scheduler", "Discogs metadata refresh job skipped (no seeds configured)");
+            Some(discogs_job) => {
+                self.registry
+                    .register(
+                        "discogs-metadata-refresh",
+                        discogs_job,
+                        Schedule::Interval(6 * 60 * 60 + 30 * 60),
+                    )
+                    .await;
+                info!(target: "scheduler", "Discogs metadata refresh job registered");
+            }
+            None => {
+                info!(target: "scheduler", "Discogs metadata refresh job skipped (no seeds configured)");
+            }
         }
 
         info!(target: "scheduler", "all jobs registered");

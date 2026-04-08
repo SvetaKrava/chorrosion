@@ -130,7 +130,8 @@ pub async fn response_cache_middleware(
             }
         }
 
-        match axum::body::to_bytes(body, body_limit).await {
+        let body_bytes = axum::body::to_bytes(body, body_limit).await;
+        match body_bytes {
             Ok(bytes) => {
                 debug!(
                     target: "cache",

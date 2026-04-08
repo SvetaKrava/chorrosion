@@ -23,21 +23,25 @@ where
     let mut tx = pool.begin().await?;
     debug!(target: "infrastructure", "transaction started");
 
-    match f(&mut tx).await {
+    let operation_result = f(&mut tx).await;
+    match operation_result {
         Ok(value) => {
             tx.commit().await?;
             debug!(target: "infrastructure", "transaction committed");
             Ok(value)
         }
         Err(err) => {
-            if let Err(rollback_err) = tx.rollback().await {
-                tracing::warn!(
-                    target: "infrastructure",
-                    error = %rollback_err,
-                    "transaction rollback failed; connection may have been dropped"
-                );
-            } else {
-                debug!(target: "infrastructure", "transaction rolled back");
+            match tx.rollback().await {
+                Err(rollback_err) => {
+                    tracing::warn!(
+                        target: "infrastructure",
+                        error = %rollback_err,
+                        "transaction rollback failed; connection may have been dropped"
+                    );
+                }
+                Ok(()) => {
+                    debug!(target: "infrastructure", "transaction rolled back");
+                }
             }
             Err(err)
         }

@@ -268,6 +268,9 @@ cargo fmt
 
 # Test (unit tests typically live next to code)
 cargo test
+
+# Rust 2024 readiness (fail on compatibility warnings)
+RUSTFLAGS='-Wrust-2024-compatibility -Dwarnings' cargo check --workspace --all-targets
 ```
 
 Logging:
