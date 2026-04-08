@@ -76,6 +76,16 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Install chromaprint (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          pkg-config --cflags --libs libchromaprint
+          ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
+
       - name: Cargo build
         run: cargo build --workspace --all-targets --locked
 
@@ -84,6 +94,49 @@ jobs:
 
       - name: Cargo test
         run: cargo test --workspace --no-fail-fast -- --nocapture
+
+  future-incompat-report:
+    name: Future Incompatibility Report
+    runs-on: ubuntu-latest
+    needs: build-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build workspace (generate future-incompat report context)
+        run: cargo build --workspace --all-targets --locked
+
+      - name: Run future incompatibility report (id 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          report_output_file="future-incompat-report.txt"
+          if cargo report future-incompatibilities --id 2 > "$report_output_file" 2>&1; then
+            cat "$report_output_file"
+            if grep -Eiq "will be rejected by a future version of Rust|future incompatibility report" "$report_output_file"; then
+              echo "Future incompatibility findings detected (id 2)."
+              exit 1
+            fi
+            echo "No future incompatibility findings in report id 2."
+          else
+            cat "$report_output_file"
+            if grep -qi "no reports are currently available" "$report_output_file"; then
+              echo "No future incompatibility report available for id 2; treating as no findings."
+              exit 0
+            fi
+            echo "Failed to run cargo future incompatibility report."
+            exit 1
+          fi
 
   infra-tests:
     name: Infrastructure crate tests (${{ matrix.os }})
