@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
+[features]
+default = []
+postgres = ["sqlx/postgres", "chorrosion-infrastructure/postgres"]
+
 [dependencies]
 axum = { workspace = true }
 bytes = "1"
