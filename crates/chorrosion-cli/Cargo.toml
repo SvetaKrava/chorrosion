@@ -7,9 +7,9 @@ license.workspace = true
 [features]
 default = []
 postgres = [
-	"chorrosion-api/postgres",
-	"chorrosion-scheduler/postgres",
-	"chorrosion-infrastructure/postgres",
+    "chorrosion-api/postgres",
+    "chorrosion-scheduler/postgres",
+    "chorrosion-infrastructure/postgres",
 ]
 
 [dependencies]
