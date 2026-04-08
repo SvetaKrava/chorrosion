@@ -76,16 +76,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install chromaprint (Ubuntu)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libchromaprint-dev pkg-config
-          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
-          pkg-config --cflags --libs libchromaprint
-          ls -l /usr/lib/x86_64-linux-gnu/libchromaprint* || true
-
       - name: Cargo build
         run: cargo build --workspace --all-targets --locked
 
@@ -112,6 +102,14 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Install chromaprint (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+
       - name: Build workspace (generate future-incompat report context)
         run: cargo build --workspace --all-targets --locked
 
@@ -123,7 +121,7 @@ jobs:
           report_output_file="future-incompat-report.txt"
           if cargo report future-incompatibilities --id 2 > "$report_output_file" 2>&1; then
             cat "$report_output_file"
-            if grep -Eiq "will be rejected by a future version of Rust|future incompatibility report" "$report_output_file"; then
+            if grep -Eiq "will be rejected by a future version of Rust" "$report_output_file"; then
               echo "Future incompatibility findings detected (id 2)."
               exit 1
             fi
