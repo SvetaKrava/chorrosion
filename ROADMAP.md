@@ -419,7 +419,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] External API mock tests (Issue #320) ✓
 - [ ] End-to-end tests
   - [x] Full workflow tests (Issue #322) ✓
-  - [ ] Performance benchmarks
+  - [x] Performance benchmarks (Issue #324) ✓
 
 ### 8.4 Maintenance & Dependencies
 

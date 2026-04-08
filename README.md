@@ -183,6 +183,20 @@ Integration tests for the `chorrosion-metadata` crate require a mock server runn
 
 See `crates/chorrosion-metadata/tests/README.md` for details and a helper function to wait for server readiness.
 
+## Performance Benchmarks
+
+End-to-end style API benchmarks are available in `chorrosion-api` (Criterion-based):
+
+```bash
+cargo bench -p chorrosion-api
+```
+
+For CI or quick compile checks without executing benchmark loops:
+
+```bash
+cargo bench -p chorrosion-api --no-run
+```
+
 ## License
 
 - License: GPL-3.0-or-later. See [LICENSE](LICENSE).
