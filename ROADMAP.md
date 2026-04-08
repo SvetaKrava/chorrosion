@@ -418,7 +418,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Database integration tests (Issue #318) ✓
   - [x] External API mock tests (Issue #320) ✓
 - [ ] End-to-end tests
-  - [ ] Full workflow tests
+  - [x] Full workflow tests (Issue #322) ✓
   - [ ] Performance benchmarks
 
 ### 8.4 Maintenance & Dependencies

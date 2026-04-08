@@ -2,6 +2,7 @@
 
 use chorrosion_config::AppConfig;
 use chorrosion_domain::{Album, Artist, ArtistRelationship, Track, TrackFile};
+use chorrosion_infrastructure::init_database;
 use chorrosion_infrastructure::repositories::{
     AlbumRepository, ArtistRelationshipRepository, Repository, TrackFileRepository, TrackRepository,
 };
@@ -9,7 +10,6 @@ use chorrosion_infrastructure::sqlite_adapters::{
     SqliteAlbumRepository, SqliteArtistRelationshipRepository, SqliteArtistRepository,
     SqliteTrackFileRepository, SqliteTrackRepository,
 };
-use chorrosion_infrastructure::init_database;
 use sqlx::SqlitePool;
 
 async fn setup_pool() -> SqlitePool {
