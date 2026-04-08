@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
+[features]
+default = []
+postgres = ["sqlx/postgres"]
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }

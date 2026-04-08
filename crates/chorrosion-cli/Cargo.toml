@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
+[features]
+default = []
+postgres = [
+    "chorrosion-api/postgres",
+    "chorrosion-scheduler/postgres",
+    "chorrosion-infrastructure/postgres",
+]
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }

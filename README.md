@@ -75,6 +75,18 @@ SQLite tips:
 
 - Use `?mode=rwc` in URLs if you need create-on-open semantics.
 
+### PostgreSQL Feature Gate
+
+PostgreSQL support is intentionally gated behind an opt-in Cargo feature and is
+disabled by default in workspace builds.
+
+- Default (`cargo build --workspace`): SQLite-only dependency graph
+- Opt-in PostgreSQL build path:
+
+```bash
+cargo build -p chorrosion-cli --features postgres
+```
+
 ## API
 
 - Base: `/api/v1`
