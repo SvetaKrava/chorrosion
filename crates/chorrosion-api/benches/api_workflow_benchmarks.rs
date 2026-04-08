@@ -10,6 +10,7 @@ use chorrosion_application::AppState;
 use chorrosion_config::AppConfig;
 use chorrosion_domain::Artist;
 use chorrosion_infrastructure::{
+    init_database,
     repositories::Repository,
     sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
@@ -21,28 +22,21 @@ use chorrosion_infrastructure::{
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tower::util::ServiceExt;
 
 const BASIC_AUTH_HEADER: &str = "Basic YWRtaW46c2VjcmV0";
 
 async fn setup_pool() -> SqlitePool {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory sqlite");
+    let mut config = AppConfig::default();
+    config.database.url = "sqlite://:memory:".to_string();
+    config.database.pool_max_size = 1;
 
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
+    init_database(&config)
         .await
-        .expect("migrate");
-
-    pool
+        .expect("init in-memory sqlite with migrations and PRAGMA foreign_keys = ON")
 }
 
 fn make_state(pool: SqlitePool) -> AppState {
@@ -59,7 +53,7 @@ fn make_state(pool: SqlitePool) -> AppState {
         Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
         Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
         Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
-        ResponseCache::new(1_000, 60),
+        ResponseCache::new(1_000, 0),
     )
 }
 
@@ -163,61 +157,68 @@ fn benchmark_list_artists_with_seed_data(c: &mut Criterion) {
 
 fn benchmark_create_artist_album_track_workflow(c: &mut Criterion) {
     let runtime = Runtime::new().expect("tokio runtime");
-    let app = runtime.block_on(async {
-        let pool = setup_pool().await;
-        let state = make_state(pool);
-        router(state)
-    });
 
     let mut group = c.benchmark_group("api/create_workflow");
     group.bench_with_input(
         BenchmarkId::new("artist_album_track", "sequential"),
         &0,
         |b, _| {
-            let counter = Arc::new(AtomicU64::new(0));
-            b.to_async(&runtime).iter(|| async {
-                let counter = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                let artist_name = format!("Bench Workflow Artist {counter}");
+            b.to_async(&runtime).iter_custom(|iters| async move {
+                let mut total = Duration::ZERO;
 
-                let artist_payload = request_json_value(
-                    app.clone(),
-                    Method::POST,
-                    "/api/v1/artists",
-                    Some(json!({ "name": artist_name })),
-                )
-                .await;
-                let artist_id = artist_payload["id"]
-                    .as_str()
-                    .expect("artist id should exist")
-                    .to_string();
+                for _ in 0..iters {
+                    // Setup (not measured): fresh DB + router per iteration to prevent
+                    // unbounded table growth from skewing later-iteration timings.
+                    let pool = setup_pool().await;
+                    let state = make_state(pool);
+                    let app = router(state);
 
-                let album_payload = request_json_value(
-                    app.clone(),
-                    Method::POST,
-                    "/api/v1/albums",
-                    Some(json!({
-                        "artist_id": artist_id,
-                        "title": format!("Bench Album {counter}")
-                    })),
-                )
-                .await;
-                let album_id = album_payload["id"]
-                    .as_str()
-                    .expect("album id should exist")
-                    .to_string();
+                    let start = Instant::now();
 
-                let track_status = request_json(
-                    app.clone(),
-                    Method::POST,
-                    "/api/v1/tracks",
-                    Some(json!({
-                        "album_id": album_id,
-                        "artist_id": artist_payload["id"],
-                        "title": format!("Bench Track {counter}")
-                    })),
-                )
-                .await;
-                assert_eq!(track_status, StatusCode::CREATED);
+                    let artist_payload = request_json_value(
+                        app.clone(),
+                        Method::POST,
+                        "/api/v1/artists",
+                        Some(json!({ "name": "Bench Workflow Artist" })),
+                    )
+                    .await;
+                    let artist_id = artist_payload["id"]
+                        .as_str()
+                        .expect("artist id should exist")
+                        .to_string();
+
+                    let album_payload = request_json_value(
+                        app.clone(),
+                        Method::POST,
+                        "/api/v1/albums",
+                        Some(json!({
+                            "artist_id": artist_id,
+                            "title": "Bench Album"
+                        })),
+                    )
+                    .await;
+                    let album_id = album_payload["id"]
+                        .as_str()
+                        .expect("album id should exist")
+                        .to_string();
+
+                    let track_status = request_json(
+                        app.clone(),
+                        Method::POST,
+                        "/api/v1/tracks",
+                        Some(json!({
+                            "album_id": album_id,
+                            "artist_id": artist_id,
+                            "title": "Bench Track"
+                        })),
+                    )
+                    .await;
+                    assert_eq!(track_status, StatusCode::CREATED);
+
+                    total += start.elapsed();
+                }
+
+                total
             });
         },
     );
