@@ -61,11 +61,8 @@ async fn request_json(
         .unwrap_or_default();
 
     let mut builder = Request::builder().method(method).uri(uri);
-    if authorization.is_some() {
-        builder = builder.header(
-            "Authorization",
-            authorization.expect("authorization header present"),
-        );
+    if let Some(auth) = authorization {
+        builder = builder.header("Authorization", auth);
     }
 
     let request = builder
