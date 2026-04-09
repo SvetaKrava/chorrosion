@@ -262,12 +262,12 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 
 ### 5.3 Quality Management
 
-- [ ] Quality upgrades detection
-  - [ ] Compare existing vs. new quality
-  - [ ] Upgrade decision logic
-  - [ ] Cutoff management
-- [ ] File replacement workflow
-- [ ] Backup of replaced files (optional)
+- [x] Quality upgrades detection (Issue #332) ✓
+  - [x] Compare existing vs. new quality ✓
+  - [x] Upgrade decision logic (`QualityUpgradeService`) ✓
+  - [x] Cutoff management (`QualityComparer::meets_cutoff`) ✓
+- [x] File replacement workflow (`FileReplacementService`) (Issue #332) ✓
+- [x] Backup of replaced files (configurable via `FileReplacementConfig`) (Issue #332) ✓
 
 ### 5.4 Tagging & Embedding
 
@@ -529,6 +529,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-03-03  
+**Last Updated:** 2026-04-09  
 **Current Phase:** Phase 5: File Management  
-**Next Milestone:** Quality Management and replacement workflow (Phase 5.3)
+**Next Milestone:** Tagging charset/normalization and remaining import system items (Phase 5.4 / 5.1)

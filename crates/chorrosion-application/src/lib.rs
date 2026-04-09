@@ -13,6 +13,7 @@ pub mod download_clients;
 pub mod embedded_tags;
 pub mod events;
 pub mod file_organization;
+pub mod file_replacement;
 pub mod filename_heuristics;
 mod http_client;
 pub mod import;
@@ -22,6 +23,7 @@ pub mod lists;
 pub mod matching;
 pub mod matching_precedence;
 pub mod notifications;
+pub mod quality_upgrade;
 pub mod release_parsing;
 pub mod scan_cache;
 pub mod search_automation;
@@ -37,6 +39,9 @@ pub use embedded_tags::{
 pub use file_organization::{
     apply_file_operation, build_organized_file_path, render_naming_pattern, FileOperationMode,
     FileOrganizationError, TrackPathContext,
+};
+pub use file_replacement::{
+    FileReplacementConfig, FileReplacementError, FileReplacementService, ReplacementOutcome,
 };
 pub use filename_heuristics::{
     FilenameHeuristicsError, FilenameHeuristicsResult, FilenameHeuristicsService, ParsedFilename,
@@ -67,6 +72,7 @@ pub use notifications::{
     NotificationEventKind, NotificationPipeline, NotificationProvider, NotificationProviderConfig,
     NotificationProviderKind, PushoverProvider, ScriptNotificationProvider, SlackWebhookProvider,
 };
+pub use quality_upgrade::{QualityComparer, QualityUpgradeService, UpgradeDecision, UpgradeReason};
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
     AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
