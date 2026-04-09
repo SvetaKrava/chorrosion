@@ -23,6 +23,7 @@ pub mod lists;
 pub mod matching;
 pub mod matching_precedence;
 pub mod notifications;
+pub mod permission;
 pub mod quality_upgrade;
 pub mod release_parsing;
 pub mod scan_cache;
@@ -72,6 +73,7 @@ pub use notifications::{
     NotificationEventKind, NotificationPipeline, NotificationProvider, NotificationProviderConfig,
     NotificationProviderKind, PushoverProvider, ScriptNotificationProvider, SlackWebhookProvider,
 };
+pub use permission::{PermissionChecker, PermissionConfig, PermissionError, PermissionManager};
 pub use quality_upgrade::{QualityComparer, QualityUpgradeService, UpgradeDecision, UpgradeReason};
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
