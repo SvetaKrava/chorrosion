@@ -7,11 +7,14 @@
 //!
 //! # Safety guarantees
 //!
-//! - The new file is moved/copied to the destination path *first*.
-//! - Only after a successful placement is the old file removed (or moved to
-//!   the backup directory).
-//! - If the destination is the same path as the existing file, a temporary
-//!   staging step is used so the original is never prematurely deleted.
+//! - For **in-place upgrades** (`existing_path == final_path`): the candidate
+//!   is first staged to a temporary path adjacent to `final_path` (same
+//!   directory, same filesystem).  The original is then backed up or deleted,
+//!   and only after that succeeds is the staged file renamed into place.  If
+//!   retiring the original fails the staged file is cleaned up and the original
+//!   is left untouched.
+//! - For **cross-path upgrades** (`existing_path != final_path`): the new file
+//!   is moved/copied to `final_path` and then the original is retired.
 //!
 //! # Cross-platform notes
 //!
@@ -106,6 +109,20 @@ impl FileReplacementService {
     /// The method also handles the case where `final_path` differs from
     /// `existing_path` (e.g. the naming pattern changed).
     ///
+    /// # Safety sequence for in-place upgrades
+    ///
+    /// When `existing_path == final_path` the original file must not be
+    /// overwritten before a backup (if configured) can be taken.  The
+    /// implementation therefore:
+    ///
+    /// 1. Stages `new_file_path` to a temporary path adjacent to `final_path`.
+    /// 2. Retires (backs up or deletes) `existing_path`.
+    /// 3. Moves the staged file to `final_path`.
+    ///
+    /// If retiring the existing file fails (e.g. backup is enabled but no
+    /// directory is configured), the staged file is cleaned up and the original
+    /// is left untouched.
+    ///
     /// # Errors
     ///
     /// Returns [`FileReplacementError`] when any I/O step fails or when backup
@@ -138,33 +155,60 @@ impl FileReplacementService {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Step 1 — move / copy the new file to the final destination.
-        //
-        // Use a staging path when new_file_path == final_path to avoid
-        // overwriting ourselves before we've backed up.
-        let same_path = paths_are_same(new_file_path, final_path);
-        if same_path {
-            // Nothing to do for the move; the file is already in place.
-            debug!(target: "file_replacement", "source is already at final path, skipping move");
+        let in_place = paths_are_same(existing_path, final_path);
+
+        if in_place {
+            // ── In-place upgrade ─────────────────────────────────────────────
+            // existing_path and final_path are the same file.  We must not
+            // overwrite it before backing it up, so we stage the candidate to a
+            // temporary path first.
+            let staged = staging_path(final_path);
+            place_file(new_file_path, &staged)?;
+            debug!(target: "file_replacement", staged = %staged.display(), "staged new file alongside destination");
+
+            // Retire (backup/delete) the existing file.  If this fails, clean
+            // up the staged file so we leave the original intact.
+            let backed_up_to = match self.retire_existing(existing_path) {
+                Ok(v) => v,
+                Err(e) => {
+                    if let Err(cleanup_err) = std::fs::remove_file(&staged) {
+                        warn!(
+                            target: "file_replacement",
+                            staged = %staged.display(),
+                            error = %cleanup_err,
+                            "failed to clean up staged file after retire_existing error"
+                        );
+                    }
+                    return Err(e);
+                }
+            };
+
+            // Move the staged candidate into the final location.
+            place_file(&staged, final_path)?;
+            debug!(target: "file_replacement", "moved staged file to final path");
+
+            Ok(ReplacementOutcome {
+                final_path: final_path.to_path_buf(),
+                backed_up_to,
+            })
         } else {
-            // Try atomic rename first; fall back to copy+delete for
-            // cross-device moves.
-            place_file(new_file_path, final_path)?;
-            debug!(target: "file_replacement", "placed new file at destination");
+            // ── Different-path upgrade ────────────────────────────────────────
+            // Place the new file at final_path first (unless it is already
+            // there), then retire the old file.
+            if !paths_are_same(new_file_path, final_path) {
+                place_file(new_file_path, final_path)?;
+                debug!(target: "file_replacement", "placed new file at destination");
+            } else {
+                debug!(target: "file_replacement", "source is already at final path, skipping move");
+            }
+
+            let backed_up_to = self.retire_existing(existing_path)?;
+
+            Ok(ReplacementOutcome {
+                final_path: final_path.to_path_buf(),
+                backed_up_to,
+            })
         }
-
-        // Step 2 — handle the existing file (backup or delete).
-        let backed_up_to = if !paths_are_same(existing_path, final_path) {
-            self.retire_existing(existing_path)?
-        } else {
-            // The existing file was already replaced in-place by place_file.
-            None
-        };
-
-        Ok(ReplacementOutcome {
-            final_path: final_path.to_path_buf(),
-            backed_up_to,
-        })
     }
 
     /// Move or delete the existing file according to the backup policy.
@@ -205,6 +249,22 @@ impl FileReplacementService {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/// Returns a temporary staging path adjacent to `final_path`.
+///
+/// The staged file lives in the same directory so that the final rename is
+/// always on the same filesystem (atomic on most platforms).
+///
+/// `file_name()` returns `None` only for a bare root path (e.g. `/`), which
+/// is never a valid audio file target; the `"unnamed"` fallback is a safe
+/// guard for that degenerate input.
+fn staging_path(final_path: &Path) -> PathBuf {
+    let file_name = final_path
+        .file_name()
+        .unwrap_or(std::ffi::OsStr::new("unnamed"));
+    let staged_name = format!(".{}.staging", file_name.to_string_lossy());
+    final_path.with_file_name(staged_name)
+}
 
 /// Attempt an atomic rename; fall back to copy + delete on cross-device moves.
 fn place_file(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -320,6 +380,57 @@ mod tests {
         assert!(!existing.exists());
     }
 
+    #[test]
+    fn in_place_upgrade_backs_up_original_and_places_new_content() {
+        // existing_path == final_path (the library file is upgraded in-place).
+        // The original must be backed up and final_path must contain the new
+        // content — no data loss must occur.
+        let dir = tempfile::tempdir().unwrap();
+        let backup_dir = dir.path().join("backups");
+
+        // Both existing and final point at the same file.
+        let existing = write_temp(&dir, "track.flac", b"old content");
+        let new_file = write_temp(&dir, "track_new.flac", b"new content");
+        let final_path = existing.clone(); // same path
+
+        let svc = FileReplacementService::new(FileReplacementConfig {
+            backup_replaced: true,
+            backup_dir: Some(backup_dir.clone()),
+        });
+        let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+        // Final path must hold the new content.
+        assert_eq!(read(&outcome.final_path), b"new content");
+
+        // Original content must have been backed up.
+        let backup_path = outcome
+            .backed_up_to
+            .expect("backup should have been created for in-place upgrade");
+        assert!(backup_dir.exists());
+        assert_eq!(read(&backup_path), b"old content");
+
+        // The temporary staging file must not be left behind.
+        let staged = staging_path(&final_path);
+        assert!(!staged.exists(), "staging file should be cleaned up");
+
+        // The candidate temp file should be gone (moved, not copied).
+        assert!(!new_file.exists(), "new_file should have been moved");
+    }
+
+    #[test]
+    fn in_place_upgrade_no_backup_deletes_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = write_temp(&dir, "track.flac", b"old content");
+        let new_file = write_temp(&dir, "track_new.flac", b"new content");
+        let final_path = existing.clone();
+
+        let svc = FileReplacementService::new(FileReplacementConfig::default());
+        let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+        assert_eq!(read(&outcome.final_path), b"new content");
+        assert!(outcome.backed_up_to.is_none());
+    }
+
     // ---- replace_file — error cases ----
 
     #[test]
@@ -365,5 +476,37 @@ mod tests {
             svc.replace_file(&existing, &new_file, &final_path),
             Err(FileReplacementError::BackupDirNotConfigured)
         ));
+    }
+
+    #[test]
+    fn in_place_retire_failure_cleans_up_staged_file() {
+        // When retiring the existing file fails (backup enabled but no dir
+        // configured), the staged file must be removed and the original must
+        // remain intact.
+        let dir = tempfile::tempdir().unwrap();
+        let existing = write_temp(&dir, "track.flac", b"original content");
+        let new_file = write_temp(&dir, "track_new.flac", b"new content");
+        let final_path = existing.clone(); // in-place
+
+        let svc = FileReplacementService::new(FileReplacementConfig {
+            backup_replaced: true,
+            backup_dir: None, // triggers BackupDirNotConfigured
+        });
+        let result = svc.replace_file(&existing, &new_file, &final_path);
+
+        assert!(matches!(
+            result,
+            Err(FileReplacementError::BackupDirNotConfigured)
+        ));
+
+        // The staged file must have been cleaned up.
+        let staged = staging_path(&final_path);
+        assert!(
+            !staged.exists(),
+            "staged file should have been removed on error"
+        );
+
+        // The original file must still be intact.
+        assert_eq!(read(&existing), b"original content");
     }
 }
