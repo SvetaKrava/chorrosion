@@ -1795,6 +1795,7 @@ fn row_to_track_file(row: &sqlx::sqlite::SqliteRow) -> Result<TrackFile> {
     let bitrate_kbps: Option<i64> = row.try_get("bitrate_kbps")?;
     let channels: Option<i64> = row.try_get("channels")?;
     let codec: Option<String> = row.try_get("codec")?;
+    let quality: Option<String> = row.try_get("quality")?;
     let hash: Option<String> = row.try_get("hash")?;
     let fingerprint_hash: Option<String> = row.try_get("fingerprint_hash")?;
     let fingerprint_duration: Option<i64> = row.try_get("fingerprint_duration")?;
@@ -1813,6 +1814,7 @@ fn row_to_track_file(row: &sqlx::sqlite::SqliteRow) -> Result<TrackFile> {
         bitrate_kbps: bitrate_kbps.map(|b| b as u32),
         channels: channels.map(|c| c as u8),
         codec,
+        quality,
         hash,
         fingerprint_hash,
         fingerprint_duration: fingerprint_duration.map(|d| d as u32),
@@ -1837,9 +1839,9 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         let q = r#"
             INSERT INTO track_files (
                 id, track_id, path, size_bytes, duration_ms, bitrate_kbps,
-                channels, codec, hash, fingerprint_hash, fingerprint_duration,
+                channels, codec, quality, hash, fingerprint_hash, fingerprint_duration,
                 fingerprint_computed_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let id_str = entity.id.to_string();
@@ -1850,6 +1852,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         let bitrate_kbps = entity.bitrate_kbps.map(|b| b as i64);
         let channels = entity.channels.map(|c| c as i64);
         let codec = entity.codec.as_deref();
+        let quality = entity.quality.as_deref();
         let hash = entity.hash.as_deref();
         let fingerprint_hash = entity.fingerprint_hash.as_deref();
         let fingerprint_duration = entity.fingerprint_duration.map(|d| d as i64);
@@ -1866,6 +1869,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
             .bind(bitrate_kbps)
             .bind(channels)
             .bind(codec)
+            .bind(quality)
             .bind(hash)
             .bind(fingerprint_hash)
             .bind(fingerprint_duration)
@@ -1920,7 +1924,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         let q = r#"
             UPDATE track_files SET
                 path = ?, size_bytes = ?, duration_ms = ?, bitrate_kbps = ?,
-                channels = ?, codec = ?, hash = ?, fingerprint_hash = ?,
+                channels = ?, codec = ?, quality = ?, hash = ?, fingerprint_hash = ?,
                 fingerprint_duration = ?, fingerprint_computed_at = ?, updated_at = ?
             WHERE id = ?
         "#;
@@ -1932,6 +1936,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         let bitrate_kbps = entity.bitrate_kbps.map(|b| b as i64);
         let channels = entity.channels.map(|c| c as i64);
         let codec = entity.codec.as_deref();
+        let quality = entity.quality.as_deref();
         let hash = entity.hash.as_deref();
         let fingerprint_hash = entity.fingerprint_hash.as_deref();
         let fingerprint_duration = entity.fingerprint_duration.map(|d| d as i64);
@@ -1943,6 +1948,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
             .bind(bitrate_kbps)
             .bind(channels)
             .bind(codec)
+            .bind(quality)
             .bind(hash)
             .bind(fingerprint_hash)
             .bind(fingerprint_duration)

@@ -753,6 +753,9 @@ pub struct TrackFile {
     pub bitrate_kbps: Option<u32>,
     pub channels: Option<u8>,
     pub codec: Option<String>,
+    /// Resolved quality label (e.g. `"FLAC"`, `"MP3 320"`) that maps to an
+    /// entry in the artist's `QualityProfile.allowed_qualities` list.
+    pub quality: Option<String>,
     pub hash: Option<String>,
     pub fingerprint_hash: Option<String>,
     pub fingerprint_duration: Option<u32>,
@@ -773,6 +776,7 @@ impl TrackFile {
             bitrate_kbps: None,
             channels: None,
             codec: None,
+            quality: None,
             hash: None,
             fingerprint_hash: None,
             fingerprint_duration: None,
