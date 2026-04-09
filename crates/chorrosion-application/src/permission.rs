@@ -544,8 +544,10 @@ mod tests {
         let dst_file = NamedTempFile::new()?;
         let dst_path = dst_file.path().to_path_buf();
 
-        let mut config = PermissionConfig::default();
-        config.preserve_permissions = true;
+        let config = PermissionConfig {
+            preserve_permissions: true,
+            ..Default::default()
+        };
 
         PermissionManager::apply_permissions(&src_path, &dst_path, &config).unwrap();
 
@@ -568,8 +570,10 @@ mod tests {
         let dst_file = NamedTempFile::new()?;
         let dst_path = dst_file.path().to_path_buf();
 
-        let mut config = PermissionConfig::default();
-        config.preserve_permissions = false;
+        let config = PermissionConfig {
+            preserve_permissions: false,
+            ..Default::default()
+        };
 
         PermissionManager::apply_permissions(&src_path, &dst_path, &config).unwrap();
 
