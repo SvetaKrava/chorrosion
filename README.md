@@ -270,7 +270,11 @@ cargo fmt
 cargo test
 
 # Rust 2024 readiness (fail on compatibility warnings)
+# Bash/Zsh
 RUSTFLAGS='-Wrust-2024-compatibility -Dwarnings' cargo check --workspace --all-targets
+
+# PowerShell
+$env:RUSTFLAGS="-Wrust-2024-compatibility -Dwarnings"; cargo check --workspace --all-targets
 ```
 
 Logging:
