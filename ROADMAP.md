@@ -241,7 +241,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Confidence-threshold-based auto-import ✓
   - [x] NeedsReview flagging for low-confidence matches ✓
   - [x] Catalog match evaluation (ImportEvaluation) ✓
-  - [ ] Quality upgrade / duplicate-file decisions
+  - [x] Quality upgrade / duplicate-file decisions (Issue #334) ✓
   - [ ] Manual import UI support
 
 ### 5.2 File Organization

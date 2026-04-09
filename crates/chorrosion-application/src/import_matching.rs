@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::filename_heuristics::FilenameHeuristicsService;
-use chorrosion_domain::{AlbumId, ArtistId};
+use crate::quality_upgrade::{QualityUpgradeService, UpgradeReason};
+use chorrosion_domain::{AlbumId, ArtistId, QualityProfile, TrackFile};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
@@ -96,10 +97,28 @@ pub enum ImportDecision {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExistingFileAction {
+    None,
+    Upgrade {
+        existing_quality: String,
+        candidate_quality: String,
+        reason: UpgradeReason,
+    },
+    Duplicate {
+        existing_quality: String,
+        candidate_quality: String,
+    },
+    NeedsReview {
+        reason: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportEvaluation {
     pub best_match: Option<CatalogAlbumMatch>,
     pub decision: ImportDecision,
+    pub existing_file_action: ExistingFileAction,
 }
 
 pub fn scan_audio_files(
@@ -218,6 +237,7 @@ pub fn evaluate_import_match(
             decision: ImportDecision::Skip {
                 reason: "catalog is empty".to_string(),
             },
+            existing_file_action: ExistingFileAction::None,
         };
     }
 
@@ -242,7 +262,104 @@ pub fn evaluate_import_match(
     ImportEvaluation {
         best_match,
         decision,
+        existing_file_action: ExistingFileAction::None,
     }
+}
+
+pub fn evaluate_import_match_with_existing_file(
+    metadata: &ParsedTrackMetadata,
+    catalog: &[CatalogAlbum],
+    fuzzy_threshold: f32,
+    auto_import_threshold: f32,
+    existing_track_file: Option<&TrackFile>,
+    quality_profile: Option<&QualityProfile>,
+) -> ImportEvaluation {
+    let mut evaluation =
+        evaluate_import_match(metadata, catalog, fuzzy_threshold, auto_import_threshold);
+
+    if !matches!(evaluation.decision, ImportDecision::Import { .. }) {
+        return evaluation;
+    }
+
+    let Some(existing_track_file) = existing_track_file else {
+        return evaluation;
+    };
+
+    let Some(quality_profile) = quality_profile else {
+        let confidence = evaluation
+            .best_match
+            .as_ref()
+            .map(|candidate| candidate.confidence)
+            .unwrap_or(0.0);
+        evaluation.decision = ImportDecision::NeedsReview {
+            reason: "existing track file found but no quality profile is available".to_string(),
+            confidence,
+        };
+        evaluation.existing_file_action = ExistingFileAction::NeedsReview {
+            reason: "missing quality profile for duplicate-vs-upgrade comparison".to_string(),
+        };
+        return evaluation;
+    };
+
+    let Some(existing_quality) = resolve_track_file_quality(existing_track_file, quality_profile)
+    else {
+        let confidence = evaluation
+            .best_match
+            .as_ref()
+            .map(|candidate| candidate.confidence)
+            .unwrap_or(0.0);
+        evaluation.decision = ImportDecision::NeedsReview {
+            reason: "unable to determine existing file quality".to_string(),
+            confidence,
+        };
+        evaluation.existing_file_action = ExistingFileAction::NeedsReview {
+            reason: "existing track file quality could not be resolved against the quality profile"
+                .to_string(),
+        };
+        return evaluation;
+    };
+
+    let Some(candidate_quality) = resolve_metadata_quality(metadata, quality_profile) else {
+        let confidence = evaluation
+            .best_match
+            .as_ref()
+            .map(|candidate| candidate.confidence)
+            .unwrap_or(0.0);
+        evaluation.decision = ImportDecision::NeedsReview {
+            reason: "unable to determine candidate file quality".to_string(),
+            confidence,
+        };
+        evaluation.existing_file_action = ExistingFileAction::NeedsReview {
+            reason: "candidate file quality could not be resolved against the quality profile"
+                .to_string(),
+        };
+        return evaluation;
+    };
+
+    match QualityUpgradeService::evaluate_upgrade(
+        &existing_quality,
+        &candidate_quality,
+        quality_profile,
+    ) {
+        crate::quality_upgrade::UpgradeDecision::Upgrade { reason } => {
+            evaluation.existing_file_action = ExistingFileAction::Upgrade {
+                existing_quality,
+                candidate_quality,
+                reason,
+            };
+        }
+        crate::quality_upgrade::UpgradeDecision::Keep => {
+            evaluation.decision = ImportDecision::Skip {
+                reason: "candidate file is not an upgrade over the existing track file".to_string(),
+            };
+            evaluation.existing_file_action = ExistingFileAction::Duplicate {
+                existing_quality,
+                candidate_quality,
+            };
+        }
+    }
+
+    evaluation
 }
 
 fn clamp_threshold(name: &str, value: f32, non_finite_default: f32) -> f32 {
@@ -357,6 +474,102 @@ fn extract_bitrate_from_filename(path: &Path) -> Option<u32> {
         .and_then(|value| value.as_str().parse::<u32>().ok())
 }
 
+fn resolve_track_file_quality(track_file: &TrackFile, profile: &QualityProfile) -> Option<String> {
+    if let Some(quality) = track_file.quality.as_deref() {
+        if let Some(resolved) = find_allowed_quality(quality, profile) {
+            return Some(resolved);
+        }
+    }
+
+    resolve_quality_from_codec_bitrate(
+        track_file.codec.as_deref(),
+        track_file.bitrate_kbps,
+        profile,
+    )
+}
+
+fn resolve_metadata_quality(
+    metadata: &ParsedTrackMetadata,
+    profile: &QualityProfile,
+) -> Option<String> {
+    let extension = metadata
+        .file_path
+        .extension()
+        .and_then(|value| value.to_str());
+
+    resolve_quality_from_codec_bitrate(extension, metadata.bitrate_kbps, profile)
+}
+
+fn resolve_quality_from_codec_bitrate(
+    codec_or_extension: Option<&str>,
+    bitrate_kbps: Option<u32>,
+    profile: &QualityProfile,
+) -> Option<String> {
+    let normalized = codec_or_extension?.trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "flac" => find_allowed_quality("FLAC", profile),
+        "alac" => find_allowed_quality("ALAC", profile),
+        "aac" | "m4a" => {
+            if let Some(bitrate) = bitrate_kbps {
+                if let Some(label) = resolve_lossy_family_quality("AAC", bitrate, profile) {
+                    return Some(label);
+                }
+            }
+            find_allowed_quality("AAC", profile)
+        }
+        "mp3" => {
+            if let Some(bitrate) = bitrate_kbps {
+                if let Some(label) = resolve_lossy_family_quality("MP3", bitrate, profile) {
+                    return Some(label);
+                }
+            }
+            find_allowed_quality("MP3", profile)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_lossy_family_quality(
+    family: &str,
+    bitrate_kbps: u32,
+    profile: &QualityProfile,
+) -> Option<String> {
+    let family_prefix = format!("{} ", family);
+    let mut candidates: Vec<(u32, String)> = profile
+        .allowed_qualities
+        .iter()
+        .filter_map(|quality| {
+            let uppercase = quality.to_ascii_uppercase();
+            if !uppercase.starts_with(&family_prefix) {
+                return None;
+            }
+
+            let bitrate = quality
+                .split_whitespace()
+                .last()
+                .and_then(|value| value.parse::<u32>().ok())?;
+
+            Some((bitrate, quality.clone()))
+        })
+        .collect();
+
+    candidates.sort_by_key(|(bitrate, _)| *bitrate);
+    candidates
+        .into_iter()
+        .filter(|(candidate_bitrate, _)| *candidate_bitrate <= bitrate_kbps)
+        .max_by_key(|(candidate_bitrate, _)| *candidate_bitrate)
+        .map(|(_, label)| label)
+}
+
+fn find_allowed_quality(quality: &str, profile: &QualityProfile) -> Option<String> {
+    profile
+        .allowed_qualities
+        .iter()
+        .find(|candidate| candidate.eq_ignore_ascii_case(quality))
+        .cloned()
+}
+
 fn normalize_optional(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -421,6 +634,8 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chorrosion_domain::{ProfileId, TrackId};
+    use chrono::Utc;
 
     #[test]
     fn scan_audio_files_recursively_filters_supported_extensions() {
@@ -546,6 +761,164 @@ mod tests {
         assert!(matches!(
             result.decision,
             ImportDecision::NeedsReview { .. }
+        ));
+    }
+
+    fn test_profile() -> QualityProfile {
+        QualityProfile {
+            id: ProfileId::new(),
+            name: "Lossless Preferred".to_string(),
+            allowed_qualities: vec![
+                "MP3 128".to_string(),
+                "MP3 320".to_string(),
+                "FLAC".to_string(),
+            ],
+            upgrade_allowed: true,
+            cutoff_quality: Some("MP3 320".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn matched_metadata(path: &str, bitrate_kbps: Option<u32>) -> ParsedTrackMetadata {
+        ParsedTrackMetadata {
+            file_path: PathBuf::from(path),
+            artist: "Boards of Canada".to_string(),
+            album: "Music Has the Right to Children".to_string(),
+            title: "Roygbiv".to_string(),
+            duration_seconds: None,
+            bitrate_kbps,
+            source: MetadataSource::FilenameHeuristics,
+        }
+    }
+
+    fn matched_catalog() -> Vec<CatalogAlbum> {
+        vec![CatalogAlbum {
+            artist_id: ArtistId::new(),
+            album_id: AlbumId::new(),
+            artist_name: "Boards of Canada".to_string(),
+            album_title: "Music Has the Right to Children".to_string(),
+        }]
+    }
+
+    fn existing_track_file(
+        quality: Option<&str>,
+        codec: Option<&str>,
+        bitrate: Option<u32>,
+    ) -> TrackFile {
+        let now = Utc::now();
+        TrackFile {
+            id: Default::default(),
+            track_id: TrackId::new(),
+            path: "existing.flac".to_string(),
+            size_bytes: 1024,
+            duration_ms: None,
+            bitrate_kbps: bitrate,
+            channels: None,
+            codec: codec.map(str::to_string),
+            quality: quality.map(str::to_string),
+            hash: None,
+            fingerprint_hash: None,
+            fingerprint_duration: None,
+            fingerprint_computed_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn evaluate_import_match_with_existing_file_marks_upgrade_below_cutoff() {
+        let profile = test_profile();
+        let metadata = matched_metadata("candidate.flac", None);
+        let existing = existing_track_file(Some("MP3 128"), Some("mp3"), Some(128));
+
+        let result = evaluate_import_match_with_existing_file(
+            &metadata,
+            &matched_catalog(),
+            0.70,
+            0.80,
+            Some(&existing),
+            Some(&profile),
+        );
+
+        assert!(matches!(result.decision, ImportDecision::Import { .. }));
+        assert!(matches!(
+            result.existing_file_action,
+            ExistingFileAction::Upgrade {
+                reason: UpgradeReason::BelowCutoff,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn evaluate_import_match_with_existing_file_skips_duplicate_when_not_upgrade() {
+        let profile = test_profile();
+        let metadata = matched_metadata("candidate.mp3", Some(320));
+        let existing = existing_track_file(Some("MP3 320"), Some("mp3"), Some(320));
+
+        let result = evaluate_import_match_with_existing_file(
+            &metadata,
+            &matched_catalog(),
+            0.70,
+            0.80,
+            Some(&existing),
+            Some(&profile),
+        );
+
+        assert!(matches!(result.decision, ImportDecision::Skip { .. }));
+        assert!(matches!(
+            result.existing_file_action,
+            ExistingFileAction::Duplicate { .. }
+        ));
+    }
+
+    #[test]
+    fn evaluate_import_match_with_existing_file_requires_review_when_profile_missing() {
+        let metadata = matched_metadata("candidate.flac", None);
+        let existing = existing_track_file(Some("MP3 128"), Some("mp3"), Some(128));
+
+        let result = evaluate_import_match_with_existing_file(
+            &metadata,
+            &matched_catalog(),
+            0.70,
+            0.80,
+            Some(&existing),
+            None,
+        );
+
+        assert!(matches!(
+            result.decision,
+            ImportDecision::NeedsReview { .. }
+        ));
+        assert!(matches!(
+            result.existing_file_action,
+            ExistingFileAction::NeedsReview { .. }
+        ));
+    }
+
+    #[test]
+    fn evaluate_import_match_with_existing_file_requires_review_when_candidate_quality_unknown() {
+        let profile = test_profile();
+        let metadata = matched_metadata("candidate.ogg", None);
+        let existing = existing_track_file(Some("MP3 128"), Some("mp3"), Some(128));
+
+        let result = evaluate_import_match_with_existing_file(
+            &metadata,
+            &matched_catalog(),
+            0.70,
+            0.80,
+            Some(&existing),
+            Some(&profile),
+        );
+
+        assert!(matches!(
+            result.decision,
+            ImportDecision::NeedsReview { .. }
+        ));
+        assert!(matches!(
+            result.existing_file_action,
+            ExistingFileAction::NeedsReview { .. }
         ));
     }
 }
