@@ -708,14 +708,12 @@ mod tests {
         }
 
         #[test]
-        fn test_is_readable_returns_true_via_group_bits() -> io::Result<()> {
-            // A file readable by group/other but not owner-read-only (mode 0o044)
-            // should be considered readable when the OS grants access (e.g., the
-            // test process owns the file, so owner bits apply – set them here to
-            // confirm the attempt-based check reports true for readable files).
+        fn test_is_readable_returns_true_for_owner_readable_file() -> io::Result<()> {
+            // With mode 0o644 (owner read/write, group/other read), the owner
+            // process should be able to open the file; confirm the attempt-based
+            // check reports true.
             let file = NamedTempFile::new()?;
             let path = file.path().to_path_buf();
-            // 0o644: owner can read → readable
             chmod(&path, 0o644);
             let result = PermissionChecker::is_readable(&path).unwrap();
             assert!(result, "expected readable for mode 0o644");
