@@ -519,8 +519,12 @@ fn resolve_quality_from_codec_bitrate(
             find_allowed_quality("AAC", profile)
         }
         "mp3" => {
-            let bitrate = bitrate_kbps?;
-            resolve_lossy_family_quality("MP3", bitrate, profile)
+            if let Some(bitrate) = bitrate_kbps {
+                if let Some(label) = resolve_lossy_family_quality("MP3", bitrate, profile) {
+                    return Some(label);
+                }
+            }
+            find_allowed_quality("MP3", profile)
         }
         _ => None,
     }
@@ -630,7 +634,7 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chorrosion_domain::{ProfileId, QualityProfile, TrackFile, TrackId};
+    use chorrosion_domain::{ProfileId, TrackId};
     use chrono::Utc;
 
     #[test]
