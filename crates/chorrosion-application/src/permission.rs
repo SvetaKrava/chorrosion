@@ -24,11 +24,13 @@ use std::os::unix::fs::PermissionsExt;
 #[derive(Debug, Clone)]
 pub struct PermissionConfig {
     /// Default permission mode for files (Unix: 0o644 = rw-r--r--, default).
-    /// On Windows, this is ignored (ACLs are used instead).
+    /// On Windows, Unix mode bits are not fully applied, but the write bit is
+    /// interpreted to derive the readonly flag when permissions are set.
     pub file_mode: u32,
 
     /// Default permission mode for directories (Unix: 0o755 = rwxr-xr-x, default).
-    /// On Windows, this is ignored (ACLs are used instead).
+    /// On Windows, Unix mode bits are not fully applied, but the write bit is
+    /// interpreted to derive the readonly flag when permissions are set.
     pub dir_mode: u32,
 
     /// Whether to preserve original file permissions during copy/move.
@@ -79,7 +81,7 @@ pub enum PermissionError {
 
     /// Failed to set file permissions.
     #[error("failed to set file permissions: {0}")]
-    PermissionSetError(io::Error),
+    PermissionSetError(#[source] io::Error),
 }
 
 // ============================================================================
@@ -96,26 +98,39 @@ impl PermissionChecker {
         let path = path.as_ref();
         let metadata = fs::metadata(path)?;
 
-        #[cfg(unix)]
-        {
-            // On Unix, check if user has read permission
-            let permissions = metadata.permissions();
-            let mode = permissions.mode();
-            let is_readable = (mode & 0o400) != 0;
-            debug!(
-                "Unix readable check: mode={:o}, readable={}",
-                mode, is_readable
-            );
-            Ok(is_readable)
-        }
+        // Attempt the actual operation so the OS enforces all permission bits
+        // (owner, group, other) and ACLs rather than inspecting mode bits alone.
+        let access_result = if metadata.is_dir() {
+            fs::read_dir(path).map(|_| ())
+        } else {
+            fs::File::open(path).map(|_| ())
+        };
 
-        #[cfg(not(unix))]
-        {
-            let _ = (path, metadata);
-            // On Windows, check if file is readable (not a good direct check,
-            // so we rely on the OS treating it as readable by default)
-            debug!("Windows: assuming file is readable");
-            Ok(true)
+        match access_result {
+            Ok(()) => {
+                debug!(
+                    "Readable check succeeded via {} attempt",
+                    if metadata.is_dir() {
+                        "read_dir"
+                    } else {
+                        "open"
+                    }
+                );
+                Ok(true)
+            }
+            Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                debug!(
+                    "Readable check denied via {} attempt: {}",
+                    if metadata.is_dir() {
+                        "read_dir"
+                    } else {
+                        "open"
+                    },
+                    err
+                );
+                Ok(false)
+            }
+            Err(err) => Err(PermissionError::MetadataError(err)),
         }
     }
 
@@ -125,29 +140,49 @@ impl PermissionChecker {
         let path = path.as_ref();
         let metadata = fs::metadata(path)?;
 
-        #[cfg(unix)]
-        {
-            // On Unix, check if user has write permission
-            let permissions = metadata.permissions();
-            let mode = permissions.mode();
-            let is_writable = (mode & 0o200) != 0;
-            debug!(
-                "Unix writable check: mode={:o}, writable={}",
-                mode, is_writable
-            );
-            Ok(is_writable)
+        if metadata.is_dir() {
+            // For directories, checking write permission without side effects requires
+            // platform-specific handling.
+            #[cfg(unix)]
+            {
+                // On Unix, check owner/group/other write bits. Note: this does not
+                // account for ACLs, but there is no portable side-effect-free
+                // alternative without OS-specific APIs.
+                let mode = metadata.permissions().mode();
+                let is_writable = (mode & 0o222) != 0;
+                debug!(
+                    "Unix directory writable check: mode={:o}, writable={}",
+                    mode, is_writable
+                );
+                return Ok(is_writable);
+            }
+            #[cfg(not(unix))]
+            {
+                // On Windows, let the OS enforce ACLs via the readonly flag.
+                let is_writable = !metadata.permissions().readonly();
+                debug!(
+                    "Windows directory writable check: readonly={}, writable={}",
+                    metadata.permissions().readonly(),
+                    is_writable
+                );
+                return Ok(is_writable);
+            }
         }
 
-        #[cfg(not(unix))]
-        {
-            // On Windows, check the readonly flag
-            let is_writable = !metadata.permissions().readonly();
-            debug!(
-                "Windows readonly check: readonly={}, writable={}",
-                metadata.permissions().readonly(),
-                is_writable
-            );
-            Ok(is_writable)
+        // For regular files, attempt the actual write open so the OS enforces all
+        // permission bits (owner, group, other) and ACLs.
+        let access_result = fs::OpenOptions::new().write(true).open(path);
+
+        match access_result {
+            Ok(_) => {
+                debug!("File writable check succeeded via open attempt");
+                Ok(true)
+            }
+            Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                debug!("File writable check denied via open attempt: {}", err);
+                Ok(false)
+            }
+            Err(err) => Err(PermissionError::MetadataError(err)),
         }
     }
 
@@ -166,10 +201,13 @@ impl PermissionChecker {
 
         #[cfg(unix)]
         {
-            // On Unix, check if user has execute permission (to list/access directory)
-            let permissions = metadata.permissions();
-            let mode = permissions.mode();
-            let is_accessible = (mode & 0o100) != 0;
+            // On Unix, check all execute bits (owner, group, other).  Checking
+            // the full 0o111 mask is more accurate than inspecting only the
+            // owner bit (0o100), though it does not yet account for effective
+            // UID/GID vs. the file's UID/GID. A portable ACL-aware check would
+            // require libc::access(path, X_OK).
+            let mode = metadata.permissions().mode();
+            let is_accessible = (mode & 0o111) != 0;
             debug!(
                 "Unix accessible check: mode={:o}, accessible={}",
                 mode, is_accessible
@@ -179,9 +217,23 @@ impl PermissionChecker {
 
         #[cfg(not(unix))]
         {
-            // On Windows, assume directory is accessible if metadata was read successfully
-            debug!("Windows: assuming directory is accessible");
-            Ok(true)
+            // On Windows, attempt the actual read_dir operation so the OS
+            // enforces ACLs rather than always returning true.
+            let access_result = fs::read_dir(path).map(|_| ());
+            match access_result {
+                Ok(()) => {
+                    debug!("Windows accessible check succeeded via read_dir attempt");
+                    Ok(true)
+                }
+                Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                    debug!(
+                        "Windows accessible check denied via read_dir attempt: {}",
+                        err
+                    );
+                    Ok(false)
+                }
+                Err(err) => Err(PermissionError::MetadataError(err)),
+            }
         }
     }
 
@@ -287,7 +339,10 @@ impl PermissionManager {
     ///
     /// Copies the permissions from `src` and applies them to `dst`.
     #[instrument(skip_all, fields(src = ?src.as_ref(), dst = ?dst.as_ref()))]
-    pub fn preserve_permissions<P: AsRef<Path>>(src: P, dst: P) -> Result<(), PermissionError> {
+    pub fn preserve_permissions<S: AsRef<Path>, D: AsRef<Path>>(
+        src: S,
+        dst: D,
+    ) -> Result<(), PermissionError> {
         let src = src.as_ref();
         let dst = dst.as_ref();
 
@@ -338,9 +393,9 @@ impl PermissionManager {
     /// If `preserve_permissions` is enabled, copies from source.
     /// Otherwise, applies default modes from configuration.
     #[instrument(skip_all, fields(src = ?src.as_ref(), dst = ?dst.as_ref()))]
-    pub fn apply_permissions<P: AsRef<Path>>(
-        src: P,
-        dst: P,
+    pub fn apply_permissions<S: AsRef<Path>, D: AsRef<Path>>(
+        src: S,
+        dst: D,
         config: &PermissionConfig,
     ) -> Result<(), PermissionError> {
         let src = src.as_ref();
@@ -561,6 +616,110 @@ mod tests {
         {
             assert_eq!(config.file_mode, 0o644);
             assert_eq!(config.dir_mode, 0o755);
+        }
+    }
+
+    #[cfg(unix)]
+    mod unix_permission_denied {
+        use super::*;
+        use tempfile::NamedTempFile;
+
+        /// Set Unix mode bits on a path.
+        fn chmod(path: &std::path::Path, mode: u32) {
+            let perms = std::fs::Permissions::from_mode(mode);
+            fs::set_permissions(path, perms).expect("chmod failed");
+        }
+
+        #[test]
+        fn test_is_readable_returns_false_for_no_read_bit_file() -> io::Result<()> {
+            let file = NamedTempFile::new()?;
+            let path = file.path().to_path_buf();
+            chmod(&path, 0o000);
+            let result = PermissionChecker::is_readable(&path);
+            // Restore before asserting so the file can be cleaned up
+            chmod(&path, 0o644);
+            assert!(!result.unwrap(), "expected not readable for mode 0o000");
+            Ok(())
+        }
+
+        #[test]
+        fn test_check_readable_returns_read_denied_for_no_read_bit_file() -> io::Result<()> {
+            let file = NamedTempFile::new()?;
+            let path = file.path().to_path_buf();
+            chmod(&path, 0o000);
+            let result = PermissionChecker::check_readable(&path);
+            chmod(&path, 0o644);
+            assert!(
+                matches!(result, Err(PermissionError::ReadDenied(_))),
+                "expected ReadDenied, got {:?}",
+                result
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_is_writable_returns_false_for_no_write_bit_file() -> io::Result<()> {
+            let file = NamedTempFile::new()?;
+            let path = file.path().to_path_buf();
+            chmod(&path, 0o444);
+            let result = PermissionChecker::is_writable(&path);
+            chmod(&path, 0o644);
+            assert!(!result.unwrap(), "expected not writable for mode 0o444");
+            Ok(())
+        }
+
+        #[test]
+        fn test_check_writable_returns_write_denied_for_readonly_file() -> io::Result<()> {
+            let file = NamedTempFile::new()?;
+            let path = file.path().to_path_buf();
+            chmod(&path, 0o444);
+            let result = PermissionChecker::check_writable(&path);
+            chmod(&path, 0o644);
+            assert!(
+                matches!(result, Err(PermissionError::WriteDenied(_))),
+                "expected WriteDenied, got {:?}",
+                result
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_is_accessible_returns_false_for_no_execute_bit_dir() -> io::Result<()> {
+            let dir = tempfile::tempdir()?;
+            chmod(dir.path(), 0o600);
+            let result = PermissionChecker::is_accessible(dir.path());
+            chmod(dir.path(), 0o755);
+            assert!(!result.unwrap(), "expected not accessible for mode 0o600");
+            Ok(())
+        }
+
+        #[test]
+        fn test_check_accessible_returns_execute_denied_for_no_execute_bit_dir() -> io::Result<()> {
+            let dir = tempfile::tempdir()?;
+            chmod(dir.path(), 0o600);
+            let result = PermissionChecker::check_accessible(dir.path());
+            chmod(dir.path(), 0o755);
+            assert!(
+                matches!(result, Err(PermissionError::ExecuteDenied(_))),
+                "expected ExecuteDenied, got {:?}",
+                result
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_is_readable_returns_true_via_group_bits() -> io::Result<()> {
+            // A file readable by group/other but not owner-read-only (mode 0o044)
+            // should be considered readable when the OS grants access (e.g., the
+            // test process owns the file, so owner bits apply – set them here to
+            // confirm the attempt-based check reports true for readable files).
+            let file = NamedTempFile::new()?;
+            let path = file.path().to_path_buf();
+            // 0o644: owner can read → readable
+            chmod(&path, 0o644);
+            let result = PermissionChecker::is_readable(&path).unwrap();
+            assert!(result, "expected readable for mode 0o644");
+            Ok(())
         }
     }
 }

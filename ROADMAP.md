@@ -258,7 +258,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] File operations (Issue #35, PR #156, PR #158) ✓ PARTIALLY COMPLETE
   - [x] Copy vs. move logic (Issue #35, PR #156, PR #158) ✓
   - [x] Hard link support (Issue #35, PR #156, PR #158) ✓
-  - [x] Permission handling (Issue #337) ✓
+  - [ ] Permission handling (Issue #337) — utilities added; wiring into file operation paths pending
 
 ### 5.3 Quality Management
 
