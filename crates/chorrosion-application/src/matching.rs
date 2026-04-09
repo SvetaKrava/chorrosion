@@ -187,7 +187,8 @@ impl TrackMatchingService {
         let mut failures = Vec::new();
 
         for track_file in track_files {
-            match self.match_track(track_file, min_confidence).await {
+            let match_attempt = self.match_track(track_file, min_confidence).await;
+            match match_attempt {
                 Ok(result) => {
                     successes.push((track_file.id, result));
                 }

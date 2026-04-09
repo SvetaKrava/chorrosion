@@ -332,11 +332,11 @@ impl Job for LastFmMetadataRefreshJob {
             let artist = artist.clone();
             set.spawn(async move {
                 let _permit = permit;
-                client
-                    .fetch_artist_metadata(&artist)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| (artist, e.to_string()))
+                let fetch_result = client.fetch_artist_metadata(&artist).await;
+                match fetch_result {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err((artist, e.to_string())),
+                }
             });
         }
 
@@ -349,16 +349,20 @@ impl Job for LastFmMetadataRefreshJob {
             let seed = seed.clone();
             set.spawn(async move {
                 let _permit = permit;
-                client
-                    .fetch_album_metadata(&seed.artist, &seed.album)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| (format!("{}/{}", seed.artist, seed.album), e.to_string()))
+                let fetch_result = client.fetch_album_metadata(&seed.artist, &seed.album).await;
+                match fetch_result {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err((format!("{}/{}", seed.artist, seed.album), e.to_string())),
+                }
             });
         }
 
         let mut failures = 0usize;
-        while let Some(result) = set.join_next().await {
+        loop {
+            let joined = set.join_next().await;
+            let Some(result) = joined else {
+                break;
+            };
             match result {
                 Ok(Ok(())) => {}
                 Ok(Err((name, error))) => {
@@ -506,11 +510,11 @@ impl Job for DiscogsMetadataRefreshJob {
             let artist = artist.clone();
             set.spawn(async move {
                 let _permit = permit;
-                client
-                    .fetch_artist_metadata(&artist)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| (artist, e.to_string()))
+                let fetch_result = client.fetch_artist_metadata(&artist).await;
+                match fetch_result {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err((artist, e.to_string())),
+                }
             });
         }
 
@@ -523,15 +527,19 @@ impl Job for DiscogsMetadataRefreshJob {
             let seed = seed.clone();
             set.spawn(async move {
                 let _permit = permit;
-                client
-                    .fetch_album_metadata(&seed.artist, &seed.album)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| (format!("{}/{}", seed.artist, seed.album), e.to_string()))
+                let fetch_result = client.fetch_album_metadata(&seed.artist, &seed.album).await;
+                match fetch_result {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err((format!("{}/{}", seed.artist, seed.album), e.to_string())),
+                }
             });
         }
 
-        while let Some(result) = set.join_next().await {
+        loop {
+            let joined = set.join_next().await;
+            let Some(result) = joined else {
+                break;
+            };
             match result {
                 Ok(Ok(())) => {}
                 Ok(Err((name, error))) => {

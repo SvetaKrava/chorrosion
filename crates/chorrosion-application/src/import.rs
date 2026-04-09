@@ -208,7 +208,11 @@ impl FileImportService {
             );
         }
 
-        while let Some(result) = set.join_next().await {
+        loop {
+            let joined = set.join_next().await;
+            let Some(result) = joined else {
+                break;
+            };
             match result {
                 Ok((_path, Ok(imported))) => successes.push(imported),
                 Ok((path, Err(error))) => failures.push((path, error)),

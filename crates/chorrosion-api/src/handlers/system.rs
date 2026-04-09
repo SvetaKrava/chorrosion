@@ -327,7 +327,8 @@ pub async fn post_system_notifications_test(State(state): State<AppState>) -> im
 
     let pipeline = NotificationPipeline::from_config(&state.config);
     let event = NotificationEvent::test();
-    match pipeline.dispatch(&event).await {
+    let dispatch_result = pipeline.dispatch(&event).await;
+    match dispatch_result {
         Ok(dispatched) => (
             StatusCode::ACCEPTED,
             Json(NotificationTestResponse {

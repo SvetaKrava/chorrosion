@@ -106,7 +106,8 @@ async fn test_fetch_album_artwork_handles_http_error() {
     let result = client.fetch_album_artwork("release-group-mbid-error").await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
+    let err = result.expect_err("album artwork lookup should fail for HTTP 429");
+    match err {
         FanartTvError::HttpStatus { status, body } => {
             assert_eq!(status.as_u16(), 429);
             assert!(body.contains("rate limited"));
@@ -132,5 +133,6 @@ async fn test_fetch_artist_artwork_handles_api_error() {
     let result = client.fetch_artist_artwork("artist-mbid-error").await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), FanartTvError::Api { .. }));
+    let err = result.expect_err("artist artwork lookup should fail for API error payload");
+    assert!(matches!(err, FanartTvError::Api { .. }));
 }

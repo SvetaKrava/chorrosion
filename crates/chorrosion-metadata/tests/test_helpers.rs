@@ -8,7 +8,8 @@ pub async fn wait_for_mock_server_ready(url: &str, timeout_secs: u64) {
     let client = reqwest::Client::new();
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     while std::time::Instant::now() < deadline {
-        match client.get(url).send().await {
+        let response = client.get(url).send().await;
+        match response {
             Ok(resp) if resp.status().is_success() => return,
             _ => tokio::time::sleep(Duration::from_millis(200)).await,
         }

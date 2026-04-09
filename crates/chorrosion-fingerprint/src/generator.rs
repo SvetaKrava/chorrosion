@@ -508,8 +508,8 @@ mod tests {
 
     #[test]
     fn test_generator_creation() {
-        let gen = FingerprintGenerator::new();
-        assert_eq!(std::mem::size_of_val(&gen), 0);
+        let generator = FingerprintGenerator::new();
+        assert_eq!(std::mem::size_of_val(&generator), 0);
 
         let gen2 = FingerprintGenerator;
         assert_eq!(std::mem::size_of_val(&gen2), 0);
@@ -543,8 +543,10 @@ mod tests {
     #[tokio::test]
     async fn test_ffmpeg_decoding_integration() {
         // Example: test with OGG Vorbis file
-        let gen = FingerprintGenerator::new();
-        let _result = gen.extract_ffmpeg_samples("test_audio.ogg", "ogg").await;
+        let generator = FingerprintGenerator::new();
+        let _result = generator
+            .extract_ffmpeg_samples("test_audio.ogg", "ogg")
+            .await;
 
         // When implemented with test audio:
         // assert!(_result.is_ok());
@@ -561,8 +563,8 @@ mod tests {
     #[cfg(feature = "ffmpeg-support")]
     #[tokio::test]
     async fn test_ffmpeg_missing_file_error() {
-        let gen = FingerprintGenerator::new();
-        let result = gen
+        let generator = FingerprintGenerator::new();
+        let result = generator
             .extract_ffmpeg_samples("nonexistent_file.ogg", "ogg")
             .await;
 

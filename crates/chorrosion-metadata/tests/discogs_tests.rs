@@ -151,7 +151,8 @@ async fn test_fetch_artist_metadata_handles_http_error() {
     let result = client.fetch_artist_metadata("Nirvana").await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
+    let err = result.expect_err("artist metadata lookup should fail for HTTP 429");
+    match err {
         DiscogsError::HttpStatus { status, body } => {
             assert_eq!(status.as_u16(), 429);
             assert!(body.contains("rate limited"));
@@ -176,10 +177,8 @@ async fn test_fetch_artist_metadata_empty_search_results() {
     let result = client.fetch_artist_metadata("Unknown Artist").await;
 
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        DiscogsError::MissingField("results[0]")
-    ));
+    let err = result.expect_err("artist metadata lookup should fail with empty results");
+    assert!(matches!(err, DiscogsError::MissingField("results[0]")));
 }
 
 #[tokio::test]
@@ -198,10 +197,8 @@ async fn test_fetch_artist_metadata_missing_id_in_result() {
     let result = client.fetch_artist_metadata("Some Artist").await;
 
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        DiscogsError::MissingField("results[0].id")
-    ));
+    let err = result.expect_err("artist metadata lookup should fail when id is missing");
+    assert!(matches!(err, DiscogsError::MissingField("results[0].id")));
 }
 
 #[tokio::test]
@@ -220,7 +217,8 @@ async fn test_fetch_artist_metadata_discogs_api_error_message() {
     let result = client.fetch_artist_metadata("Any Artist").await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), DiscogsError::Api { .. }));
+    let err = result.expect_err("artist metadata lookup should fail with Discogs API message");
+    assert!(matches!(err, DiscogsError::Api { .. }));
 }
 
 #[tokio::test]

@@ -364,7 +364,8 @@ impl ListProvider for SpotifyPlaylistListProvider {
 
         let mut entries = Vec::new();
         for playlist_id in &self.playlist_ids {
-            match self.fetch_playlist_tracks(playlist_id).await {
+            let playlist_tracks = self.fetch_playlist_tracks(playlist_id).await;
+            match playlist_tracks {
                 Ok(items) => {
                     for item in items {
                         let Some(track) = item.track else {
@@ -411,7 +412,8 @@ impl ListProvider for SpotifyPlaylistListProvider {
 
         let mut entries = Vec::new();
         for playlist_id in &self.playlist_ids {
-            match self.fetch_playlist_tracks(playlist_id).await {
+            let playlist_tracks = self.fetch_playlist_tracks(playlist_id).await;
+            match playlist_tracks {
                 Ok(items) => {
                     for item in items {
                         let Some(track) = item.track else {
@@ -545,7 +547,8 @@ impl ListProvider for MusicBrainzListProvider {
 
         let mut entries = Vec::with_capacity(self.artist_mbids.len());
         for mbid in &self.artist_mbids {
-            match self.client.lookup_artist(*mbid).await {
+            let artist_result = self.client.lookup_artist(*mbid).await;
+            match artist_result {
                 Ok(artist) => entries.push(ExternalListEntry {
                     entity_type: ListEntityType::Artist,
                     external_id: artist.id.to_string(),
@@ -575,7 +578,8 @@ impl ListProvider for MusicBrainzListProvider {
 
         let mut entries = Vec::with_capacity(self.album_mbids.len());
         for mbid in &self.album_mbids {
-            match self.client.lookup_album(*mbid).await {
+            let album_result = self.client.lookup_album(*mbid).await;
+            match album_result {
                 Ok(album) => {
                     let artist_name = album.artist_credit.first().map(|ac| ac.name.clone());
                     entries.push(ExternalListEntry {
@@ -696,7 +700,8 @@ impl ListProvider for LastFmListProvider {
         let client = self.client.as_ref().unwrap();
         let mut entries = Vec::with_capacity(self.artist_names.len());
         for artist in &self.artist_names {
-            match client.fetch_artist_metadata(artist).await {
+            let artist_metadata = client.fetch_artist_metadata(artist).await;
+            match artist_metadata {
                 Ok(meta) => {
                     entries.push(ExternalListEntry {
                         entity_type: ListEntityType::Artist,
@@ -730,7 +735,8 @@ impl ListProvider for LastFmListProvider {
         let client = self.client.as_ref().unwrap();
         let mut entries = Vec::with_capacity(self.album_seeds.len());
         for (artist, album) in &self.album_seeds {
-            match client.fetch_album_metadata(artist, album).await {
+            let album_metadata = client.fetch_album_metadata(artist, album).await;
+            match album_metadata {
                 Ok(meta) => {
                     entries.push(ExternalListEntry {
                         entity_type: ListEntityType::Album,
