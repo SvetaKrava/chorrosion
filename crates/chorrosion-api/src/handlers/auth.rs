@@ -25,9 +25,12 @@ struct ApiKeyRecord {
     last_used_at: Option<chrono::DateTime<Utc>>,
 }
 
+const SESSION_TTL_SECONDS: i64 = 86_400;
+
 #[derive(Debug, Clone)]
 struct FormSessionRecord {
     token: String,
+    created_at: chrono::DateTime<Utc>,
     last_used_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -143,14 +146,24 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
 }
 
 fn build_form_session_cookie(token: &str) -> String {
-    format!("chorrosion_session={token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400")
+    format!(
+        "chorrosion_session={token}; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age={SESSION_TTL_SECONDS}"
+    )
 }
 
 fn clear_form_session_cookie() -> &'static str {
-    "chorrosion_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
+    "chorrosion_session=; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=0"
 }
 
+/// Matches the middleware's credential comparison including the same `MAX_CREDENTIAL_BYTES`
+/// truncation so both auth paths behave consistently for long credentials.
+const MAX_CREDENTIAL_BYTES: usize = 256;
+
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    // Truncate to cap allocation/CPU work on attacker-controlled input.
+    let a = &a[..a.len().min(MAX_CREDENTIAL_BYTES)];
+    let b = &b[..b.len().min(MAX_CREDENTIAL_BYTES)];
+
     let target_len = b.len().max(1);
     let mut pa = vec![0u8; target_len];
     let mut pb = vec![0u8; target_len];
@@ -179,19 +192,35 @@ pub(crate) fn extract_form_session_token(headers: &HeaderMap) -> Option<String> 
 }
 
 pub(crate) async fn validate_form_session_and_touch(token: &str) -> bool {
+    let now = Utc::now();
     {
         let store = form_session_store().read().await;
-        if !store.iter().any(|r| r.token == token) {
-            return false;
+        match store.iter().find(|r| r.token == token) {
+            None => return false,
+            Some(record) => {
+                // Reject sessions that have exceeded SESSION_TTL_SECONDS.
+                let age_secs = now.signed_duration_since(record.created_at).num_seconds();
+                if age_secs >= SESSION_TTL_SECONDS {
+                    // Will be evicted on the write-lock pass below.
+                    drop(store);
+                    form_session_store()
+                        .write()
+                        .await
+                        .retain(|r| r.token != token);
+                    return false;
+                }
+            }
         }
     }
 
-    let now = Utc::now();
     let mut store = form_session_store().write().await;
+    // Prune any other sessions that have expired while we hold the write lock.
+    store.retain(|r| now.signed_duration_since(r.created_at).num_seconds() < SESSION_TTL_SECONDS);
     if let Some(record) = store.iter_mut().find(|r| r.token == token) {
         record.last_used_at = Some(now);
         true
     } else {
+        // Key was removed between the read-lock check and here (TOCTOU).
         false
     }
 }
@@ -276,6 +305,7 @@ pub async fn forms_login(
     let token = format!("cs_{}", Uuid::new_v4());
     let record = FormSessionRecord {
         token: token.clone(),
+        created_at: Utc::now(),
         last_used_at: None,
     };
     form_session_store().write().await.push(record);
@@ -432,6 +462,12 @@ mod tests {
         api_key_store().write().await.clear();
     }
 
+    async fn reset_form_sessions() {
+        if let Some(store) = FORM_SESSIONS.get() {
+            store.write().await.clear();
+        }
+    }
+
     async fn make_test_state() -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
@@ -530,6 +566,7 @@ mod tests {
     async fn forms_login_and_logout_lifecycle() {
         let _lock = test_mutex().lock().await;
         reset_store().await;
+        reset_form_sessions().await;
 
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());
@@ -577,6 +614,7 @@ mod tests {
     async fn forms_login_rejects_invalid_credentials() {
         let _lock = test_mutex().lock().await;
         reset_store().await;
+        reset_form_sessions().await;
 
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());

@@ -155,7 +155,11 @@ pub async fn auth_middleware(
         return unauthorized().await.into_response();
     }
 
-    debug!(target: "auth", %path, "missing API key or bearer token");
+    debug!(
+        target: "auth",
+        %path,
+        "missing authentication credentials (expected Basic auth, API key, or forms session cookie)"
+    );
     unauthorized().await.into_response()
 }
 
