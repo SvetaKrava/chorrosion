@@ -9,7 +9,7 @@ default = []
 postgres = ["sqlx/postgres", "chorrosion-infrastructure/postgres"]
 
 [dependencies]
-axum = { workspace = true }
+axum = { workspace = true, features = ["form"] }
 bytes = "1"
 chorrosion-application = { path = "../chorrosion-application" }
 chorrosion-domain = { path = "../chorrosion-domain" }

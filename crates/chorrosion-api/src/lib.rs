@@ -36,9 +36,11 @@ use handlers::artists::{
     __path_get_artist, __path_get_artist_statistics, __path_list_artists, __path_update_artist,
 };
 use handlers::auth::{
-    create_api_key, delete_api_key, list_api_keys, ApiKeyMetadataResponse, ApiKeyResponse,
-    AuthErrorResponse, CreateApiKeyRequest, DeleteApiKeyResponse, ListApiKeysResponse,
-    __path_create_api_key, __path_delete_api_key, __path_list_api_keys,
+    create_api_key, delete_api_key, forms_login, forms_logout, list_api_keys,
+    ApiKeyMetadataResponse, ApiKeyResponse, AuthErrorResponse, CreateApiKeyRequest,
+    DeleteApiKeyResponse, FormsLoginRequest, FormsLoginResponse, FormsLogoutResponse,
+    ListApiKeysResponse, __path_create_api_key, __path_delete_api_key, __path_forms_login,
+    __path_forms_logout, __path_list_api_keys,
 };
 use handlers::calendar::{
     get_ical_feed, list_upcoming_releases, CalendarAlbumResponse, CalendarErrorResponse,
@@ -226,6 +228,8 @@ async fn metrics() -> axum::response::Response {
         list_api_keys,
         create_api_key,
         delete_api_key,
+        forms_login,
+        forms_logout,
         list_artists,
         get_artist,
         get_artist_statistics,
@@ -298,6 +302,9 @@ async fn metrics() -> axum::response::Response {
             CreateApiKeyRequest,
             DeleteApiKeyResponse,
             AuthErrorResponse,
+            FormsLoginRequest,
+            FormsLoginResponse,
+            FormsLogoutResponse,
             BroadcastEventRequest,
             BroadcastEventResponse,
             ListArtistsResponse,
@@ -390,6 +397,8 @@ pub fn router(state: AppState) -> Router {
     let api_v1 = Router::new()
         .route("/auth/api-keys", get(list_api_keys).post(create_api_key))
         .route("/auth/api-keys/:id", axum::routing::delete(delete_api_key))
+        .route("/auth/forms/login", post(forms_login))
+        .route("/auth/forms/logout", post(forms_logout))
         .route("/artists", get(list_artists).post(create_artist))
         .route(
             "/artists/:id",
