@@ -26,6 +26,7 @@ lazy_static = "1.4"
 quick-xml = { version = "0.37", features = ["serialize"] }
 reqwest = { workspace = true }
 lofty = "0.21"
+unicode-normalization = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

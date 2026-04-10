@@ -278,7 +278,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Vorbis Comments (FLAC/OGG): tags + embedded pictures + fingerprint (Issue #36, PR #165, PR #166) ✓
   - [x] MP4/M4A atoms: tags + cover art (`covr`) + fingerprint (Issue #36, PR #165, PR #166) ✓
   - [x] Safe, atomic writes with backup/rollback on failure (Issue #36, PR #160, PR #161) ✓
-  - [ ] Charset/normalization handling and tag sanitation
+  - [x] Charset/normalization handling and tag sanitation (Issue #339) ✓
   - [x] Configurable per profile (enable/disable, overwrite rules) (Issue #36, PR #160) ✓
   - [ ] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh
   - [x] Read-only tag mode that never modifies source files (Issue #36, PR #160) ✓

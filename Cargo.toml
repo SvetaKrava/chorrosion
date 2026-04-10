@@ -35,3 +35,4 @@ reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream", "r
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 async-trait = "0.1"
+unicode-normalization = "0.1"
