@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::handlers::auth::{api_key_count, validate_api_key_and_touch};
+use crate::handlers::auth::{
+    api_key_count, extract_form_session_token, validate_api_key_and_touch,
+    validate_form_session_and_touch,
+};
 use crate::API_V1_BASE;
 use axum::{
     extract::{Request, State},
@@ -10,6 +13,10 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use subtle::ConstantTimeEq;
 use tracing::debug;
+
+fn path_matches(path: &str, route: &str) -> bool {
+    path == route || path.strip_prefix(API_V1_BASE) == Some(route)
+}
 
 fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
     if let Some(api_key) = headers.get("X-Api-Key") {
@@ -102,11 +109,15 @@ pub async fn auth_middleware(
 
     // Bootstrap bypass: allow POST /api/v1/auth/api-keys only when no keys exist yet,
     // so the first key can be created without requiring prior authentication.
-    if method == Method::POST
-        && path.strip_prefix(API_V1_BASE) == Some("/auth/api-keys")
-        && api_key_count().await == 0
+    if method == Method::POST && path_matches(&path, "/auth/api-keys") && api_key_count().await == 0
     {
         debug!(target: "auth", %path, "auth bootstrap: no keys exist, allowing first key creation");
+        return next.run(request).await;
+    }
+
+    // Forms-login bypass: allow POST /api/v1/auth/forms/login without prior auth.
+    if method == Method::POST && path_matches(&path, "/auth/forms/login") {
+        debug!(target: "auth", %path, "auth forms-login bypass");
         return next.run(request).await;
     }
 
@@ -135,7 +146,20 @@ pub async fn auth_middleware(
         return unauthorized().await.into_response();
     }
 
-    debug!(target: "auth", %path, "missing API key or bearer token");
+    if let Some(token) = extract_form_session_token(request.headers()) {
+        if validate_form_session_and_touch(&token).await {
+            debug!(target: "auth", %path, "forms session authentication successful");
+            return next.run(request).await;
+        }
+        debug!(target: "auth", %path, "forms session authentication failed");
+        return unauthorized().await.into_response();
+    }
+
+    debug!(
+        target: "auth",
+        %path,
+        "missing authentication credentials (expected Basic auth, API key, or forms session cookie)"
+    );
     unauthorized().await.into_response()
 }
 
@@ -147,7 +171,8 @@ pub async fn unauthorized() -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        constant_time_eq, extract_api_key, extract_basic_credentials, MAX_CREDENTIAL_BYTES,
+        constant_time_eq, extract_api_key, extract_basic_credentials, extract_form_session_token,
+        validate_form_session_and_touch, MAX_CREDENTIAL_BYTES,
     };
     use axum::{
         body::Body,
@@ -351,6 +376,83 @@ mod tests {
         let request = Request::builder()
             .uri("/api/v1/system/status")
             .method("GET")
+            .body(Body::empty())
+            .expect("request");
+
+        let response = app.oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn middleware_allows_valid_forms_session_cookie_when_configured() {
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state);
+        let login_request = Request::builder()
+            .uri("/api/v1/auth/forms/login")
+            .method("POST")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(Body::from("username=user&password=pass"))
+            .expect("login request");
+
+        let login_response = app
+            .clone()
+            .oneshot(login_request)
+            .await
+            .expect("login response");
+        assert_eq!(login_response.status(), StatusCode::OK);
+        let set_cookie = login_response
+            .headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .expect("set-cookie should exist");
+        let cookie_pair = set_cookie
+            .split(';')
+            .next()
+            .expect("cookie pair should exist");
+
+        let mut cookie_headers = HeaderMap::new();
+        cookie_headers.insert(
+            "Cookie",
+            HeaderValue::from_str(cookie_pair).expect("cookie"),
+        );
+        let token = extract_form_session_token(&cookie_headers).expect("token from cookie");
+        assert!(
+            validate_form_session_and_touch(&token).await,
+            "token from login should exist in session store"
+        );
+
+        let request = Request::builder()
+            .uri("/api/v1/system/status")
+            .method("GET")
+            .header("Cookie", cookie_pair)
+            .body(Body::empty())
+            .expect("request");
+
+        assert_eq!(
+            extract_form_session_token(request.headers()).as_deref(),
+            Some(token.as_str())
+        );
+
+        let response = app.oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_invalid_forms_session_cookie() {
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state);
+        let request = Request::builder()
+            .uri("/api/v1/system/status")
+            .method("GET")
+            .header("Cookie", "chorrosion_session=invalid")
             .body(Body::empty())
             .expect("request");
 

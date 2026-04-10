@@ -2,12 +2,15 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
+    http::{header, HeaderMap},
+    response::AppendHeaders,
+    Form, Json,
 };
 use chorrosion_application::AppState;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 use tracing::debug;
 use utoipa::ToSchema;
@@ -22,10 +25,24 @@ struct ApiKeyRecord {
     last_used_at: Option<chrono::DateTime<Utc>>,
 }
 
+const SESSION_TTL_SECONDS: i64 = 86_400;
+
+#[derive(Debug, Clone)]
+struct FormSessionRecord {
+    token: String,
+    created_at: chrono::DateTime<Utc>,
+    last_used_at: Option<chrono::DateTime<Utc>>,
+}
+
 static API_KEYS: OnceLock<RwLock<Vec<ApiKeyRecord>>> = OnceLock::new();
+static FORM_SESSIONS: OnceLock<RwLock<Vec<FormSessionRecord>>> = OnceLock::new();
 
 fn api_key_store() -> &'static RwLock<Vec<ApiKeyRecord>> {
     API_KEYS.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+fn form_session_store() -> &'static RwLock<Vec<FormSessionRecord>> {
+    FORM_SESSIONS.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -65,6 +82,23 @@ pub struct ListApiKeysResponse {
 pub struct DeleteApiKeyResponse {
     pub deleted: bool,
     pub id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct FormsLoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FormsLoginResponse {
+    pub authenticated: bool,
+    pub username: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FormsLogoutResponse {
+    pub logged_out: bool,
 }
 
 fn key_prefix(key: &str) -> String {
@@ -109,6 +143,208 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
         // Key was removed between the read-lock check and here (TOCTOU).
         false
     }
+}
+
+fn build_form_session_cookie(token: &str) -> String {
+    format!(
+        "chorrosion_session={token}; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age={SESSION_TTL_SECONDS}"
+    )
+}
+
+fn clear_form_session_cookie() -> &'static str {
+    "chorrosion_session=; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=0"
+}
+
+/// Matches the middleware's credential comparison including the same `MAX_CREDENTIAL_BYTES`
+/// truncation so both auth paths behave consistently for long credentials.
+const MAX_CREDENTIAL_BYTES: usize = 256;
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    // Truncate to cap allocation/CPU work on attacker-controlled input.
+    let a = &a[..a.len().min(MAX_CREDENTIAL_BYTES)];
+    let b = &b[..b.len().min(MAX_CREDENTIAL_BYTES)];
+
+    let target_len = b.len().max(1);
+    let mut pa = vec![0u8; target_len];
+    let mut pb = vec![0u8; target_len];
+    let a_copy_len = a.len().min(target_len);
+    pa[..a_copy_len].copy_from_slice(&a[..a_copy_len]);
+    pb[..b.len()].copy_from_slice(b);
+
+    let lengths_equal = subtle::Choice::from((a.len() == b.len()) as u8);
+    let contents_equal = pa.ct_eq(&pb);
+    bool::from(lengths_equal & contents_equal)
+}
+
+pub(crate) fn extract_form_session_token(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(header::COOKIE)?;
+    let raw = cookie_header.to_str().ok()?;
+    for part in raw.split(';') {
+        let trimmed = part.trim();
+        if let Some(token) = trimmed.strip_prefix("chorrosion_session=") {
+            let token = token.trim();
+            if !token.is_empty() {
+                return Some(token.to_string());
+            }
+        }
+    }
+    None
+}
+
+pub(crate) async fn validate_form_session_and_touch(token: &str) -> bool {
+    let now = Utc::now();
+    {
+        let store = form_session_store().read().await;
+        match store.iter().find(|r| r.token == token) {
+            None => return false,
+            Some(record) => {
+                // Reject sessions that have exceeded SESSION_TTL_SECONDS.
+                let age_secs = now.signed_duration_since(record.created_at).num_seconds();
+                if age_secs >= SESSION_TTL_SECONDS {
+                    // Will be evicted on the write-lock pass below.
+                    drop(store);
+                    form_session_store()
+                        .write()
+                        .await
+                        .retain(|r| r.token != token);
+                    return false;
+                }
+            }
+        }
+    }
+
+    let mut store = form_session_store().write().await;
+    // Prune any other sessions that have expired while we hold the write lock.
+    store.retain(|r| now.signed_duration_since(r.created_at).num_seconds() < SESSION_TTL_SECONDS);
+    if let Some(record) = store.iter_mut().find(|r| r.token == token) {
+        record.last_used_at = Some(now);
+        true
+    } else {
+        // Key was removed between the read-lock check and here (TOCTOU).
+        false
+    }
+}
+
+pub(crate) async fn revoke_form_session(token: &str) -> bool {
+    let mut store = form_session_store().write().await;
+    let before = store.len();
+    store.retain(|record| record.token != token);
+    store.len() != before
+}
+
+fn forms_auth_configured(state: &AppState) -> bool {
+    state
+        .config
+        .auth
+        .basic_username
+        .as_ref()
+        .is_some_and(|v| !v.trim().is_empty())
+        && state
+            .config
+            .auth
+            .basic_password
+            .as_ref()
+            .is_some_and(|v| !v.trim().is_empty())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/forms/login",
+    request_body(content = FormsLoginRequest, content_type = "application/x-www-form-urlencoded"),
+    responses(
+        (status = 200, description = "Forms login successful", body = FormsLoginResponse),
+        (status = 401, description = "Invalid credentials", body = AuthErrorResponse),
+        (status = 503, description = "Forms auth not configured", body = AuthErrorResponse)
+    ),
+    security(()),
+    tag = "auth"
+)]
+pub async fn forms_login(
+    State(state): State<AppState>,
+    Form(request): Form<FormsLoginRequest>,
+) -> Result<
+    (
+        AppendHeaders<[(header::HeaderName, String); 1]>,
+        Json<FormsLoginResponse>,
+    ),
+    (StatusCode, Json<AuthErrorResponse>),
+> {
+    if !forms_auth_configured(&state) {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AuthErrorResponse {
+                error: "forms authentication is not configured".to_string(),
+            }),
+        ));
+    }
+
+    let expected_username = state
+        .config
+        .auth
+        .basic_username
+        .as_deref()
+        .unwrap_or_default();
+    let expected_password = state
+        .config
+        .auth
+        .basic_password
+        .as_deref()
+        .unwrap_or_default();
+
+    if !constant_time_eq(request.username.as_bytes(), expected_username.as_bytes())
+        || !constant_time_eq(request.password.as_bytes(), expected_password.as_bytes())
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(AuthErrorResponse {
+                error: "invalid credentials".to_string(),
+            }),
+        ));
+    }
+
+    let token = format!("cs_{}", Uuid::new_v4());
+    let record = FormSessionRecord {
+        token: token.clone(),
+        created_at: Utc::now(),
+        last_used_at: None,
+    };
+    form_session_store().write().await.push(record);
+
+    Ok((
+        AppendHeaders([(header::SET_COOKIE, build_form_session_cookie(&token))]),
+        Json(FormsLoginResponse {
+            authenticated: true,
+            username: request.username,
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/forms/logout",
+    responses(
+        (status = 200, description = "Forms logout completed", body = FormsLogoutResponse)
+    ),
+    tag = "auth"
+)]
+pub async fn forms_logout(
+    headers: HeaderMap,
+) -> (
+    AppendHeaders<[(header::HeaderName, &'static str); 1]>,
+    Json<FormsLogoutResponse>,
+) {
+    let revoked = if let Some(token) = extract_form_session_token(&headers) {
+        revoke_form_session(&token).await
+    } else {
+        false
+    };
+
+    (
+        AppendHeaders([(header::SET_COOKIE, clear_form_session_cookie())]),
+        Json(FormsLogoutResponse {
+            logged_out: revoked,
+        }),
+    )
 }
 
 #[utoipa::path(
@@ -226,6 +462,12 @@ mod tests {
         api_key_store().write().await.clear();
     }
 
+    async fn reset_form_sessions() {
+        if let Some(store) = FORM_SESSIONS.get() {
+            store.write().await.clear();
+        }
+    }
+
     async fn make_test_state() -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
@@ -318,5 +560,100 @@ mod tests {
             !result,
             "validate_api_key_and_touch must return false when key is deleted between locks"
         );
+    }
+
+    #[tokio::test]
+    async fn forms_login_and_logout_lifecycle() {
+        let _lock = test_mutex().lock().await;
+        reset_store().await;
+        reset_form_sessions().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        let state = make_test_state_with_config(config).await;
+
+        let login = forms_login(
+            State(state),
+            Form(FormsLoginRequest {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+        )
+        .await
+        .expect("forms login should succeed");
+
+        let set_cookie = login
+            .0
+             .0
+            .iter()
+            .find(|(name, _)| *name == header::SET_COOKIE)
+            .map(|(_, value)| value.clone())
+            .expect("set-cookie header");
+        let cookie_header = set_cookie
+            .split(';')
+            .next()
+            .expect("cookie pair")
+            .to_string();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            cookie_header.parse().expect("cookie header value"),
+        );
+
+        let token = extract_form_session_token(&headers).expect("session token extracted");
+        assert!(validate_form_session_and_touch(&token).await);
+
+        let (_, Json(logout_body)) = forms_logout(headers).await;
+        assert!(logout_body.logged_out);
+        assert!(!validate_form_session_and_touch(&token).await);
+    }
+
+    #[tokio::test]
+    async fn forms_login_rejects_invalid_credentials() {
+        let _lock = test_mutex().lock().await;
+        reset_store().await;
+        reset_form_sessions().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        let state = make_test_state_with_config(config).await;
+
+        let login = forms_login(
+            State(state),
+            Form(FormsLoginRequest {
+                username: "user".to_string(),
+                password: "wrong".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(login, Err((StatusCode::UNAUTHORIZED, _))));
+    }
+
+    async fn make_test_state_with_config(config: AppConfig) -> AppState {
+        use sqlx::sqlite::SqlitePoolOptions;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory SQLite");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+        AppState::new(
+            config,
+            Arc::new(SqliteArtistRepository::new(pool.clone())),
+            Arc::new(SqliteAlbumRepository::new(pool.clone())),
+            Arc::new(SqliteTrackRepository::new(pool.clone())),
+            Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
+            Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
+            Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
+        )
     }
 }
