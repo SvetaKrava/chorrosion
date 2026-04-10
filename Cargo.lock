@@ -472,6 +472,7 @@ dependencies = [
  "figment",
  "serde",
  "tracing",
+ "utoipa",
 ]
 
 [[package]]

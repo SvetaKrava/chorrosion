@@ -8,6 +8,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use utoipa::ToSchema;
 
 /// Default request timeout (in seconds) for external metadata API HTTP clients.
 ///
@@ -91,10 +92,19 @@ impl Default for SchedulerConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionLevel {
+    ReadOnly,
+    #[default]
+    Admin,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     pub basic_username: Option<String>,
     pub basic_password: Option<String>,
+    pub basic_permission_level: PermissionLevel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

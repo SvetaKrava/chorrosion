@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::handlers::auth::{
-    api_key_count, extract_form_session_token, validate_api_key_and_touch,
-    validate_form_session_and_touch,
+    api_key_count, extract_form_session_token, permission_denied_response,
+    validate_api_key_and_touch, validate_form_session_and_touch,
 };
 use crate::API_V1_BASE;
 use axum::{
@@ -11,11 +11,24 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use chorrosion_config::PermissionLevel;
 use subtle::ConstantTimeEq;
 use tracing::debug;
 
 fn path_matches(path: &str, route: &str) -> bool {
     path == route || path.strip_prefix(API_V1_BASE) == Some(route)
+}
+
+fn is_mutating_method(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
+}
+
+fn allows_read_only_access(method: &Method, path: &str) -> bool {
+    !is_mutating_method(method)
+        || (method == Method::POST && path_matches(path, "/auth/forms/logout"))
 }
 
 fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
@@ -87,6 +100,17 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     bool::from(lengths_equal & contents_equal)
 }
 
+fn permission_allows_request(
+    permission_level: PermissionLevel,
+    method: &Method,
+    path: &str,
+) -> bool {
+    match permission_level {
+        PermissionLevel::Admin => true,
+        PermissionLevel::ReadOnly => allows_read_only_access(method, path),
+    }
+}
+
 /// Authentication middleware supporting API key and optional HTTP Basic auth.
 pub async fn auth_middleware(
     State(state): State<chorrosion_application::AppState>,
@@ -129,6 +153,14 @@ pub async fn auth_middleware(
             if constant_time_eq(username.as_bytes(), expected_username.as_bytes())
                 && constant_time_eq(password.as_bytes(), expected_password.as_bytes())
             {
+                if !permission_allows_request(
+                    state.config.auth.basic_permission_level,
+                    &method,
+                    &path,
+                ) {
+                    debug!(target: "auth", %path, "basic authentication denied by permission level");
+                    return permission_denied_response().into_response();
+                }
                 debug!(target: "auth", %path, "basic authentication successful");
                 return next.run(request).await;
             }
@@ -138,7 +170,11 @@ pub async fn auth_middleware(
     }
 
     if let Some(api_key) = extract_api_key(request.headers()) {
-        if validate_api_key_and_touch(&api_key).await {
+        if let Some(permission_level) = validate_api_key_and_touch(&api_key).await {
+            if !permission_allows_request(permission_level, &method, &path) {
+                debug!(target: "auth", %path, "API key authentication denied by permission level");
+                return permission_denied_response().into_response();
+            }
             debug!(target: "auth", %path, "API key authentication successful");
             return next.run(request).await;
         }
@@ -147,7 +183,11 @@ pub async fn auth_middleware(
     }
 
     if let Some(token) = extract_form_session_token(request.headers()) {
-        if validate_form_session_and_touch(&token).await {
+        if let Some(permission_level) = validate_form_session_and_touch(&token).await {
+            if !permission_allows_request(permission_level, &method, &path) {
+                debug!(target: "auth", %path, "forms session authentication denied by permission level");
+                return permission_denied_response().into_response();
+            }
             debug!(target: "auth", %path, "forms session authentication successful");
             return next.run(request).await;
         }
@@ -172,14 +212,16 @@ pub async fn unauthorized() -> impl IntoResponse {
 mod tests {
     use super::{
         constant_time_eq, extract_api_key, extract_basic_credentials, extract_form_session_token,
-        validate_form_session_and_touch, MAX_CREDENTIAL_BYTES,
+        permission_allows_request, validate_form_session_and_touch, MAX_CREDENTIAL_BYTES,
     };
     use axum::{
         body::Body,
-        http::{HeaderMap, HeaderValue, Request, StatusCode},
+        extract::State,
+        http::{HeaderMap, HeaderValue, Method, Request, StatusCode},
+        Json,
     };
     use chorrosion_application::AppState;
-    use chorrosion_config::AppConfig;
+    use chorrosion_config::{AppConfig, PermissionLevel};
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
@@ -303,6 +345,25 @@ mod tests {
         assert!(!constant_time_eq(&diff_a, &diff_b));
     }
 
+    #[test]
+    fn read_only_permission_blocks_mutating_requests_except_logout() {
+        assert!(permission_allows_request(
+            PermissionLevel::ReadOnly,
+            &Method::GET,
+            "/api/v1/system/status"
+        ));
+        assert!(!permission_allows_request(
+            PermissionLevel::ReadOnly,
+            &Method::POST,
+            "/api/v1/artists"
+        ));
+        assert!(permission_allows_request(
+            PermissionLevel::ReadOnly,
+            &Method::POST,
+            "/api/v1/auth/forms/logout"
+        ));
+    }
+
     async fn make_test_state(config: AppConfig) -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
@@ -420,8 +481,9 @@ mod tests {
             HeaderValue::from_str(cookie_pair).expect("cookie"),
         );
         let token = extract_form_session_token(&cookie_headers).expect("token from cookie");
-        assert!(
+        assert_eq!(
             validate_form_session_and_touch(&token).await,
+            Some(PermissionLevel::Admin),
             "token from login should exist in session store"
         );
 
@@ -458,5 +520,55 @@ mod tests {
 
         let response = app.oneshot(request).await.expect("response");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_mutation_when_basic_auth_is_read_only() {
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        config.auth.basic_permission_level = PermissionLevel::ReadOnly;
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state);
+        let request = Request::builder()
+            .uri("/api/v1/artists")
+            .method("POST")
+            .header("Authorization", "Basic dXNlcjpwYXNz")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name":"blocked"}"#))
+            .expect("request");
+
+        let response = app.oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn middleware_allows_read_only_api_key_for_get_requests() {
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("admin".to_string());
+        config.auth.basic_password = Some("secret".to_string());
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state.clone());
+        let (status, Json(created)) = crate::handlers::auth::create_api_key(
+            State(state),
+            Json(crate::handlers::auth::CreateApiKeyRequest {
+                name: Some("viewer".to_string()),
+                permission_level: Some(PermissionLevel::ReadOnly),
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let request = Request::builder()
+            .uri("/api/v1/system/status")
+            .method("GET")
+            .header("X-Api-Key", created.key)
+            .body(Body::empty())
+            .expect("request");
+
+        let response = app.oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

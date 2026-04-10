@@ -9,3 +9,4 @@ anyhow = { workspace = true }
 figment = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+utoipa = { workspace = true }

@@ -7,6 +7,7 @@ use axum::{
     Form, Json,
 };
 use chorrosion_application::AppState;
+use chorrosion_config::PermissionLevel;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -21,6 +22,7 @@ struct ApiKeyRecord {
     id: String,
     key: String,
     name: Option<String>,
+    permission_level: PermissionLevel,
     created_at: chrono::DateTime<Utc>,
     last_used_at: Option<chrono::DateTime<Utc>>,
 }
@@ -30,6 +32,7 @@ const SESSION_TTL_SECONDS: i64 = 86_400;
 #[derive(Debug, Clone)]
 struct FormSessionRecord {
     token: String,
+    permission_level: PermissionLevel,
     created_at: chrono::DateTime<Utc>,
     last_used_at: Option<chrono::DateTime<Utc>>,
 }
@@ -53,6 +56,7 @@ pub struct AuthErrorResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: Option<String>,
+    pub permission_level: Option<PermissionLevel>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -60,6 +64,7 @@ pub struct ApiKeyResponse {
     pub id: String,
     pub key: String,
     pub name: Option<String>,
+    pub permission_level: PermissionLevel,
     pub created_at: String,
 }
 
@@ -68,6 +73,7 @@ pub struct ApiKeyMetadataResponse {
     pub id: String,
     pub key_prefix: String,
     pub name: Option<String>,
+    pub permission_level: PermissionLevel,
     pub created_at: String,
     pub last_used_at: Option<String>,
 }
@@ -94,6 +100,7 @@ pub struct FormsLoginRequest {
 pub struct FormsLoginResponse {
     pub authenticated: bool,
     pub username: String,
+    pub permission_level: PermissionLevel,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -110,6 +117,7 @@ fn to_metadata(record: &ApiKeyRecord) -> ApiKeyMetadataResponse {
         id: record.id.clone(),
         key_prefix: key_prefix(&record.key),
         name: record.name.clone(),
+        permission_level: record.permission_level,
         created_at: record.created_at.to_rfc3339(),
         last_used_at: record.last_used_at.map(|ts| ts.to_rfc3339()),
     }
@@ -119,12 +127,12 @@ pub(crate) async fn api_key_count() -> usize {
     api_key_store().read().await.len()
 }
 
-pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
+pub(crate) async fn validate_api_key_and_touch(key: &str) -> Option<PermissionLevel> {
     // First check with read-lock so concurrent requests are not serialized.
     {
         let store = api_key_store().read().await;
         if !store.iter().any(|r| r.key == key) {
-            return false;
+            return None;
         }
     }
     // Yield between the two locks in tests so that a concurrently spawned delete
@@ -138,10 +146,10 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> bool {
     let mut store = api_key_store().write().await;
     if let Some(record) = store.iter_mut().find(|r| r.key == key) {
         record.last_used_at = Some(now);
-        true
+        Some(record.permission_level)
     } else {
         // Key was removed between the read-lock check and here (TOCTOU).
-        false
+        None
     }
 }
 
@@ -191,12 +199,12 @@ pub(crate) fn extract_form_session_token(headers: &HeaderMap) -> Option<String> 
     None
 }
 
-pub(crate) async fn validate_form_session_and_touch(token: &str) -> bool {
+pub(crate) async fn validate_form_session_and_touch(token: &str) -> Option<PermissionLevel> {
     let now = Utc::now();
     {
         let store = form_session_store().read().await;
         match store.iter().find(|r| r.token == token) {
-            None => return false,
+            None => return None,
             Some(record) => {
                 // Reject sessions that have exceeded SESSION_TTL_SECONDS.
                 let age_secs = now.signed_duration_since(record.created_at).num_seconds();
@@ -207,7 +215,7 @@ pub(crate) async fn validate_form_session_and_touch(token: &str) -> bool {
                         .write()
                         .await
                         .retain(|r| r.token != token);
-                    return false;
+                    return None;
                 }
             }
         }
@@ -218,10 +226,10 @@ pub(crate) async fn validate_form_session_and_touch(token: &str) -> bool {
     store.retain(|r| now.signed_duration_since(r.created_at).num_seconds() < SESSION_TTL_SECONDS);
     if let Some(record) = store.iter_mut().find(|r| r.token == token) {
         record.last_used_at = Some(now);
-        true
+        Some(record.permission_level)
     } else {
         // Key was removed between the read-lock check and here (TOCTOU).
-        false
+        None
     }
 }
 
@@ -245,6 +253,15 @@ fn forms_auth_configured(state: &AppState) -> bool {
             .basic_password
             .as_ref()
             .is_some_and(|v| !v.trim().is_empty())
+}
+
+pub(crate) fn permission_denied_response() -> (StatusCode, Json<AuthErrorResponse>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(AuthErrorResponse {
+            error: "insufficient permissions".to_string(),
+        }),
+    )
 }
 
 #[utoipa::path(
@@ -303,8 +320,10 @@ pub async fn forms_login(
     }
 
     let token = format!("cs_{}", Uuid::new_v4());
+    let permission_level = state.config.auth.basic_permission_level;
     let record = FormSessionRecord {
         token: token.clone(),
+        permission_level,
         created_at: Utc::now(),
         last_used_at: None,
     };
@@ -315,6 +334,7 @@ pub async fn forms_login(
         Json(FormsLoginResponse {
             authenticated: true,
             username: request.username,
+            permission_level,
         }),
     ))
 }
@@ -367,11 +387,13 @@ pub async fn create_api_key(
     let id = Uuid::new_v4().to_string();
     let key = format!("ck_{}", Uuid::new_v4());
     let created_at = Utc::now();
+    let permission_level = request.permission_level.unwrap_or_default();
 
     let record = ApiKeyRecord {
         id: id.clone(),
         key: key.clone(),
         name: request.name.clone(),
+        permission_level,
         created_at,
         last_used_at: None,
     };
@@ -384,6 +406,7 @@ pub async fn create_api_key(
             id,
             key,
             name: request.name,
+            permission_level,
             created_at: created_at.to_rfc3339(),
         }),
     )
@@ -502,18 +525,20 @@ mod tests {
             State(state.clone()),
             Json(CreateApiKeyRequest {
                 name: Some("test".to_string()),
+                permission_level: None,
             }),
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
         assert!(created.key.starts_with("ck_"));
+        assert_eq!(created.permission_level, PermissionLevel::Admin);
 
         let Json(listed) = list_api_keys(State(state.clone())).await;
         assert_eq!(listed.total, 1);
         assert_eq!(listed.items[0].id, created.id);
 
         let valid = validate_api_key_and_touch(&created.key).await;
-        assert!(valid);
+        assert_eq!(valid, Some(PermissionLevel::Admin));
 
         let deleted = delete_api_key(State(state), Path(created.id.clone()))
             .await
@@ -537,6 +562,7 @@ mod tests {
             State(state.clone()),
             Json(CreateApiKeyRequest {
                 name: Some("toctou".to_string()),
+                permission_level: None,
             }),
         )
         .await;
@@ -557,9 +583,28 @@ mod tests {
         delete_handle.await.expect("delete task should not panic");
 
         assert!(
-            !result,
+            result.is_none(),
             "validate_api_key_and_touch must return false when key is deleted between locks"
         );
+    }
+
+    #[tokio::test]
+    async fn create_api_key_allows_read_only_permission_level() {
+        let _lock = test_mutex().lock().await;
+        reset_store().await;
+        let state = make_test_state().await;
+
+        let (status, Json(created)) = create_api_key(
+            State(state),
+            Json(CreateApiKeyRequest {
+                name: Some("viewer".to_string()),
+                permission_level: Some(PermissionLevel::ReadOnly),
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(created.permission_level, PermissionLevel::ReadOnly);
     }
 
     #[tokio::test]
@@ -603,11 +648,14 @@ mod tests {
         );
 
         let token = extract_form_session_token(&headers).expect("session token extracted");
-        assert!(validate_form_session_and_touch(&token).await);
+        assert_eq!(
+            validate_form_session_and_touch(&token).await,
+            Some(PermissionLevel::Admin)
+        );
 
         let (_, Json(logout_body)) = forms_logout(headers).await;
         assert!(logout_body.logged_out);
-        assert!(!validate_form_session_and_touch(&token).await);
+        assert_eq!(validate_form_session_and_touch(&token).await, None);
     }
 
     #[tokio::test]
@@ -631,6 +679,31 @@ mod tests {
         .await;
 
         assert!(matches!(login, Err((StatusCode::UNAUTHORIZED, _))));
+    }
+
+    #[tokio::test]
+    async fn forms_login_returns_configured_permission_level() {
+        let _lock = test_mutex().lock().await;
+        reset_store().await;
+        reset_form_sessions().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        config.auth.basic_permission_level = PermissionLevel::ReadOnly;
+        let state = make_test_state_with_config(config).await;
+
+        let (_, Json(response)) = forms_login(
+            State(state),
+            Form(FormsLoginRequest {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+        )
+        .await
+        .expect("forms login should succeed");
+
+        assert_eq!(response.permission_level, PermissionLevel::ReadOnly);
     }
 
     async fn make_test_state_with_config(config: AppConfig) -> AppState {
