@@ -271,7 +271,7 @@ impl TagEmbeddingService {
         // Sanitize payload text fields when the option is enabled.
         let sanitized_payload;
         let payload = if options.sanitize_text {
-            sanitized_payload = TagSanitizer::sanitize_payload(&request.payload);
+            sanitized_payload = TagSanitizer::sanitize_payload(request.payload.clone());
             &sanitized_payload
         } else {
             &request.payload

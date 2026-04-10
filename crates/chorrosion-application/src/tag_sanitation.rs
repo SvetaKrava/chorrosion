@@ -5,7 +5,7 @@
 //! can arrive in inconsistent Unicode representations and may contain control
 //! characters or extraneous whitespace that break downstream consumers.
 //!
-//! [`TagSanitizer`] applies a deterministic, lossless cleanup pipeline:
+//! [`TagSanitizer`] applies a deterministic, normalizing cleanup pipeline:
 //! 1. Unicode NFC normalization — canonicalizes composed forms so that
 //!    e.g. `e\u{301}` (e + combining acute) becomes `\u{e9}` (é).
 //! 2. Control-character stripping — removes all ASCII C0 controls (U+0000–
@@ -48,8 +48,8 @@ impl TagSanitizer {
             .filter(|&c| !is_control_or_soft_hyphen(c))
             .collect();
 
-        // 3. Trim whitespace.
-        let trimmed = stripped.trim();
+        // 3. Trim ASCII whitespace.
+        let trimmed = stripped.trim_matches(|c: char| c.is_ascii_whitespace());
 
         if trimmed.is_empty() {
             None
@@ -58,24 +58,25 @@ impl TagSanitizer {
         }
     }
 
-    /// Sanitize all string fields in a [`TagEmbeddingPayload`], returning a
-    /// new payload with clean values.
+    #[inline]
+    fn sanitize_optional_text(value: &mut Option<String>) {
+        *value = value.as_deref().and_then(Self::sanitize_text);
+    }
+
+    /// Sanitize all string fields in a [`TagEmbeddingPayload`], returning the
+    /// same payload with clean values.
     ///
     /// Fields that become empty after sanitation are set to `None`.
-    pub fn sanitize_payload(payload: &TagEmbeddingPayload) -> TagEmbeddingPayload {
-        TagEmbeddingPayload {
-            artist: payload.artist.as_deref().and_then(Self::sanitize_text),
-            album: payload.album.as_deref().and_then(Self::sanitize_text),
-            title: payload.title.as_deref().and_then(Self::sanitize_text),
-            // Numeric and binary fields are passed through unchanged.
-            track_number: payload.track_number,
-            disc_number: payload.disc_number,
-            fingerprint_hash: payload
-                .fingerprint_hash
-                .as_deref()
-                .and_then(Self::sanitize_text),
-            artwork: payload.artwork.clone(),
-        }
+    ///
+    /// Taking ownership allows non-text fields such as artwork bytes to be
+    /// moved through unchanged instead of cloned.
+    pub fn sanitize_payload(mut payload: TagEmbeddingPayload) -> TagEmbeddingPayload {
+        Self::sanitize_optional_text(&mut payload.artist);
+        Self::sanitize_optional_text(&mut payload.album);
+        Self::sanitize_optional_text(&mut payload.title);
+        Self::sanitize_optional_text(&mut payload.fingerprint_hash);
+
+        payload
     }
 }
 
@@ -184,7 +185,8 @@ mod tests {
 
     #[test]
     fn preserves_non_ascii_unicode_beyond_control_range() {
-        // Characters above U+009F are preserved
+        // Ordinary non-ASCII Unicode characters are preserved, aside from the
+        // explicit strip set (for example U+00AD soft hyphen).
         let value = "Sigur Rós";
         assert_eq!(
             TagSanitizer::sanitize_text(value).as_deref(),
@@ -206,7 +208,7 @@ mod tests {
             artwork: None,
         };
 
-        let clean = TagSanitizer::sanitize_payload(&payload);
+        let clean = TagSanitizer::sanitize_payload(payload);
         assert_eq!(clean.artist.as_deref(), Some("Artist"));
         assert_eq!(clean.album.as_deref(), Some("Album"));
         assert_eq!(clean.title.as_deref(), Some("Title"));
@@ -228,7 +230,7 @@ mod tests {
             artwork: None,
         };
 
-        let clean = TagSanitizer::sanitize_payload(&payload);
+        let clean = TagSanitizer::sanitize_payload(payload);
         assert!(clean.artist.is_none());
         assert!(clean.album.is_none());
         assert_eq!(clean.title.as_deref(), Some("Valid Title"));
@@ -250,7 +252,7 @@ mod tests {
             artwork: Some(artwork.clone()),
         };
 
-        let clean = TagSanitizer::sanitize_payload(&payload);
+        let clean = TagSanitizer::sanitize_payload(payload);
         assert_eq!(clean.artwork, Some(artwork));
     }
 }
