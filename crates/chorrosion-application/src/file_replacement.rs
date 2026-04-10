@@ -176,6 +176,21 @@ impl FileReplacementService {
             place_file(new_file_path, &staged)?;
             debug!(target: "file_replacement", staged = %staged.display(), "staged new file alongside destination");
 
+            // Apply permissions to the staged file *before* retiring the
+            // original.  If permission application fails the original is still
+            // intact (staged is cleaned up below on early return).
+            if let Err(perm_err) = self.apply_final_permissions(&staged, &saved_perms) {
+                if let Err(cleanup_err) = std::fs::remove_file(&staged) {
+                    warn!(
+                        target: "file_replacement",
+                        staged = %staged.display(),
+                        error = %cleanup_err,
+                        "failed to clean up staged file after permission error"
+                    );
+                }
+                return Err(perm_err);
+            }
+
             // Retire (backup/delete) the existing file.  If this fails, clean
             // up the staged file so we leave the original intact.
             let backed_up_to = match self.retire_existing(existing_path) {
@@ -193,11 +208,10 @@ impl FileReplacementService {
                 }
             };
 
-            // Move the staged candidate into the final location.
+            // Move the staged candidate into the final location.  The rename
+            // preserves permissions already applied to the staged file.
             place_file(&staged, final_path)?;
             debug!(target: "file_replacement", "moved staged file to final path");
-
-            self.apply_final_permissions(final_path, &saved_perms)?;
 
             Ok(ReplacementOutcome {
                 final_path: final_path.to_path_buf(),
@@ -206,7 +220,7 @@ impl FileReplacementService {
         } else {
             // ── Different-path upgrade ────────────────────────────────────────
             // Place the new file at final_path first (unless it is already
-            // there), then retire the old file.
+            // there), apply permissions, then retire the old file.
             if !paths_are_same(new_file_path, final_path) {
                 place_file(new_file_path, final_path)?;
                 debug!(target: "file_replacement", "placed new file at destination");
@@ -214,9 +228,11 @@ impl FileReplacementService {
                 debug!(target: "file_replacement", "source is already at final path, skipping move");
             }
 
-            let backed_up_to = self.retire_existing(existing_path)?;
-
+            // Apply permissions before retiring the original so that a
+            // permission failure leaves the original file untouched.
             self.apply_final_permissions(final_path, &saved_perms)?;
+
+            let backed_up_to = self.retire_existing(existing_path)?;
 
             Ok(ReplacementOutcome {
                 final_path: final_path.to_path_buf(),
@@ -228,8 +244,9 @@ impl FileReplacementService {
     /// Check that `path` is readable and, if permission preservation is
     /// enabled, save a snapshot of its permissions for later application.
     ///
-    /// Returns `None` when no permission config is set, and `Some(perms)` /
-    /// `Some(None)` depending on whether preservation is enabled.
+    /// Returns `Ok(None)` when no permission config is set or when permission
+    /// preservation is disabled, and `Ok(Some(perms))` when preservation is
+    /// enabled and the current permissions are successfully captured.
     fn check_and_snapshot_permissions(
         &self,
         path: &Path,
@@ -275,8 +292,12 @@ impl FileReplacementService {
             std::fs::set_permissions(final_path, perms.clone())?;
             debug!(target: "file_replacement", path = %final_path.display(), "restored permissions on replaced file");
         } else {
-            PermissionManager::apply_defaults(final_path, perm_config)
-                .map_err(|e| FileReplacementError::Io(std::io::Error::other(e.to_string())))?;
+            PermissionManager::apply_defaults(final_path, perm_config).map_err(|e| {
+                FileReplacementError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    e.to_string(),
+                ))
+            })?;
             debug!(target: "file_replacement", path = %final_path.display(), "applied default permissions to replaced file");
         }
 
@@ -584,5 +605,136 @@ mod tests {
 
         // The original file must still be intact.
         assert_eq!(read(&existing), b"original content");
+    }
+
+    // ---- replace_file — permission config (Unix only) ----
+
+    #[cfg(unix)]
+    mod permission_tests {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+
+        fn make_svc_with_preserve() -> FileReplacementService {
+            FileReplacementService::new(FileReplacementConfig {
+                permission_config: Some(crate::permission::PermissionConfig {
+                    preserve_permissions: true,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        fn make_svc_with_defaults(file_mode: u32) -> FileReplacementService {
+            FileReplacementService::new(FileReplacementConfig {
+                permission_config: Some(crate::permission::PermissionConfig {
+                    preserve_permissions: false,
+                    file_mode,
+                    dir_mode: 0o700,
+                }),
+                ..Default::default()
+            })
+        }
+
+        #[test]
+        fn readability_precheck_blocks_unreadable_source() {
+            let dir = tempfile::tempdir().unwrap();
+            let existing = write_temp(&dir, "track.mp3", b"old");
+            let new_file = write_temp(&dir, "new.flac", b"new");
+            let final_path = dir.path().join("track.flac");
+
+            // Make new_file unreadable.
+            std::fs::set_permissions(&new_file, std::fs::Permissions::from_mode(0o000))
+                .expect("set permissions");
+
+            let svc = make_svc_with_preserve();
+            let result = svc.replace_file(&existing, &new_file, &final_path);
+
+            // Restore so tempdir cleanup works.
+            std::fs::set_permissions(&new_file, std::fs::Permissions::from_mode(0o644)).ok();
+
+            assert!(
+                matches!(result, Err(FileReplacementError::Io(_))),
+                "expected Io error from readability check, got {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn in_place_upgrade_preserves_source_permissions() {
+            let dir = tempfile::tempdir().unwrap();
+            let existing = write_temp(&dir, "track.flac", b"old content");
+            let new_file = write_temp(&dir, "track_new.flac", b"new content");
+            let final_path = existing.clone();
+
+            std::fs::set_permissions(&new_file, std::fs::Permissions::from_mode(0o640))
+                .expect("set permissions on source");
+
+            let svc = make_svc_with_preserve();
+            let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+            let mode = std::fs::metadata(&outcome.final_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o640, "final file should have source permissions");
+        }
+
+        #[test]
+        fn in_place_upgrade_applies_default_permissions() {
+            let dir = tempfile::tempdir().unwrap();
+            let existing = write_temp(&dir, "track.flac", b"old content");
+            let new_file = write_temp(&dir, "track_new.flac", b"new content");
+            let final_path = existing.clone();
+
+            let svc = make_svc_with_defaults(0o600);
+            let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+            let mode = std::fs::metadata(&outcome.final_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "final file should have configured default mode");
+        }
+
+        #[test]
+        fn different_path_upgrade_preserves_source_permissions() {
+            let dir = tempfile::tempdir().unwrap();
+            let existing = write_temp(&dir, "old_track.flac", b"old");
+            let new_file = write_temp(&dir, "downloaded.flac", b"better");
+            let final_path = dir.path().join("new_track.flac");
+
+            std::fs::set_permissions(&new_file, std::fs::Permissions::from_mode(0o644))
+                .expect("set permissions on source");
+
+            let svc = make_svc_with_preserve();
+            let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+            let mode = std::fs::metadata(&outcome.final_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o644, "final file should have source permissions");
+        }
+
+        #[test]
+        fn different_path_upgrade_applies_default_permissions() {
+            let dir = tempfile::tempdir().unwrap();
+            let existing = write_temp(&dir, "old_track.flac", b"old");
+            let new_file = write_temp(&dir, "downloaded.flac", b"better");
+            let final_path = dir.path().join("new_track.flac");
+
+            let svc = make_svc_with_defaults(0o664);
+            let outcome = svc.replace_file(&existing, &new_file, &final_path).unwrap();
+
+            let mode = std::fs::metadata(&outcome.final_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o664, "final file should have configured default mode");
+        }
     }
 }

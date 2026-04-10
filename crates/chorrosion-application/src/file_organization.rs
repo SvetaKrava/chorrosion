@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn permission_check_fails_on_missing_source() {
+    fn missing_source_short_circuits_before_permission_handling() {
         let temp_dir = tempdir().expect("temp directory should be created");
         let source = temp_dir.path().join("nonexistent.flac");
         let destination = temp_dir.path().join("dest.flac");
