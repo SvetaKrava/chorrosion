@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::permission::{PermissionChecker, PermissionConfig, PermissionManager};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
@@ -39,6 +40,8 @@ pub enum FileOrganizationError {
     InvalidPattern(String),
     #[error("file operation failed: {0}")]
     FileOperation(String),
+    #[error("permission denied: {0}")]
+    Permission(String),
 }
 
 pub fn render_naming_pattern(
@@ -106,11 +109,18 @@ pub fn apply_file_operation(
     destination: &Path,
     mode: FileOperationMode,
     overwrite: bool,
+    permission_config: Option<&PermissionConfig>,
 ) -> Result<(), FileOrganizationError> {
     if !source.exists() {
         return Err(FileOrganizationError::SourceNotFound(
             source.display().to_string(),
         ));
+    }
+
+    // Check that the source file is readable before attempting any file operation.
+    if permission_config.is_some() {
+        PermissionChecker::check_readable(source)
+            .map_err(|e| FileOrganizationError::Permission(e.to_string()))?;
     }
 
     // Guard against source and destination being the same file to prevent data loss.
@@ -126,6 +136,16 @@ pub fn apply_file_operation(
             return Ok(());
         }
     }
+
+    // For Move with permission preservation: save source permissions before the
+    // operation because the source will no longer exist afterward.
+    let saved_permissions = match (permission_config, &mode) {
+        (Some(config), FileOperationMode::Move) if config.preserve_permissions => Some(
+            PermissionManager::get_permissions(source)
+                .map_err(|e| FileOrganizationError::Permission(e.to_string()))?,
+        ),
+        _ => None,
+    };
 
     if destination.exists() {
         if !overwrite {
@@ -162,6 +182,28 @@ pub fn apply_file_operation(
                         rename_error, remove_error
                     ))
                 })?;
+            }
+        }
+    }
+
+    // Apply permissions to the destination after the file operation.
+    if let Some(config) = permission_config {
+        match mode {
+            FileOperationMode::Move => {
+                if let Some(perms) = saved_permissions {
+                    // Restore permissions saved before the move (source is now gone).
+                    fs::set_permissions(destination, perms)
+                        .map_err(|e| FileOrganizationError::Permission(e.to_string()))?;
+                } else {
+                    // Source is gone; apply configured defaults.
+                    PermissionManager::apply_defaults(destination, config)
+                        .map_err(|e| FileOrganizationError::Permission(e.to_string()))?;
+                }
+            }
+            FileOperationMode::Copy | FileOperationMode::Hardlink => {
+                // Source still exists; preserve from it or apply defaults per config.
+                PermissionManager::apply_permissions(source, destination, config)
+                    .map_err(|e| FileOrganizationError::Permission(e.to_string()))?;
             }
         }
     }
@@ -318,7 +360,7 @@ mod tests {
         let destination = temp_dir.path().join("library").join("dest.flac");
         fs::write(&source, b"audio-data").expect("source should be written");
 
-        apply_file_operation(&source, &destination, FileOperationMode::Copy, false)
+        apply_file_operation(&source, &destination, FileOperationMode::Copy, false, None)
             .expect("copy should succeed");
 
         assert!(source.exists());
@@ -332,7 +374,7 @@ mod tests {
         let destination = temp_dir.path().join("organized").join("dest.mp3");
         fs::write(&source, b"audio-data").expect("source should be written");
 
-        apply_file_operation(&source, &destination, FileOperationMode::Move, false)
+        apply_file_operation(&source, &destination, FileOperationMode::Move, false, None)
             .expect("move should succeed");
 
         assert!(!source.exists());
@@ -346,8 +388,14 @@ mod tests {
         let destination = temp_dir.path().join("organized").join("linked.flac");
         fs::write(&source, b"audio-data").expect("source should be written");
 
-        apply_file_operation(&source, &destination, FileOperationMode::Hardlink, false)
-            .expect("hardlink should succeed");
+        apply_file_operation(
+            &source,
+            &destination,
+            FileOperationMode::Hardlink,
+            false,
+            None,
+        )
+        .expect("hardlink should succeed");
 
         assert!(source.exists());
         assert!(destination.exists());
@@ -361,10 +409,98 @@ mod tests {
         fs::write(&source, b"audio-data").expect("source should be written");
         fs::write(&destination, b"existing").expect("dest should be written");
 
-        let result = apply_file_operation(&source, &destination, FileOperationMode::Copy, false);
+        let result =
+            apply_file_operation(&source, &destination, FileOperationMode::Copy, false, None);
         assert!(matches!(
             result,
             Err(FileOrganizationError::TargetExists(_))
         ));
+    }
+
+    #[test]
+    fn missing_source_short_circuits_before_permission_handling() {
+        let temp_dir = tempdir().expect("temp directory should be created");
+        let source = temp_dir.path().join("nonexistent.flac");
+        let destination = temp_dir.path().join("dest.flac");
+        let config = crate::permission::PermissionConfig::default();
+
+        let result = apply_file_operation(
+            &source,
+            &destination,
+            FileOperationMode::Copy,
+            false,
+            Some(&config),
+        );
+        assert!(matches!(
+            result,
+            Err(FileOrganizationError::SourceNotFound(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_with_permission_config_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempdir().expect("temp directory should be created");
+        let source = temp_dir.path().join("source.flac");
+        let destination = temp_dir.path().join("dest.flac");
+        fs::write(&source, b"audio-data").expect("source should be written");
+
+        // Set a specific permission on the source.
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o644))
+            .expect("should set permissions");
+
+        let config = crate::permission::PermissionConfig {
+            preserve_permissions: true,
+            ..Default::default()
+        };
+        apply_file_operation(
+            &source,
+            &destination,
+            FileOperationMode::Copy,
+            false,
+            Some(&config),
+        )
+        .expect("copy should succeed");
+
+        let dest_mode = fs::metadata(&destination)
+            .expect("dest metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dest_mode, 0o644);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_with_permission_config_applies_defaults_when_preserve_disabled() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempdir().expect("temp directory should be created");
+        let source = temp_dir.path().join("source.flac");
+        let destination = temp_dir.path().join("dest.flac");
+        fs::write(&source, b"audio-data").expect("source should be written");
+
+        let config = crate::permission::PermissionConfig {
+            preserve_permissions: false,
+            file_mode: 0o600,
+            dir_mode: 0o700,
+        };
+        apply_file_operation(
+            &source,
+            &destination,
+            FileOperationMode::Copy,
+            false,
+            Some(&config),
+        )
+        .expect("copy should succeed");
+
+        let dest_mode = fs::metadata(&destination)
+            .expect("dest metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dest_mode, 0o600);
     }
 }
