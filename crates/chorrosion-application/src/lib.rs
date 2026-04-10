@@ -86,9 +86,9 @@ pub use search_automation::{
     AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
 };
 pub use tag_embedding::{
-    ArtworkData, LoftyTagEmbeddingBackend, TagEmbeddingBackend, TagEmbeddingError,
-    TagEmbeddingOptions, TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest,
-    TagEmbeddingService, TagFormat, TagRoundtripSnapshot,
+    ArtworkData, EmbeddedTagPreference, LoftyTagEmbeddingBackend, TagEmbeddingBackend,
+    TagEmbeddingError, TagEmbeddingOptions, TagEmbeddingOutcome, TagEmbeddingPayload,
+    TagEmbeddingRequest, TagEmbeddingService, TagFormat, TagRoundtripSnapshot,
 };
 pub use tag_sanitation::TagSanitizer;
 

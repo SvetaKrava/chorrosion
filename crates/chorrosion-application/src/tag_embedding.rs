@@ -53,6 +53,25 @@ pub struct TagEmbeddingRequest {
     pub quality_name: Option<String>,
 }
 
+/// Controls whether existing embedded metadata and artwork are preserved or
+/// replaced during import and refresh operations.
+///
+/// This is the primary user-facing preference for tag-write behaviour.  It
+/// maps onto [`TagEmbeddingOptions::overwrite_existing`] but gives the choice
+/// a clear, intentional name that appears in configuration and logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmbeddedTagPreference {
+    /// Always write catalog metadata and artwork, replacing whatever is
+    /// already embedded in the file.  This is the default because chorrosion
+    /// is authoritative over its own catalog.
+    #[default]
+    Overwrite,
+    /// Skip any field or picture that is already present in the file.  Only
+    /// fields that are completely absent will be written.  Useful when you
+    /// want to keep manually curated artwork or custom comments untouched.
+    Preserve,
+}
+
 #[derive(Debug, Clone)]
 pub struct TagEmbeddingOptions {
     pub enabled: bool,
@@ -64,6 +83,10 @@ pub struct TagEmbeddingOptions {
     /// [`TagSanitizer`] before being written: Unicode NFC normalization,
     /// control-character stripping, and whitespace trimming.
     pub sanitize_text: bool,
+    /// High-level user preference that drives [`Self::overwrite_existing`].
+    /// Set this via [`Self::with_preference`] rather than toggling
+    /// `overwrite_existing` directly.
+    pub preference: EmbeddedTagPreference,
 }
 
 impl Default for TagEmbeddingOptions {
@@ -75,7 +98,41 @@ impl Default for TagEmbeddingOptions {
             overwrite_existing: true,
             allowed_quality_names: None,
             sanitize_text: true,
+            preference: EmbeddedTagPreference::Overwrite,
         }
+    }
+}
+
+impl TagEmbeddingOptions {
+    /// Apply a user preference, updating both `preference` and the derived
+    /// `overwrite_existing` flag in one call.
+    ///
+    /// ```rust,no_run
+    /// # use chorrosion_application::tag_embedding::{TagEmbeddingOptions, EmbeddedTagPreference};
+    /// let opts = TagEmbeddingOptions::default()
+    ///     .with_preference(EmbeddedTagPreference::Preserve);
+    /// assert!(!opts.overwrite_existing);
+    /// assert_eq!(opts.preference, EmbeddedTagPreference::Preserve);
+    /// ```
+    #[must_use]
+    pub fn with_preference(mut self, preference: EmbeddedTagPreference) -> Self {
+        self.overwrite_existing = matches!(preference, EmbeddedTagPreference::Overwrite);
+        self.preference = preference;
+        self
+    }
+
+    /// Options tuned for an initial import: overwrite any pre-existing tags so
+    /// the catalog is authoritative from the start.
+    #[must_use]
+    pub fn for_import() -> Self {
+        Self::default().with_preference(EmbeddedTagPreference::Overwrite)
+    }
+
+    /// Options tuned for a library refresh: overwrite tags so that corrections
+    /// made in the catalog propagate back to the files.
+    #[must_use]
+    pub fn for_refresh() -> Self {
+        Self::default().with_preference(EmbeddedTagPreference::Overwrite)
     }
 }
 
@@ -939,5 +996,65 @@ mod tests {
 
         assert_eq!(snapshot.artist.as_deref(), Some("Original Artist")); // preserved
         assert_eq!(snapshot.album.as_deref(), Some("New Album")); // filled in (was absent)
+    }
+
+    // ── EmbeddedTagPreference / builder tests ─────────────────────────────────
+
+    #[test]
+    fn default_preference_is_overwrite() {
+        let opts = TagEmbeddingOptions::default();
+        assert_eq!(opts.preference, EmbeddedTagPreference::Overwrite);
+        assert!(opts.overwrite_existing);
+    }
+
+    #[test]
+    fn with_preference_preserve_clears_overwrite_existing() {
+        let opts = TagEmbeddingOptions::default().with_preference(EmbeddedTagPreference::Preserve);
+        assert_eq!(opts.preference, EmbeddedTagPreference::Preserve);
+        assert!(!opts.overwrite_existing);
+    }
+
+    #[test]
+    fn with_preference_overwrite_sets_overwrite_existing() {
+        let base = TagEmbeddingOptions {
+            overwrite_existing: false,
+            preference: EmbeddedTagPreference::Preserve,
+            ..TagEmbeddingOptions::default()
+        };
+        let opts = base.with_preference(EmbeddedTagPreference::Overwrite);
+        assert_eq!(opts.preference, EmbeddedTagPreference::Overwrite);
+        assert!(opts.overwrite_existing);
+    }
+
+    #[test]
+    fn for_import_uses_overwrite() {
+        let opts = TagEmbeddingOptions::for_import();
+        assert_eq!(opts.preference, EmbeddedTagPreference::Overwrite);
+        assert!(opts.overwrite_existing);
+        assert!(opts.enabled);
+    }
+
+    #[test]
+    fn for_refresh_uses_overwrite() {
+        let opts = TagEmbeddingOptions::for_refresh();
+        assert_eq!(opts.preference, EmbeddedTagPreference::Overwrite);
+        assert!(opts.overwrite_existing);
+        assert!(opts.enabled);
+    }
+
+    #[test]
+    fn with_preference_preserves_other_fields() {
+        let opts = TagEmbeddingOptions {
+            read_only: true,
+            verify_roundtrip: false,
+            sanitize_text: false,
+            ..TagEmbeddingOptions::default()
+        }
+        .with_preference(EmbeddedTagPreference::Preserve);
+
+        assert!(opts.read_only);
+        assert!(!opts.verify_roundtrip);
+        assert!(!opts.sanitize_text);
+        assert_eq!(opts.preference, EmbeddedTagPreference::Preserve);
     }
 }

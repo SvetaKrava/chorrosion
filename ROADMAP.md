@@ -280,7 +280,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
   - [x] Safe, atomic writes with backup/rollback on failure (Issue #36, PR #160, PR #161) ✓
   - [x] Charset/normalization handling and tag sanitation (Issue #339) ✓
   - [x] Configurable per profile (enable/disable, overwrite rules) (Issue #36, PR #160) ✓
-  - [ ] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh
+  - [x] User preference: preserve embedded metadata/art (no writes) vs overwrite on import/refresh (Issue #342) ✓
   - [x] Read-only tag mode that never modifies source files (Issue #36, PR #160) ✓
   - [x] Fallback behavior for unsupported file types (Issue #36, PR #160) ✓
   - [x] **Store computed fingerprint in file tags** (Issue #36, PR #165, PR #166) ✓
