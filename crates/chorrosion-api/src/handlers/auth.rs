@@ -255,6 +255,15 @@ fn forms_auth_configured(state: &AppState) -> bool {
             .is_some_and(|v| !v.trim().is_empty())
 }
 
+pub(crate) fn unauthorized_response() -> (StatusCode, Json<AuthErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AuthErrorResponse {
+            error: "Unauthorized".to_string(),
+        }),
+    )
+}
+
 pub(crate) fn permission_denied_response() -> (StatusCode, Json<AuthErrorResponse>) {
     (
         StatusCode::FORBIDDEN,
@@ -465,6 +474,22 @@ pub async fn delete_api_key(
 }
 
 #[cfg(test)]
+static AUTH_TEST_MUTEX: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn auth_test_mutex() -> &'static tokio::sync::Mutex<()> {
+    AUTH_TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) async fn clear_stores_for_tests() {
+    api_key_store().write().await.clear();
+    if let Some(store) = FORM_SESSIONS.get() {
+        store.write().await.clear();
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use chorrosion_config::AppConfig;
@@ -473,23 +498,7 @@ mod tests {
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
         SqliteQualityProfileRepository, SqliteTrackRepository,
     };
-    use std::sync::{Arc, OnceLock};
-
-    static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-
-    fn test_mutex() -> &'static tokio::sync::Mutex<()> {
-        TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
-    }
-
-    async fn reset_store() {
-        api_key_store().write().await.clear();
-    }
-
-    async fn reset_form_sessions() {
-        if let Some(store) = FORM_SESSIONS.get() {
-            store.write().await.clear();
-        }
-    }
+    use std::sync::Arc;
 
     async fn make_test_state() -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
@@ -517,8 +526,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_key_lifecycle_create_list_validate_delete() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
         let state = make_test_state().await;
 
         let (status, Json(created)) = create_api_key(
@@ -554,8 +563,8 @@ mod tests {
     /// acquisitions, making the race window deterministically observable.
     #[tokio::test]
     async fn validate_returns_false_when_key_deleted_between_locks() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
         let state = make_test_state().await;
 
         let (_, Json(created)) = create_api_key(
@@ -590,8 +599,8 @@ mod tests {
 
     #[tokio::test]
     async fn create_api_key_allows_read_only_permission_level() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
         let state = make_test_state().await;
 
         let (status, Json(created)) = create_api_key(
@@ -609,9 +618,8 @@ mod tests {
 
     #[tokio::test]
     async fn forms_login_and_logout_lifecycle() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
-        reset_form_sessions().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
 
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());
@@ -660,9 +668,8 @@ mod tests {
 
     #[tokio::test]
     async fn forms_login_rejects_invalid_credentials() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
-        reset_form_sessions().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
 
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());
@@ -683,9 +690,8 @@ mod tests {
 
     #[tokio::test]
     async fn forms_login_returns_configured_permission_level() {
-        let _lock = test_mutex().lock().await;
-        reset_store().await;
-        reset_form_sessions().await;
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
 
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());

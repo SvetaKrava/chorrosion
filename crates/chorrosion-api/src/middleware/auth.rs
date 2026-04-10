@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::handlers::auth::{
-    api_key_count, extract_form_session_token, permission_denied_response,
+    api_key_count, extract_form_session_token, permission_denied_response, unauthorized_response,
     validate_api_key_and_touch, validate_form_session_and_touch,
 };
 use crate::API_V1_BASE;
 use axum::{
     extract::{Request, State},
-    http::{Method, StatusCode},
+    http::Method,
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -21,8 +21,8 @@ fn path_matches(path: &str, route: &str) -> bool {
 
 fn is_mutating_method(method: &Method) -> bool {
     matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+        method,
+        &Method::POST | &Method::PUT | &Method::PATCH | &Method::DELETE
     )
 }
 
@@ -165,7 +165,7 @@ pub async fn auth_middleware(
                 return next.run(request).await;
             }
             debug!(target: "auth", %path, "basic authentication failed");
-            return unauthorized().await.into_response();
+            return unauthorized_response().into_response();
         }
     }
 
@@ -179,7 +179,7 @@ pub async fn auth_middleware(
             return next.run(request).await;
         }
         debug!(target: "auth", %path, "API key authentication failed");
-        return unauthorized().await.into_response();
+        return unauthorized_response().into_response();
     }
 
     if let Some(token) = extract_form_session_token(request.headers()) {
@@ -192,7 +192,7 @@ pub async fn auth_middleware(
             return next.run(request).await;
         }
         debug!(target: "auth", %path, "forms session authentication failed");
-        return unauthorized().await.into_response();
+        return unauthorized_response().into_response();
     }
 
     debug!(
@@ -200,12 +200,7 @@ pub async fn auth_middleware(
         %path,
         "missing authentication credentials (expected Basic auth, API key, or forms session cookie)"
     );
-    unauthorized().await.into_response()
-}
-
-/// Response for unauthorized requests
-pub async fn unauthorized() -> impl IntoResponse {
-    (StatusCode::UNAUTHORIZED, "Unauthorized")
+    unauthorized_response().into_response()
 }
 
 #[cfg(test)]
@@ -446,6 +441,9 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_allows_valid_forms_session_cookie_when_configured() {
+        let _lock = crate::handlers::auth::auth_test_mutex().lock().await;
+        crate::handlers::auth::clear_stores_for_tests().await;
+
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("user".to_string());
         config.auth.basic_password = Some("pass".to_string());
@@ -545,6 +543,9 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_allows_read_only_api_key_for_get_requests() {
+        let _lock = crate::handlers::auth::auth_test_mutex().lock().await;
+        crate::handlers::auth::clear_stores_for_tests().await;
+
         let mut config = AppConfig::default();
         config.auth.basic_username = Some("admin".to_string());
         config.auth.basic_password = Some("secret".to_string());
@@ -570,5 +571,91 @@ mod tests {
 
         let response = app.oneshot(request).await.expect("response");
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_mutation_when_api_key_is_read_only() {
+        let _lock = crate::handlers::auth::auth_test_mutex().lock().await;
+        crate::handlers::auth::clear_stores_for_tests().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("admin".to_string());
+        config.auth.basic_password = Some("secret".to_string());
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state.clone());
+        let (status, Json(created)) = crate::handlers::auth::create_api_key(
+            State(state),
+            Json(crate::handlers::auth::CreateApiKeyRequest {
+                name: Some("viewer".to_string()),
+                permission_level: Some(PermissionLevel::ReadOnly),
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        for method in ["POST", "PUT", "PATCH", "DELETE"] {
+            let request = Request::builder()
+                .uri("/api/v1/artists")
+                .method(method)
+                .header("X-Api-Key", created.key.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"name":"blocked"}"#))
+                .expect("request");
+
+            let response = app.clone().oneshot(request).await.expect("response");
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "{method} should be forbidden for read-only API key"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_mutation_when_forms_session_is_read_only() {
+        let _lock = crate::handlers::auth::auth_test_mutex().lock().await;
+        crate::handlers::auth::clear_stores_for_tests().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        config.auth.basic_permission_level = PermissionLevel::ReadOnly;
+        let state = make_test_state(config).await;
+
+        let app = crate::router(state);
+        let login_request = Request::builder()
+            .uri("/api/v1/auth/forms/login")
+            .method("POST")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(Body::from("username=user&password=pass"))
+            .expect("login request");
+
+        let login_response = app
+            .clone()
+            .oneshot(login_request)
+            .await
+            .expect("login response");
+        assert_eq!(login_response.status(), StatusCode::OK);
+        let set_cookie = login_response
+            .headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .expect("set-cookie should exist");
+        let cookie_pair = set_cookie
+            .split(';')
+            .next()
+            .expect("cookie pair should exist");
+
+        let request = Request::builder()
+            .uri("/api/v1/artists")
+            .method("POST")
+            .header("Cookie", cookie_pair)
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name":"blocked"}"#))
+            .expect("request");
+
+        let response = app.oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }
