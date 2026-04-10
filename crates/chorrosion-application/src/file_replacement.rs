@@ -695,7 +695,10 @@ mod tests {
                 .permissions()
                 .mode()
                 & 0o777;
-            assert_eq!(mode, 0o600, "final file should have configured default mode");
+            assert_eq!(
+                mode, 0o600,
+                "final file should have configured default mode"
+            );
         }
 
         #[test]
@@ -734,7 +737,10 @@ mod tests {
                 .permissions()
                 .mode()
                 & 0o777;
-            assert_eq!(mode, 0o664, "final file should have configured default mode");
+            assert_eq!(
+                mode, 0o664,
+                "final file should have configured default mode"
+            );
         }
     }
 }

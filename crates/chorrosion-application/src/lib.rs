@@ -29,6 +29,7 @@ pub mod release_parsing;
 pub mod scan_cache;
 pub mod search_automation;
 pub mod tag_embedding;
+pub mod tag_sanitation;
 
 pub use download_clients::{
     AddTorrentRequest, DownloadClient, DownloadClientError, DownloadItem, DownloadState,
@@ -89,6 +90,7 @@ pub use tag_embedding::{
     TagEmbeddingOptions, TagEmbeddingOutcome, TagEmbeddingPayload, TagEmbeddingRequest,
     TagEmbeddingService, TagFormat, TagRoundtripSnapshot,
 };
+pub use tag_sanitation::TagSanitizer;
 
 use tracing::info;
 

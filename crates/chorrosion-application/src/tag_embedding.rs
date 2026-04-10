@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::tag_sanitation::TagSanitizer;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagFormat {
     Id3v2,
@@ -58,6 +60,10 @@ pub struct TagEmbeddingOptions {
     pub verify_roundtrip: bool,
     pub overwrite_existing: bool,
     pub allowed_quality_names: Option<Vec<String>>,
+    /// When `true` (the default), all text tag values are run through
+    /// [`TagSanitizer`] before being written: Unicode NFC normalization,
+    /// control-character stripping, and whitespace trimming.
+    pub sanitize_text: bool,
 }
 
 impl Default for TagEmbeddingOptions {
@@ -68,6 +74,7 @@ impl Default for TagEmbeddingOptions {
             verify_roundtrip: true,
             overwrite_existing: true,
             allowed_quality_names: None,
+            sanitize_text: true,
         }
     }
 }
@@ -261,17 +268,24 @@ impl TagEmbeddingService {
         let backup_path = backup_path_for(&request.file_path);
         let temp_path = temp_path_for(&request.file_path);
 
+        // Sanitize payload text fields when the option is enabled.
+        let sanitized_payload;
+        let payload = if options.sanitize_text {
+            sanitized_payload = TagSanitizer::sanitize_payload(request.payload.clone());
+            &sanitized_payload
+        } else {
+            &request.payload
+        };
+
         fs::copy(&request.file_path, &backup_path)
             .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))?;
         fs::copy(&request.file_path, &temp_path)
             .map_err(|err| TagEmbeddingError::FileOperation(err.to_string()))?;
 
-        if let Err(error) = self.backend.write_to_path(
-            &temp_path,
-            format,
-            &request.payload,
-            options.overwrite_existing,
-        ) {
+        if let Err(error) =
+            self.backend
+                .write_to_path(&temp_path, format, payload, options.overwrite_existing)
+        {
             restore_backup(&backup_path, &request.file_path)?;
             let _ = fs::remove_file(&temp_path);
             let _ = fs::remove_file(&backup_path);
@@ -288,7 +302,7 @@ impl TagEmbeddingService {
                 }
             };
 
-            if let Err(err) = verify_snapshot(&request.payload, &snapshot) {
+            if let Err(err) = verify_snapshot(payload, &snapshot) {
                 let _ = fs::remove_file(&temp_path);
                 let _ = fs::remove_file(&backup_path);
                 return Err(err);
