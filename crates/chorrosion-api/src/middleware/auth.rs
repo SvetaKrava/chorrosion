@@ -594,10 +594,10 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CREATED);
 
-        for method in ["POST", "PUT", "PATCH", "DELETE"] {
+        for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
             let request = Request::builder()
                 .uri("/api/v1/artists")
-                .method(method)
+                .method(method.clone())
                 .header("X-Api-Key", created.key.clone())
                 .header("Content-Type", "application/json")
                 .body(Body::from(r#"{"name":"blocked"}"#))
