@@ -531,4 +531,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-04-11  
 **Current Phase:** Phase 6: User Interface Enhancement  
-**Next Milestone:** Download monitoring and client integration enhancements (Phase 4.2 / 4.3)
+**Next Milestone:** Complete remaining download monitoring and client integration backlog items from Phase 4.2 / 4.3
