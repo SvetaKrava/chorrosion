@@ -12,6 +12,7 @@ postgres = ["sqlx/postgres", "chorrosion-infrastructure/postgres"]
 axum = { workspace = true, features = ["form"] }
 bytes = "1"
 chorrosion-application = { path = "../chorrosion-application" }
+chorrosion-config = { path = "../chorrosion-config" }
 chorrosion-domain = { path = "../chorrosion-domain" }
 chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chrono = { workspace = true }
@@ -32,7 +33,6 @@ subtle = "2"
 [dev-dependencies]
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
-chorrosion-config = { path = "../chorrosion-config" }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 criterion = { version = "0.5", features = ["async_tokio"] }

@@ -15,6 +15,7 @@ use axum::{
     Json, Router,
 };
 use chorrosion_application::AppState;
+use chorrosion_config::PermissionLevel;
 use chorrosion_infrastructure::repositories::Repository;
 use handlers::activity::{
     get_activity_history, get_activity_processing, get_activity_queue, ActivityItemResponse,
@@ -302,6 +303,7 @@ async fn metrics() -> axum::response::Response {
             CreateApiKeyRequest,
             DeleteApiKeyResponse,
             AuthErrorResponse,
+            PermissionLevel,
             FormsLoginRequest,
             FormsLoginResponse,
             FormsLogoutResponse,
