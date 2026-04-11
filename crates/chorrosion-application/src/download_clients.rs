@@ -784,6 +784,7 @@ mod tests {
             .and(body_string_contains(
                 "\"filename\":\"magnet:?xt=urn:btih:test\"",
             ))
+            .and(body_string_contains("\"download-dir\":\"/downloads/music\""))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string(r#"{"result":"success","arguments":{}}"#),
@@ -798,6 +799,28 @@ mod tests {
                 category: Some("/downloads/music".to_string()),
             })
             .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn transmission_set_category_posts_torrent_set_location() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .and(body_string_contains("\"method\":\"torrent-set-location\""))
+            .and(body_string_contains("\"ids\":[\"abc123\"]"))
+            .and(body_string_contains("\"location\":\"/downloads/music\""))
+            .and(body_string_contains("\"move\":false"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":"success","arguments":{}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = TransmissionClient::new(server.uri(), None, None);
+        let result = client.set_category("abc123", "/downloads/music").await;
         assert!(result.is_ok());
     }
 
