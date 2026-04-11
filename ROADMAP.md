@@ -197,7 +197,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Add torrent support ✓
   - [x] Category management ✓
   - [x] Status monitoring ✓
-- [ ] Transmission client
+- [x] Transmission client (Issue #349) ✓
 - [ ] Deluge client
 - [ ] SABnzbd client (Usenet)
 - [ ] NZBGet client (Usenet)

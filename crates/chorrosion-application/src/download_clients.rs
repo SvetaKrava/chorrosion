@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use async_trait::async_trait;
 use reqwest::{Client, Url};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
+use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +81,108 @@ pub struct QBittorrentClient {
     base_url: String,
     username: Option<String>,
     password: Option<String>,
+}
+
+pub struct TransmissionClient {
+    client: Client,
+    base_url: String,
+    username: Option<String>,
+    password: Option<String>,
+    session_id: RwLock<Option<String>>,
+}
+
+impl TransmissionClient {
+    pub fn new(base_url: String, username: Option<String>, password: Option<String>) -> Self {
+        let client = build_download_client_http_client();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        debug!(target: "download_clients", %base_url, "Initialized TransmissionClient");
+        Self {
+            client,
+            base_url,
+            username,
+            password,
+            session_id: RwLock::new(None),
+        }
+    }
+
+    fn endpoint(&self) -> Result<Url, DownloadClientError> {
+        let base = Url::parse(&self.base_url)
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
+        base.join("/transmission/rpc")
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
+    }
+
+    async fn rpc_call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        arguments: Value,
+    ) -> Result<T, DownloadClientError> {
+        let url = self.endpoint()?;
+        let payload = json!({
+            "method": method,
+            "arguments": arguments,
+        });
+
+        let mut request = self.client.post(url.clone()).json(&payload);
+        if let Some(username) = self.username.as_deref() {
+            request = request.basic_auth(username, self.password.as_deref());
+        }
+        if let Some(session_id) = self.session_id.read().await.clone() {
+            request = request.header("X-Transmission-Session-Id", session_id);
+        }
+
+        let mut response = request
+            .send()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            if let Some(session_id) = response
+                .headers()
+                .get("X-Transmission-Session-Id")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+            {
+                *self.session_id.write().await = Some(session_id.clone());
+                let mut retry = self
+                    .client
+                    .post(url)
+                    .header("X-Transmission-Session-Id", session_id)
+                    .json(&payload);
+                if let Some(username) = self.username.as_deref() {
+                    retry = retry.basic_auth(username, self.password.as_deref());
+                }
+                response = retry
+                    .send()
+                    .await
+                    .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+            }
+        }
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(DownloadClientError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let rpc: TransmissionRpcResponse<T> = serde_json::from_str(&body)
+            .map_err(|e| DownloadClientError::Deserialization(e.to_string()))?;
+        if rpc.result != "success" {
+            return Err(DownloadClientError::Request(format!(
+                "transmission RPC error: {}",
+                rpc.result
+            )));
+        }
+
+        Ok(rpc.arguments)
+    }
 }
 
 impl QBittorrentClient {
@@ -262,6 +366,69 @@ impl DownloadClient for QBittorrentClient {
     }
 }
 
+#[async_trait]
+impl DownloadClient for TransmissionClient {
+    async fn test_connection(&self) -> Result<(), DownloadClientError> {
+        let _: Value = self.rpc_call("session-get", json!({})).await?;
+        Ok(())
+    }
+
+    async fn add_torrent(&self, request: AddTorrentRequest) -> Result<(), DownloadClientError> {
+        let mut args = json!({
+            "filename": request.torrent_or_magnet,
+        });
+        if let Some(category) = request.category {
+            args["download-dir"] = json!(category);
+        }
+        let _: Value = self.rpc_call("torrent-add", args).await?;
+        Ok(())
+    }
+
+    async fn set_category(&self, hash: &str, category: &str) -> Result<(), DownloadClientError> {
+        let _: Value = self
+            .rpc_call(
+                "torrent-set-location",
+                json!({
+                    "ids": [hash],
+                    "location": category,
+                    "move": false
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn list_downloads(&self) -> Result<Vec<DownloadItem>, DownloadClientError> {
+        let torrents: TransmissionTorrentGetArguments = self
+            .rpc_call(
+                "torrent-get",
+                json!({
+                    "fields": ["hashString", "name", "percentDone", "status", "downloadDir"]
+                }),
+            )
+            .await?;
+
+        Ok(torrents
+            .torrents
+            .into_iter()
+            .map(|torrent| DownloadItem {
+                hash: torrent.hash_string,
+                name: torrent.name,
+                progress_percent: (torrent.percent_done * 100.0).round().clamp(0.0, 100.0) as u8,
+                category: torrent.download_dir.filter(|v| !v.trim().is_empty()),
+                state: map_transmission_state(torrent.status),
+            })
+            .collect())
+    }
+
+    async fn prioritize_download(&self, hash: &str) -> Result<(), DownloadClientError> {
+        let _: Value = self
+            .rpc_call("queue-move-top", json!({ "ids": [hash] }))
+            .await?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct QBittorrentTorrent {
     hash: String,
@@ -272,6 +439,30 @@ struct QBittorrentTorrent {
     state: String,
     #[serde(default)]
     category: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransmissionRpcResponse<T> {
+    result: String,
+    arguments: T,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransmissionTorrentGetArguments {
+    torrents: Vec<TransmissionTorrent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransmissionTorrent {
+    #[serde(rename = "hashString")]
+    hash_string: String,
+    name: String,
+    #[serde(default, rename = "percentDone")]
+    percent_done: f32,
+    #[serde(default)]
+    status: i64,
+    #[serde(default, rename = "downloadDir")]
+    download_dir: Option<String>,
 }
 
 fn map_qbittorrent_state(state: &str) -> DownloadState {
@@ -292,9 +483,22 @@ fn map_qbittorrent_state(state: &str) -> DownloadState {
     }
 }
 
+fn map_transmission_state(status: i64) -> DownloadState {
+    match status {
+        0 => DownloadState::Paused,
+        1..=3 => DownloadState::Queued,
+        4 => DownloadState::Downloading,
+        5 | 6 => DownloadState::Completed,
+        _ => DownloadState::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AddTorrentRequest, DownloadClient, DownloadState, QBittorrentClient};
+    use super::{
+        map_transmission_state, AddTorrentRequest, DownloadClient, DownloadState,
+        QBittorrentClient, TransmissionClient,
+    };
     use wiremock::matchers::{body_string_contains, method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -536,5 +740,127 @@ mod tests {
             map_qbittorrent_state("something_unexpected"),
             DownloadState::Unknown
         );
+    }
+
+    #[tokio::test]
+    async fn transmission_test_connection_negotiates_session_and_succeeds() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .and(wiremock::matchers::header(
+                "X-Transmission-Session-Id",
+                "session-1",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":"success","arguments":{}}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .respond_with(
+                ResponseTemplate::new(409).insert_header("X-Transmission-Session-Id", "session-1"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = TransmissionClient::new(server.uri(), None, None);
+        let result = client.test_connection().await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn transmission_add_torrent_posts_filename() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .and(body_string_contains("\"method\":\"torrent-add\""))
+            .and(body_string_contains(
+                "\"filename\":\"magnet:?xt=urn:btih:test\"",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":"success","arguments":{}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = TransmissionClient::new(server.uri(), None, None);
+        let result = client
+            .add_torrent(AddTorrentRequest {
+                torrent_or_magnet: "magnet:?xt=urn:btih:test".to_string(),
+                category: Some("/downloads/music".to_string()),
+            })
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn transmission_list_downloads_maps_state_and_progress() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .and(body_string_contains("\"method\":\"torrent-get\""))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "result":"success",
+                    "arguments":{
+                        "torrents":[
+                            {
+                                "hashString":"abc123",
+                                "name":"Album FLAC",
+                                "percentDone":0.42,
+                                "status":4,
+                                "downloadDir":"/downloads/music"
+                            }
+                        ]
+                    }
+                }"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = TransmissionClient::new(server.uri(), None, None);
+        let downloads = client.list_downloads().await.expect("downloads parse");
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].hash, "abc123");
+        assert_eq!(downloads[0].progress_percent, 42);
+        assert_eq!(downloads[0].state, DownloadState::Downloading);
+    }
+
+    #[tokio::test]
+    async fn transmission_prioritize_download_posts_queue_move_top() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/transmission/rpc"))
+            .and(body_string_contains("\"method\":\"queue-move-top\""))
+            .and(body_string_contains("abc123"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":"success","arguments":{}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = TransmissionClient::new(server.uri(), None, None);
+        let result = client.prioritize_download("abc123").await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn transmission_state_mapping() {
+        assert_eq!(map_transmission_state(0), DownloadState::Paused);
+        assert_eq!(map_transmission_state(3), DownloadState::Queued);
+        assert_eq!(map_transmission_state(4), DownloadState::Downloading);
+        assert_eq!(map_transmission_state(6), DownloadState::Completed);
+        assert_eq!(map_transmission_state(42), DownloadState::Unknown);
     }
 }
