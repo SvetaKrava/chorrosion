@@ -325,7 +325,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 6.2 WebSocket/SSE Support
 
 - [x] SSE event stream baseline (`GET /api/v1/events`) ✓
-- [ ] Real-time updates implementation
+- [x] Real-time updates implementation ✓
   - [x] Download progress (`GET /api/v1/events/download-progress`) ✓
   - [x] Import progress (`GET /api/v1/events/import-progress`) ✓
   - [x] Job status (`GET /api/v1/events/job-status`) ✓
@@ -529,6 +529,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-09  
-**Current Phase:** Phase 5: File Management  
-**Next Milestone:** Tagging charset/normalization and remaining import system items (Phase 5.4 / 5.1)
+**Last Updated:** 2026-04-11  
+**Current Phase:** Phase 6: User Interface Enhancement  
+**Next Milestone:** Complete remaining download monitoring and client integration backlog items from Phase 4.2 / 4.3
