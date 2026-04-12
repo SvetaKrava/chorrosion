@@ -110,9 +110,13 @@ impl DelugeClient {
     }
 
     fn endpoint(&self) -> Result<Url, DownloadClientError> {
-        let base = Url::parse(&self.base_url)
+        let mut base = Url::parse(&self.base_url)
             .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
-        base.join("/json")
+        if !base.path().ends_with('/') {
+            let path = format!("{}/", base.path());
+            base.set_path(&path);
+        }
+        base.join("json")
             .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
     }
 
@@ -543,7 +547,10 @@ impl DownloadClient for DelugeClient {
     async fn set_category(&self, hash: &str, category: &str) -> Result<(), DownloadClientError> {
         self.authenticate_if_configured().await?;
         let _: Value = self
-            .rpc_call("core.move_storage", json!([[hash], category]))
+            .rpc_call(
+                "core.set_torrent_options",
+                json!([[hash], { "download_location": category }]),
+            )
             .await?;
         Ok(())
     }
@@ -564,8 +571,8 @@ impl DownloadClient for DelugeClient {
             .into_iter()
             .map(|(hash, torrent)| {
                 let category = torrent
-                    .label
-                    .or(torrent.download_location)
+                    .download_location
+                    .or(torrent.label)
                     .filter(|v| !v.trim().is_empty());
                 DownloadItem {
                     hash,
@@ -1166,7 +1173,7 @@ mod tests {
         assert_eq!(downloads[0].hash, "abc123");
         assert_eq!(downloads[0].progress_percent, 55);
         assert_eq!(downloads[0].state, DownloadState::Downloading);
-        assert_eq!(downloads[0].category.as_deref(), Some("music"));
+        assert_eq!(downloads[0].category.as_deref(), Some("/downloads/music"));
     }
 
     #[tokio::test]
@@ -1190,12 +1197,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deluge_set_category_posts_move_storage() {
+    async fn deluge_set_category_posts_set_torrent_options() {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
             .and(path("/json"))
-            .and(body_string_contains("\"method\":\"core.move_storage\""))
+            .and(body_string_contains(
+                "\"method\":\"core.set_torrent_options\"",
+            ))
             .and(body_string_contains("abc123"))
             .and(body_string_contains("/downloads/lossless"))
             .respond_with(
