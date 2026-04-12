@@ -91,6 +91,89 @@ pub struct TransmissionClient {
     session_id: RwLock<Option<String>>,
 }
 
+pub struct DelugeClient {
+    client: Client,
+    base_url: String,
+    password: Option<String>,
+}
+
+impl DelugeClient {
+    pub fn new(base_url: String, password: Option<String>) -> Self {
+        let client = build_download_client_http_client();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        debug!(target: "download_clients", %base_url, "Initialized DelugeClient");
+        Self {
+            client,
+            base_url,
+            password,
+        }
+    }
+
+    fn endpoint(&self) -> Result<Url, DownloadClientError> {
+        let base = Url::parse(&self.base_url)
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
+        base.join("/json")
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
+    }
+
+    async fn rpc_call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<T, DownloadClientError> {
+        let url = self.endpoint()?;
+        let payload = json!({
+            "method": method,
+            "params": params,
+            "id": 1,
+        });
+
+        let response = self
+            .client
+            .post(url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(DownloadClientError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let rpc: DelugeRpcResponse<T> = serde_json::from_str(&body)
+            .map_err(|e| DownloadClientError::Deserialization(e.to_string()))?;
+        if let Some(error) = rpc.error {
+            return Err(DownloadClientError::Request(format!(
+                "deluge RPC error: {}",
+                error.message
+            )));
+        }
+        Ok(rpc.result)
+    }
+
+    async fn authenticate_if_configured(&self) -> Result<(), DownloadClientError> {
+        let Some(password) = self.password.as_deref() else {
+            return Ok(());
+        };
+
+        let logged_in: bool = self.rpc_call("auth.login", json!([password])).await?;
+        if logged_in {
+            Ok(())
+        } else {
+            Err(DownloadClientError::Authentication)
+        }
+    }
+}
+
 impl TransmissionClient {
     pub fn new(base_url: String, username: Option<String>, password: Option<String>) -> Self {
         let client = build_download_client_http_client();
@@ -429,6 +512,79 @@ impl DownloadClient for TransmissionClient {
     }
 }
 
+#[async_trait]
+impl DownloadClient for DelugeClient {
+    async fn test_connection(&self) -> Result<(), DownloadClientError> {
+        self.authenticate_if_configured().await?;
+        let _: Value = self.rpc_call("web.connected", json!([])).await?;
+        Ok(())
+    }
+
+    async fn add_torrent(&self, request: AddTorrentRequest) -> Result<(), DownloadClientError> {
+        self.authenticate_if_configured().await?;
+        let options = if let Some(category) = request.category {
+            json!({ "download_location": category })
+        } else {
+            json!({})
+        };
+
+        let _: Value = self
+            .rpc_call(
+                "web.add_torrents",
+                json!([[{
+                    "path": request.torrent_or_magnet,
+                    "options": options
+                }]]),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn set_category(&self, hash: &str, category: &str) -> Result<(), DownloadClientError> {
+        self.authenticate_if_configured().await?;
+        let _: Value = self
+            .rpc_call("core.move_storage", json!([[hash], category]))
+            .await?;
+        Ok(())
+    }
+
+    async fn list_downloads(&self) -> Result<Vec<DownloadItem>, DownloadClientError> {
+        self.authenticate_if_configured().await?;
+        let torrents: HashMap<String, DelugeTorrent> = self
+            .rpc_call(
+                "web.get_torrents_status",
+                json!([
+                    {},
+                    ["name", "progress", "state", "label", "download_location"]
+                ]),
+            )
+            .await?;
+
+        Ok(torrents
+            .into_iter()
+            .map(|(hash, torrent)| {
+                let category = torrent
+                    .label
+                    .or(torrent.download_location)
+                    .filter(|v| !v.trim().is_empty());
+                DownloadItem {
+                    hash,
+                    name: torrent.name,
+                    progress_percent: torrent.progress.round().clamp(0.0, 100.0) as u8,
+                    category,
+                    state: map_deluge_state(&torrent.state),
+                }
+            })
+            .collect())
+    }
+
+    async fn prioritize_download(&self, hash: &str) -> Result<(), DownloadClientError> {
+        self.authenticate_if_configured().await?;
+        let _: Value = self.rpc_call("core.queue_top", json!([[hash]])).await?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct QBittorrentTorrent {
     hash: String,
@@ -465,6 +621,30 @@ struct TransmissionTorrent {
     download_dir: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DelugeRpcResponse<T> {
+    result: T,
+    error: Option<DelugeRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DelugeRpcError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DelugeTorrent {
+    name: String,
+    #[serde(default)]
+    progress: f32,
+    #[serde(default)]
+    state: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default, rename = "download_location")]
+    download_location: Option<String>,
+}
+
 fn map_qbittorrent_state(state: &str) -> DownloadState {
     let state = state.to_lowercase();
     if state.contains("error") || state.contains("missingfiles") {
@@ -493,11 +673,22 @@ fn map_transmission_state(status: i64) -> DownloadState {
     }
 }
 
+fn map_deluge_state(state: &str) -> DownloadState {
+    match state.to_lowercase().as_str() {
+        s if s.contains("error") => DownloadState::Error,
+        s if s.contains("paused") => DownloadState::Paused,
+        s if s.contains("queued") => DownloadState::Queued,
+        s if s.contains("seeding") || s.contains("finished") => DownloadState::Completed,
+        s if s.contains("downloading") || s.contains("checking") => DownloadState::Downloading,
+        _ => DownloadState::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        map_transmission_state, AddTorrentRequest, DownloadClient, DownloadState,
-        QBittorrentClient, TransmissionClient,
+        map_deluge_state, map_transmission_state, AddTorrentRequest, DelugeClient, DownloadClient,
+        DownloadState, QBittorrentClient, TransmissionClient,
     };
     use wiremock::matchers::{body_string_contains, method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -784,7 +975,9 @@ mod tests {
             .and(body_string_contains(
                 "\"filename\":\"magnet:?xt=urn:btih:test\"",
             ))
-            .and(body_string_contains("\"download-dir\":\"/downloads/music\""))
+            .and(body_string_contains(
+                "\"download-dir\":\"/downloads/music\"",
+            ))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string(r#"{"result":"success","arguments":{}}"#),
@@ -885,5 +1078,145 @@ mod tests {
         assert_eq!(map_transmission_state(4), DownloadState::Downloading);
         assert_eq!(map_transmission_state(6), DownloadState::Completed);
         assert_eq!(map_transmission_state(42), DownloadState::Unknown);
+    }
+
+    #[tokio::test]
+    async fn deluge_test_connection_authenticates_and_checks_connected() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains("\"method\":\"auth.login\""))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":true,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains("\"method\":\"web.connected\""))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":true,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = DelugeClient::new(server.uri(), Some("secret".to_string()));
+        let result = client.test_connection().await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn deluge_add_torrent_posts_web_add_torrents() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains("\"method\":\"web.add_torrents\""))
+            .and(body_string_contains("magnet:?xt=urn:btih:test"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"{"result":{},"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = DelugeClient::new(server.uri(), None);
+        let result = client
+            .add_torrent(AddTorrentRequest {
+                torrent_or_magnet: "magnet:?xt=urn:btih:test".to_string(),
+                category: Some("/downloads/music".to_string()),
+            })
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn deluge_list_downloads_maps_state_and_progress() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains(
+                "\"method\":\"web.get_torrents_status\"",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "result":{
+                        "abc123":{
+                            "name":"Album FLAC",
+                            "progress":55.2,
+                            "state":"Downloading",
+                            "label":"music",
+                            "download_location":"/downloads/music"
+                        }
+                    },
+                    "error":null,
+                    "id":1
+                }"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = DelugeClient::new(server.uri(), None);
+        let downloads = client.list_downloads().await.expect("downloads parse");
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].hash, "abc123");
+        assert_eq!(downloads[0].progress_percent, 55);
+        assert_eq!(downloads[0].state, DownloadState::Downloading);
+        assert_eq!(downloads[0].category.as_deref(), Some("music"));
+    }
+
+    #[tokio::test]
+    async fn deluge_prioritize_download_posts_queue_top() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains("\"method\":\"core.queue_top\""))
+            .and(body_string_contains("abc123"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":null,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = DelugeClient::new(server.uri(), None);
+        let result = client.prioritize_download("abc123").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn deluge_set_category_posts_move_storage() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/json"))
+            .and(body_string_contains("\"method\":\"core.move_storage\""))
+            .and(body_string_contains("abc123"))
+            .and(body_string_contains("/downloads/lossless"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":true,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = DelugeClient::new(server.uri(), None);
+        let result = client.set_category("abc123", "/downloads/lossless").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn deluge_state_mapping() {
+        assert_eq!(map_deluge_state("Error"), DownloadState::Error);
+        assert_eq!(map_deluge_state("Paused"), DownloadState::Paused);
+        assert_eq!(map_deluge_state("Queued"), DownloadState::Queued);
+        assert_eq!(map_deluge_state("Seeding"), DownloadState::Completed);
+        assert_eq!(map_deluge_state("Downloading"), DownloadState::Downloading);
+        assert_eq!(map_deluge_state("UnknownState"), DownloadState::Unknown);
     }
 }

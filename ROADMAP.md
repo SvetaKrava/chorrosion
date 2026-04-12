@@ -198,7 +198,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Category management ✓
   - [x] Status monitoring ✓
 - [x] Transmission client (Issue #349) ✓
-- [ ] Deluge client
+- [x] Deluge client (Issue #352) ✓
 - [ ] SABnzbd client (Usenet)
 - [ ] NZBGet client (Usenet)
 - [x] Download queue management (Issue #32, PR #148) ✓
