@@ -128,12 +128,13 @@ fn normalize_client_type(
 ) -> Result<String, (StatusCode, Json<DownloadClientErrorResponse>)> {
     let normalized = client_type.trim().to_lowercase();
     match normalized.as_str() {
-        "qbittorrent" | "transmission" => Ok(normalized),
+        "qbittorrent" | "transmission" | "deluge" => Ok(normalized),
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(DownloadClientErrorResponse {
-                error: "unsupported client_type; supported values: qbittorrent, transmission"
-                    .to_string(),
+                error:
+                    "unsupported client_type; supported values: qbittorrent, transmission, deluge"
+                        .to_string(),
             }),
         )),
     }
@@ -659,6 +660,27 @@ mod tests {
             Json(CreateDownloadClientRequest {
                 name: "tx-main".to_string(),
                 client_type: "transmission".to_string(),
+                base_url: "https://downloads.example".to_string(),
+                username: None,
+                password: None,
+                category: None,
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn create_download_client_accepts_deluge_type() {
+        let state = make_test_state().await;
+        let response = create_download_client(
+            State(state),
+            Json(CreateDownloadClientRequest {
+                name: "deluge-main".to_string(),
+                client_type: "deluge".to_string(),
                 base_url: "https://downloads.example".to_string(),
                 username: None,
                 password: None,

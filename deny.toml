@@ -1,6 +1,12 @@
 [advisories]
 # Keep advisories strict by default; set threshold to include all severities
-ignore = []
+ignore = [
+  # rand 0.8.5 unsound advisory (RUSTSEC-2026-0097) — only affects custom loggers
+  # calling rand::rng() with ThreadRng reseeding.  Transitive dep from tungstenite
+  # (via warp 0.3) and sqlx 0.8; none of these code paths invoke rand from a logger.
+  # Will be resolved when warp and sqlx upgrade to rand >=0.9.3.
+  "RUSTSEC-2026-0097",
+]
 
 [bans]
 multiple-versions = "warn"
