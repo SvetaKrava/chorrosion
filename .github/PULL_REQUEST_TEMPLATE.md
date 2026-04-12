@@ -9,7 +9,7 @@
 
 ## Related Issue
 
-- Closes #<!-- issue number, if applicable -->
+- Closes #<!-- issue number (create an issue first if one does not exist) -->
 
 ## Milestone
 
