@@ -9,7 +9,7 @@ use chorrosion_infrastructure::{
     ResponseCache,
 };
 use moka::sync::Cache;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -172,7 +172,7 @@ pub struct ActivityStallTracker {
 const ACTIVITY_STALL_AFTER_SECONDS: u64 = 300;
 
 impl ActivityStallTracker {
-    /// Create a new tracker with the given stall window (clamped to ≥ 0 s).
+    /// Create a new tracker with the given stall window.
     pub fn new(stall_after_seconds: u64) -> Self {
         Self {
             stall_after: Duration::from_secs(stall_after_seconds),
@@ -192,7 +192,7 @@ impl ActivityStallTracker {
 
     fn observe_at(&self, items: &[CachedActivityItem], now: Instant) {
         let mut tracked = self.inner.lock().expect("activity stall tracker lock");
-        let mut active_ids = Vec::new();
+        let mut active_ids: HashSet<String> = HashSet::new();
 
         for item in items {
             let id = format!("{}:{}", item.definition_id, item.download.hash);
@@ -224,10 +224,10 @@ impl ActivityStallTracker {
                 }
             }
 
-            active_ids.push(id);
+            active_ids.insert(id);
         }
 
-        tracked.retain(|id, _| active_ids.iter().any(|active_id| active_id == id));
+        tracked.retain(|id, _| active_ids.contains(id));
     }
 
     fn stalled_ids_at(&self, items: &[CachedActivityItem], now: Instant) -> Vec<String> {
@@ -291,6 +291,10 @@ impl AppState {
         response_cache: ResponseCache,
     ) -> Self {
         Self {
+            activity_snapshot_cache: ActivitySnapshotCache::default(),
+            activity_stall_tracker: ActivityStallTracker::new(
+                config.activity.stall_after_seconds,
+            ),
             config,
             artist_repository,
             album_repository,
@@ -300,8 +304,6 @@ impl AppState {
             indexer_definition_repository,
             download_client_definition_repository,
             response_cache,
-            activity_snapshot_cache: ActivitySnapshotCache::default(),
-            activity_stall_tracker: ActivityStallTracker::default(),
         }
     }
 

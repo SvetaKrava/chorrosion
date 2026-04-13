@@ -225,10 +225,15 @@ pub(crate) async fn activity_stalled_snapshot(
     let filtered: Vec<_> = snapshot
         .items
         .into_iter()
-        .filter(|item| {
-            item.download.state == DownloadState::Downloading
-                && stalled_ids.contains(&format!("{}:{}", item.definition_id, item.download.hash))
+        .map(|item| {
+            let item_id = format!("{}:{}", item.definition_id, item.download.hash);
+            (item_id, item)
         })
+        .filter(|(item_id, item)| {
+            item.download.state == DownloadState::Downloading
+                && stalled_ids.contains(item_id)
+        })
+        .map(|(_, item)| item)
         .collect();
 
     Ok(snapshot_to_response(filtered))
@@ -875,5 +880,59 @@ mod tests {
         assert_eq!(second_payload.total, 1);
         assert_eq!(second_payload.items[0].state, "downloading");
         assert_eq!(second_payload.items[0].name, "qbit-main: Slow Album");
+    }
+
+    /// Repeated requests that hit the snapshot cache (no explicit `clear()` between
+    /// calls) must NOT advance the stall tracker.  A download should only be
+    /// considered stalled once at least two *fresh* polls observe the same progress.
+    #[tokio::test]
+    async fn get_activity_stalled_cache_hit_does_not_advance_tracker() {
+        let mut state = make_test_state().await;
+        // Zero-second stall window so any two fresh observations immediately qualify.
+        state.activity_stall_tracker = ActivityStallTracker::new(0);
+
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "hash": "no_stall",
+                    "name": "Slow Album",
+                    "progress": 0.20,
+                    "state": "downloading",
+                    "category": "music"
+                }]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        // First call: fresh poll — one observation recorded (repeated_samples = 1).
+        // Not stalled yet (needs >= 2 samples).
+        let first = activity_stalled_snapshot(&state)
+            .await
+            .expect("first call should succeed");
+        assert_eq!(first.total, 0, "should not be stalled after one fresh poll");
+
+        // Second call: snapshot is still cached (no clear()), so the stall tracker
+        // must NOT be advanced.  Even with a zero stall window the download should
+        // still not appear as stalled because repeated_samples never reached 2.
+        let second = activity_stalled_snapshot(&state)
+            .await
+            .expect("second call (cache HIT) should succeed");
+        assert_eq!(
+            second.total, 0,
+            "cache-HIT request must not advance the stall tracker"
+        );
     }
 }
