@@ -721,6 +721,7 @@ impl DownloadClient for SabnzbdClient {
         let queue: SabnzbdQueueResponse = serde_json::from_value(response)
             .map_err(|e| DownloadClientError::Deserialization(e.to_string()))?;
 
+        let queue_status = queue.queue.status;
         Ok(queue
             .queue
             .slots
@@ -735,7 +736,7 @@ impl DownloadClient for SabnzbdClient {
                     .map(|v| v.round().clamp(0.0, 100.0) as u8)
                     .unwrap_or(0),
                 category: slot.cat.filter(|v| !v.trim().is_empty()),
-                state: map_sabnzbd_state(slot.status.as_deref().or(queue.queue.status.as_deref())),
+                state: map_sabnzbd_state(slot.status.as_deref().or(queue_status.as_deref())),
             })
             .collect())
     }
