@@ -19,8 +19,9 @@ use chorrosion_config::PermissionLevel;
 use chorrosion_infrastructure::repositories::Repository;
 use handlers::activity::{
     get_activity_failed, get_activity_history, get_activity_processing, get_activity_queue,
-    ActivityErrorResponse, ActivityItemResponse, ActivityListResponse, __path_get_activity_failed,
-    __path_get_activity_history, __path_get_activity_processing, __path_get_activity_queue,
+    get_activity_stalled, ActivityErrorResponse, ActivityItemResponse, ActivityListResponse,
+    __path_get_activity_failed, __path_get_activity_history, __path_get_activity_processing,
+    __path_get_activity_queue, __path_get_activity_stalled,
 };
 use handlers::albums::{
     create_album, delete_album, get_album, list_albums, list_albums_by_artist,
@@ -260,6 +261,7 @@ async fn metrics() -> axum::response::Response {
         get_activity_queue,
         get_activity_history,
         get_activity_failed,
+        get_activity_stalled,
         get_activity_processing,
         stream_events,
         get_sse_connections,
@@ -435,6 +437,7 @@ pub fn router(state: AppState) -> Router {
         .route("/activity/queue", get(get_activity_queue))
         .route("/activity/history", get(get_activity_history))
         .route("/activity/failed", get(get_activity_failed))
+        .route("/activity/stalled", get(get_activity_stalled))
         .route("/activity/processing", get(get_activity_processing))
         .route("/events", get(stream_events))
         .route("/events/connections", get(get_sse_connections))
