@@ -517,20 +517,21 @@ mod tests {
     ///
     /// With `tokio::time::pause()`, keepalive timers can race with real async
     /// I/O (e.g. SQLite queries inside `activity_queue_snapshot`) causing a
-    /// keepalive to arrive before the expected data event.
+    /// keepalive to arrive before the expected data event.  The function skips
+    /// up to 50 consecutive keepalive frames to avoid hanging indefinitely.
     async fn read_next_data_event<S, E>(stream: &mut std::pin::Pin<Box<S>>) -> String
     where
         S: futures_util::Stream<Item = Result<axum::body::Bytes, E>> + Send,
         E: std::fmt::Debug,
     {
-        loop {
+        const MAX_KEEPALIVES: usize = 50;
+        for _ in 0..MAX_KEEPALIVES {
             let text = read_next_sse_event(stream).await;
-            // SSE keepalives are sent as comments (": keepalive\n\n").
-            // Skip them and return only real events.
             if !text.trim().starts_with(": keepalive") {
                 return text;
             }
         }
+        panic!("exceeded {MAX_KEEPALIVES} consecutive keepalive frames without receiving a data event");
     }
 
     /// Drives the `stream_events` handler end-to-end: checks the SSE content-type header,
