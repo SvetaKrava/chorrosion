@@ -531,7 +531,9 @@ mod tests {
                 return text;
             }
         }
-        panic!("exceeded {MAX_KEEPALIVES} consecutive keepalive frames without receiving a data event");
+        panic!(
+            "exceeded {MAX_KEEPALIVES} consecutive keepalive frames without receiving a data event"
+        );
     }
 
     /// Drives the `stream_events` handler end-to-end: checks the SSE content-type header,
