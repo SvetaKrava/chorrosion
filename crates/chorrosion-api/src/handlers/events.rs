@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::broadcast;
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 const SSE_EVENT_INTERVAL_SECS: u64 = 5;
@@ -306,7 +306,13 @@ pub async fn stream_download_progress_events(
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
 
-            let queue = activity_queue_snapshot(&state).await;
+            let queue = activity_queue_snapshot(&state).await.unwrap_or_else(|e| {
+                warn!(target: "api", error = %e, "SSE: failed to build activity queue snapshot");
+                ActivityListResponse {
+                    items: vec![],
+                    total: 0,
+                }
+            });
             let payload = DownloadProgressEventPayload { sequence, queue };
             let data = serde_json::to_string(&payload)
                 .expect("DownloadProgressEventPayload is always serializable");
@@ -507,6 +513,27 @@ mod tests {
         buf
     }
 
+    /// Like [`read_next_sse_event`] but skips SSE keepalive comments.
+    ///
+    /// With `tokio::time::pause()`, keepalive timers can race with real async
+    /// I/O (e.g. SQLite queries inside `activity_queue_snapshot`) causing a
+    /// keepalive to arrive before the expected data event.  The function skips
+    /// up to 50 consecutive keepalive frames to avoid hanging indefinitely.
+    async fn read_next_data_event<S, E>(stream: &mut std::pin::Pin<Box<S>>) -> String
+    where
+        S: futures_util::Stream<Item = Result<axum::body::Bytes, E>> + Send,
+        E: std::fmt::Debug,
+    {
+        const MAX_KEEPALIVES: usize = 50;
+        for _ in 0..MAX_KEEPALIVES {
+            let text = read_next_sse_event(stream).await;
+            if !text.trim().starts_with(": keepalive") {
+                return text;
+            }
+        }
+        panic!("exceeded {MAX_KEEPALIVES} consecutive keepalive frames without receiving a data event");
+    }
+
     /// Drives the `stream_events` handler end-to-end: checks the SSE content-type header,
     /// validates the initial `connected` event, and confirms that the event name rotates
     /// deterministically across ticks.  Time is paused after state setup so the runtime
@@ -589,7 +616,7 @@ mod tests {
             "expected connected event, got: {connected}"
         );
 
-        let text = read_next_sse_event(&mut data_stream).await;
+        let text = read_next_data_event(&mut data_stream).await;
         assert!(
             text.contains("event: download_queue_snapshot"),
             "expected download_queue_snapshot event, got: {text}"
