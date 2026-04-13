@@ -513,6 +513,26 @@ mod tests {
         buf
     }
 
+    /// Like [`read_next_sse_event`] but skips SSE keepalive comments.
+    ///
+    /// With `tokio::time::pause()`, keepalive timers can race with real async
+    /// I/O (e.g. SQLite queries inside `activity_queue_snapshot`) causing a
+    /// keepalive to arrive before the expected data event.
+    async fn read_next_data_event<S, E>(stream: &mut std::pin::Pin<Box<S>>) -> String
+    where
+        S: futures_util::Stream<Item = Result<axum::body::Bytes, E>> + Send,
+        E: std::fmt::Debug,
+    {
+        loop {
+            let text = read_next_sse_event(stream).await;
+            // SSE keepalives are sent as comments (": keepalive\n\n").
+            // Skip them and return only real events.
+            if !text.trim().starts_with(": keepalive") {
+                return text;
+            }
+        }
+    }
+
     /// Drives the `stream_events` handler end-to-end: checks the SSE content-type header,
     /// validates the initial `connected` event, and confirms that the event name rotates
     /// deterministically across ticks.  Time is paused after state setup so the runtime
@@ -595,7 +615,7 @@ mod tests {
             "expected connected event, got: {connected}"
         );
 
-        let text = read_next_sse_event(&mut data_stream).await;
+        let text = read_next_data_event(&mut data_stream).await;
         assert!(
             text.contains("event: download_queue_snapshot"),
             "expected download_queue_snapshot event, got: {text}"
