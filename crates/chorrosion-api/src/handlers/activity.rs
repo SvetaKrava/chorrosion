@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, Json};
 use chorrosion_application::{
-    AppState, DelugeClient, DownloadClient, DownloadState, NzbgetClient, QBittorrentClient,
-    SabnzbdClient, TransmissionClient,
+    AppState, CachedActivityItem, DelugeClient, DownloadClient, DownloadState, NzbgetClient,
+    QBittorrentClient, SabnzbdClient, TransmissionClient,
 };
 use chorrosion_domain::DownloadClientDefinition;
 use chorrosion_infrastructure::repositories::Repository;
@@ -66,9 +66,18 @@ fn state_label(state: &DownloadState) -> &'static str {
     }
 }
 
-pub(crate) async fn activity_queue_snapshot(
-    state: &AppState,
-) -> Result<ActivityListResponse, String> {
+/// Poll download clients and return the raw snapshot, using a short-lived
+/// TTL cache to avoid redundant network calls when multiple activity
+/// endpoints are fetched in quick succession.
+async fn poll_cached_snapshot(state: &AppState) -> Result<Vec<CachedActivityItem>, String> {
+    // Fast path: return cached snapshot if still within TTL.
+    if let Some(cached) = state.activity_snapshot_cache.get() {
+        debug!(target: "api", "activity snapshot cache HIT");
+        return Ok(cached);
+    }
+
+    debug!(target: "api", "activity snapshot cache MISS – polling download clients");
+
     let definitions = state
         .download_client_definition_repository
         .list(1000, 0)
@@ -102,11 +111,10 @@ pub(crate) async fn activity_queue_snapshot(
         match client.list_downloads().await {
             Ok(downloads) => downloads
                 .into_iter()
-                .map(|download| ActivityItemResponse {
-                    id: format!("{}:{}", definition.id, download.hash),
-                    name: format!("{}: {}", definition.name, download.name),
-                    state: state_label(&download.state).to_string(),
-                    progress_percent: download.progress_percent,
+                .map(|download| CachedActivityItem {
+                    definition_id: definition.id.to_string(),
+                    definition_name: definition.name.clone(),
+                    download,
                 })
                 .collect::<Vec<_>>(),
             Err(error) => {
@@ -125,10 +133,33 @@ pub(crate) async fn activity_queue_snapshot(
 
     let items: Vec<_> = results.into_iter().flatten().collect();
 
-    Ok(ActivityListResponse {
+    // Store in cache for subsequent requests within the TTL window.
+    state.activity_snapshot_cache.set(items.clone());
+
+    Ok(items)
+}
+
+fn snapshot_to_response(items: Vec<CachedActivityItem>) -> ActivityListResponse {
+    let items: Vec<ActivityItemResponse> = items
+        .into_iter()
+        .map(|item| ActivityItemResponse {
+            id: format!("{}:{}", item.definition_id, item.download.hash),
+            name: format!("{}: {}", item.definition_name, item.download.name),
+            state: state_label(&item.download.state).to_string(),
+            progress_percent: item.download.progress_percent,
+        })
+        .collect();
+    ActivityListResponse {
         total: items.len() as i64,
         items,
-    })
+    }
+}
+
+pub(crate) async fn activity_queue_snapshot(
+    state: &AppState,
+) -> Result<ActivityListResponse, String> {
+    let items = poll_cached_snapshot(state).await?;
+    Ok(snapshot_to_response(items))
 }
 
 pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListResponse {
@@ -142,33 +173,25 @@ pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListR
 pub(crate) async fn activity_history_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let queue = activity_queue_snapshot(state).await?;
-    let items: Vec<ActivityItemResponse> = queue
-        .items
+    let items = poll_cached_snapshot(state).await?;
+    let filtered: Vec<_> = items
         .into_iter()
-        .filter(|item| item.state == state_label(&DownloadState::Completed))
+        .filter(|item| item.download.state == DownloadState::Completed)
         .collect();
 
-    Ok(ActivityListResponse {
-        total: items.len() as i64,
-        items,
-    })
+    Ok(snapshot_to_response(filtered))
 }
 
 pub(crate) async fn activity_failed_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let queue = activity_queue_snapshot(state).await?;
-    let items: Vec<ActivityItemResponse> = queue
-        .items
+    let items = poll_cached_snapshot(state).await?;
+    let filtered: Vec<_> = items
         .into_iter()
-        .filter(|item| item.state == state_label(&DownloadState::Error))
+        .filter(|item| item.download.state == DownloadState::Error)
         .collect();
 
-    Ok(ActivityListResponse {
-        total: items.len() as i64,
-        items,
-    })
+    Ok(snapshot_to_response(filtered))
 }
 
 #[derive(Debug, Serialize, ToSchema)]

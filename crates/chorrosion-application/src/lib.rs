@@ -8,7 +8,9 @@ use chorrosion_infrastructure::{
     },
     ResponseCache,
 };
+use moka::sync::Cache;
 use std::sync::Arc;
+use std::time::Duration;
 pub mod download_clients;
 pub mod embedded_tags;
 pub mod events;
@@ -94,6 +96,57 @@ pub use tag_sanitation::TagSanitizer;
 
 use tracing::info;
 
+/// A single download item cached from a download client poll, tagged with the
+/// originating client definition metadata.
+#[derive(Clone, Debug)]
+pub struct CachedActivityItem {
+    pub definition_id: String,
+    pub definition_name: String,
+    pub download: DownloadItem,
+}
+
+/// Short-lived, in-memory cache for the activity queue snapshot.
+///
+/// Endpoints that present different views of the download queue
+/// (`/activity/queue`, `/activity/history`, `/activity/failed`) share
+/// a single polled snapshot via this cache so that concurrent or
+/// near-simultaneous requests do not poll download clients redundantly.
+///
+/// Uses a [`moka`] sync cache with a configurable TTL (default 5 s).
+#[derive(Clone, Debug)]
+pub struct ActivitySnapshotCache {
+    inner: Cache<(), Vec<CachedActivityItem>>,
+}
+
+/// Default activity snapshot TTL in seconds.
+const ACTIVITY_SNAPSHOT_TTL_SECONDS: u64 = 5;
+
+impl ActivitySnapshotCache {
+    /// Create a new cache with the given TTL (clamped to ≥ 1 s).
+    pub fn new(ttl_seconds: u64) -> Self {
+        let ttl = Duration::from_secs(ttl_seconds.max(1));
+        Self {
+            inner: Cache::builder().max_capacity(1).time_to_live(ttl).build(),
+        }
+    }
+
+    /// Return the cached snapshot if still within TTL.
+    pub fn get(&self) -> Option<Vec<CachedActivityItem>> {
+        self.inner.get(&())
+    }
+
+    /// Replace the cached snapshot.
+    pub fn set(&self, items: Vec<CachedActivityItem>) {
+        self.inner.insert((), items);
+    }
+}
+
+impl Default for ActivitySnapshotCache {
+    fn default() -> Self {
+        Self::new(ACTIVITY_SNAPSHOT_TTL_SECONDS)
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub config: AppConfig,
@@ -106,6 +159,8 @@ pub struct AppState {
     pub download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
+    /// Short-lived cache for the polled download-client activity snapshot.
+    pub activity_snapshot_cache: ActivitySnapshotCache,
 }
 
 impl AppState {
@@ -131,6 +186,7 @@ impl AppState {
             indexer_definition_repository,
             download_client_definition_repository,
             response_cache,
+            activity_snapshot_cache: ActivitySnapshotCache::default(),
         }
     }
 
