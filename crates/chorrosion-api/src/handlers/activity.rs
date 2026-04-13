@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, Json};
-use chorrosion_application::AppState;
+use chorrosion_application::{
+    AppState, DelugeClient, DownloadClient, DownloadState, NzbgetClient, QBittorrentClient,
+    SabnzbdClient, TransmissionClient,
+};
+use chorrosion_domain::DownloadClientDefinition;
+use chorrosion_infrastructure::repositories::Repository;
 use serde::Serialize;
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -19,11 +24,102 @@ pub struct ActivityListResponse {
     pub total: i64,
 }
 
-pub(crate) async fn activity_queue_snapshot(_state: &AppState) -> ActivityListResponse {
-    // Placeholder until queue integration is wired from download clients.
+fn build_download_client(definition: &DownloadClientDefinition) -> Option<Box<dyn DownloadClient>> {
+    let client_type = definition.client_type.trim().to_lowercase();
+    match client_type.as_str() {
+        "qbittorrent" => Some(Box::new(QBittorrentClient::new(
+            definition.base_url.clone(),
+            definition.username.clone(),
+            definition.password_encrypted.clone(),
+        ))),
+        "transmission" => Some(Box::new(TransmissionClient::new(
+            definition.base_url.clone(),
+            definition.username.clone(),
+            definition.password_encrypted.clone(),
+        ))),
+        "deluge" => Some(Box::new(DelugeClient::new(
+            definition.base_url.clone(),
+            definition.password_encrypted.clone(),
+        ))),
+        "sabnzbd" => Some(Box::new(SabnzbdClient::new(
+            definition.base_url.clone(),
+            definition.password_encrypted.clone(),
+        ))),
+        "nzbget" => Some(Box::new(NzbgetClient::new(
+            definition.base_url.clone(),
+            definition.username.clone(),
+            definition.password_encrypted.clone(),
+        ))),
+        _ => None,
+    }
+}
+
+fn state_label(state: &DownloadState) -> &'static str {
+    match state {
+        DownloadState::Queued => "queued",
+        DownloadState::Downloading => "downloading",
+        DownloadState::Paused => "paused",
+        DownloadState::Completed => "completed",
+        DownloadState::Error => "error",
+        DownloadState::Unknown => "unknown",
+    }
+}
+
+pub(crate) async fn activity_queue_snapshot(state: &AppState) -> ActivityListResponse {
+    let definitions = match state
+        .download_client_definition_repository
+        .list(1000, 0)
+        .await
+    {
+        Ok(definitions) => definitions,
+        Err(error) => {
+            warn!(target: "api", ?error, "failed to list download client definitions");
+            return ActivityListResponse {
+                items: vec![],
+                total: 0,
+            };
+        }
+    };
+
+    let mut items = Vec::new();
+    for definition in definitions
+        .into_iter()
+        .filter(|definition| definition.enabled)
+    {
+        let Some(client) = build_download_client(&definition) else {
+            warn!(
+                target: "api",
+                client_name = %definition.name,
+                client_type = %definition.client_type,
+                "unsupported download client type while building activity snapshot"
+            );
+            continue;
+        };
+
+        match client.list_downloads().await {
+            Ok(downloads) => {
+                items.extend(downloads.into_iter().map(|download| ActivityItemResponse {
+                    id: format!("{}:{}", definition.name, download.hash),
+                    name: format!("{}: {}", definition.name, download.name),
+                    state: state_label(&download.state).to_string(),
+                    progress_percent: download.progress_percent,
+                }));
+            }
+            Err(error) => {
+                warn!(
+                    target: "api",
+                    client_name = %definition.name,
+                    client_type = %definition.client_type,
+                    ?error,
+                    "failed to retrieve downloads for activity queue snapshot"
+                );
+            }
+        }
+    }
+
     ActivityListResponse {
-        items: vec![],
-        total: 0,
+        total: items.len() as i64,
+        items,
     }
 }
 
@@ -89,6 +185,8 @@ mod tests {
         http::{Request, StatusCode},
     };
     use chorrosion_config::AppConfig;
+    use chorrosion_domain::DownloadClientDefinition;
+    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
@@ -97,6 +195,8 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
     use tower::util::ServiceExt;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     /// Build a test `AppState` with basic auth configured so that requests can
     /// be authenticated without touching the global API key store.
@@ -174,6 +274,64 @@ mod tests {
     async fn get_activity_processing_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
         assert_empty_activity_response(state, "/api/v1/activity/processing").await;
+    }
+
+    #[tokio::test]
+    async fn get_activity_queue_returns_download_status_items() {
+        let state = make_test_state().await;
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                    {
+                        "hash": "abc123",
+                        "name": "Album FLAC",
+                        "progress": 0.64,
+                        "state": "downloading",
+                        "category": "music"
+                    }
+                ]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let created = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+        assert_eq!(created.name, "qbit-main");
+
+        let app = crate::router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activity/queue")
+                    .header("Authorization", "Basic dXNlcjpwYXNz")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should be readable");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("body should be valid JSON");
+
+        assert_eq!(payload["total"], 1);
+        assert_eq!(payload["items"][0]["id"], "qbit-main:abc123");
+        assert_eq!(payload["items"][0]["name"], "qbit-main: Album FLAC");
+        assert_eq!(payload["items"][0]["state"], "downloading");
+        assert_eq!(payload["items"][0]["progress_percent"], 64);
     }
 
     #[tokio::test]
