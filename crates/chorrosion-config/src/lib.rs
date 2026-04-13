@@ -347,6 +347,23 @@ impl Default for CacheConfig {
     }
 }
 
+/// Configuration for the activity monitoring subsystem.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityConfig {
+    /// Number of seconds without progress before a download is considered stalled.
+    ///
+    /// Env override: `CHORROSION_ACTIVITY__STALL_AFTER_SECONDS`.
+    pub stall_after_seconds: u64,
+}
+
+impl Default for ActivityConfig {
+    fn default() -> Self {
+        Self {
+            stall_after_seconds: 300,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
@@ -358,6 +375,7 @@ pub struct AppConfig {
     pub metadata: MetadataConfig,
     pub notifications: NotificationsConfig,
     pub lists: ListsConfig,
+    pub activity: ActivityConfig,
 }
 
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).

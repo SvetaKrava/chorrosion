@@ -8,8 +8,14 @@ use chorrosion_domain::DownloadClientDefinition;
 use chorrosion_infrastructure::repositories::Repository;
 use futures_util::future::join_all;
 use serde::Serialize;
+use std::collections::HashSet;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
+
+struct PolledActivitySnapshot {
+    items: Vec<CachedActivityItem>,
+    was_cached: bool,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityItemResponse {
@@ -69,11 +75,14 @@ fn state_label(state: &DownloadState) -> &'static str {
 /// Poll download clients and return the raw snapshot, using a short-lived
 /// TTL cache to avoid redundant network calls when multiple activity
 /// endpoints are fetched in quick succession.
-async fn poll_cached_snapshot(state: &AppState) -> Result<Vec<CachedActivityItem>, String> {
+async fn poll_cached_snapshot(state: &AppState) -> Result<PolledActivitySnapshot, String> {
     // Fast path: return cached snapshot if still within TTL.
     if let Some(cached) = state.activity_snapshot_cache.get() {
         debug!(target: "api", "activity snapshot cache HIT");
-        return Ok(cached);
+        return Ok(PolledActivitySnapshot {
+            items: cached,
+            was_cached: true,
+        });
     }
 
     debug!(target: "api", "activity snapshot cache MISS – polling download clients");
@@ -133,10 +142,15 @@ async fn poll_cached_snapshot(state: &AppState) -> Result<Vec<CachedActivityItem
 
     let items: Vec<_> = results.into_iter().flatten().collect();
 
+    state.activity_stall_tracker.observe(&items);
+
     // Store in cache for subsequent requests within the TTL window.
     state.activity_snapshot_cache.set(items.clone());
 
-    Ok(items)
+    Ok(PolledActivitySnapshot {
+        items,
+        was_cached: false,
+    })
 }
 
 fn snapshot_to_response(items: Vec<CachedActivityItem>) -> ActivityListResponse {
@@ -158,8 +172,8 @@ fn snapshot_to_response(items: Vec<CachedActivityItem>) -> ActivityListResponse 
 pub(crate) async fn activity_queue_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let items = poll_cached_snapshot(state).await?;
-    Ok(snapshot_to_response(items))
+    let snapshot = poll_cached_snapshot(state).await?;
+    Ok(snapshot_to_response(snapshot.items))
 }
 
 pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListResponse {
@@ -173,8 +187,9 @@ pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListR
 pub(crate) async fn activity_history_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let items = poll_cached_snapshot(state).await?;
-    let filtered: Vec<_> = items
+    let snapshot = poll_cached_snapshot(state).await?;
+    let filtered: Vec<_> = snapshot
+        .items
         .into_iter()
         .filter(|item| item.download.state == DownloadState::Completed)
         .collect();
@@ -185,10 +200,38 @@ pub(crate) async fn activity_history_snapshot(
 pub(crate) async fn activity_failed_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let items = poll_cached_snapshot(state).await?;
-    let filtered: Vec<_> = items
+    let snapshot = poll_cached_snapshot(state).await?;
+    let filtered: Vec<_> = snapshot
+        .items
         .into_iter()
         .filter(|item| item.download.state == DownloadState::Error)
+        .collect();
+
+    Ok(snapshot_to_response(filtered))
+}
+
+pub(crate) async fn activity_stalled_snapshot(
+    state: &AppState,
+) -> Result<ActivityListResponse, String> {
+    let snapshot = poll_cached_snapshot(state).await?;
+    debug!(target: "api", was_cached = snapshot.was_cached, "evaluating stalled downloads");
+
+    let stalled_ids: HashSet<_> = state
+        .activity_stall_tracker
+        .stalled_ids(&snapshot.items)
+        .into_iter()
+        .collect();
+
+    let filtered: Vec<_> = snapshot
+        .items
+        .into_iter()
+        .filter(|item| item.download.state == DownloadState::Downloading)
+        .map(|item| {
+            let item_id = format!("{}:{}", item.definition_id, item.download.hash);
+            (item_id, item)
+        })
+        .filter(|(item_id, _)| stalled_ids.contains(item_id))
+        .map(|(_, item)| item)
         .collect();
 
     Ok(snapshot_to_response(filtered))
@@ -276,6 +319,31 @@ pub async fn get_activity_failed(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/activity/stalled",
+    responses(
+        (status = 200, description = "Stalled downloads", body = ActivityListResponse),
+        (status = 500, description = "Internal server error", body = ActivityErrorResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_activity_stalled(
+    State(state): State<AppState>,
+) -> Result<Json<ActivityListResponse>, (StatusCode, Json<ActivityErrorResponse>)> {
+    debug!(target: "api", "fetching stalled downloads");
+
+    activity_stalled_snapshot(&state)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ActivityErrorResponse { error: e }),
+            )
+        })
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/activity/processing",
     responses(
         (status = 200, description = "Currently processing items", body = ActivityListResponse)
@@ -295,6 +363,7 @@ mod tests {
         body::{to_bytes, Body},
         http::{Request, StatusCode},
     };
+    use chorrosion_application::ActivityStallTracker;
     use chorrosion_config::AppConfig;
     use chorrosion_domain::DownloadClientDefinition;
     use chorrosion_infrastructure::repositories::Repository;
@@ -448,6 +517,12 @@ mod tests {
     async fn get_activity_processing_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
         assert_empty_activity_response(state, "/api/v1/activity/processing").await;
+    }
+
+    #[tokio::test]
+    async fn get_activity_stalled_returns_empty_placeholder_payload() {
+        let state = make_test_state().await;
+        assert_empty_activity_response(state, "/api/v1/activity/stalled").await;
     }
 
     #[tokio::test]
@@ -746,5 +821,116 @@ mod tests {
         assert_eq!(payload["total"], 1);
         assert_eq!(payload["items"][0]["state"], "error");
         assert_eq!(payload["items"][0]["name"], "qbit-main: Broken Album");
+    }
+
+    #[tokio::test]
+    async fn get_activity_stalled_returns_only_repeated_non_progressing_downloads() {
+        let mut state = make_test_state().await;
+        state.activity_stall_tracker = ActivityStallTracker::new(0);
+
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                    {
+                        "hash": "stall1",
+                        "name": "Slow Album",
+                        "progress": 0.35,
+                        "state": "downloading",
+                        "category": "music"
+                    },
+                    {
+                        "hash": "done1",
+                        "name": "Done Album",
+                        "progress": 1.0,
+                        "state": "completed",
+                        "category": "music"
+                    }
+                ]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        let first_payload = activity_stalled_snapshot(&state)
+            .await
+            .expect("first stalled snapshot should succeed");
+        assert_eq!(first_payload.total, 0);
+        assert!(first_payload.items.is_empty());
+
+        state.activity_snapshot_cache.clear();
+
+        let second_payload = activity_stalled_snapshot(&state)
+            .await
+            .expect("second stalled snapshot should succeed");
+
+        assert_eq!(second_payload.total, 1);
+        assert_eq!(second_payload.items[0].state, "downloading");
+        assert_eq!(second_payload.items[0].name, "qbit-main: Slow Album");
+    }
+
+    /// Repeated requests that hit the snapshot cache (no explicit `clear()` between
+    /// calls) must NOT advance the stall tracker.  A download should only be
+    /// considered stalled once at least two *fresh* polls observe the same progress.
+    #[tokio::test]
+    async fn get_activity_stalled_cache_hit_does_not_advance_tracker() {
+        let mut state = make_test_state().await;
+        // Zero-second stall window so any two fresh observations immediately qualify.
+        state.activity_stall_tracker = ActivityStallTracker::new(0);
+
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "hash": "no_stall",
+                    "name": "Slow Album",
+                    "progress": 0.20,
+                    "state": "downloading",
+                    "category": "music"
+                }]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        // First call: fresh poll — one observation recorded (repeated_samples = 1).
+        // Not stalled yet (needs >= 2 samples).
+        let first = activity_stalled_snapshot(&state)
+            .await
+            .expect("first call should succeed");
+        assert_eq!(first.total, 0, "should not be stalled after one fresh poll");
+
+        // Second call: snapshot is still cached (no clear()), so the stall tracker
+        // must NOT be advanced.  Even with a zero stall window the download should
+        // still not appear as stalled because repeated_samples never reached 2.
+        let second = activity_stalled_snapshot(&state)
+            .await
+            .expect("second call (cache HIT) should succeed");
+        assert_eq!(
+            second.total, 0,
+            "cache-HIT request must not advance the stall tracker"
+        );
     }
 }

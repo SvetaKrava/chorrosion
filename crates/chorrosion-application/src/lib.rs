@@ -9,8 +9,10 @@ use chorrosion_infrastructure::{
     ResponseCache,
 };
 use moka::sync::Cache;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 pub mod download_clients;
 pub mod embedded_tags;
 pub mod events;
@@ -139,11 +141,118 @@ impl ActivitySnapshotCache {
     pub fn set(&self, items: Vec<CachedActivityItem>) {
         self.inner.insert((), items);
     }
+
+    /// Clear the cached snapshot so the next request performs a fresh poll.
+    pub fn clear(&self) {
+        self.inner.invalidate(&());
+    }
 }
 
 impl Default for ActivitySnapshotCache {
     fn default() -> Self {
         Self::new(ACTIVITY_SNAPSHOT_TTL_SECONDS)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TrackedActivityProgress {
+    progress_percent: u8,
+    last_progress_at: Instant,
+    repeated_samples: u32,
+}
+
+/// Tracks whether active downloads have stopped making progress across fresh polls.
+#[derive(Clone, Debug)]
+pub struct ActivityStallTracker {
+    stall_after: Duration,
+    inner: Arc<Mutex<HashMap<String, TrackedActivityProgress>>>,
+}
+
+impl ActivityStallTracker {
+    /// Create a new tracker with the given stall window.
+    pub fn new(stall_after_seconds: u64) -> Self {
+        Self {
+            stall_after: Duration::from_secs(stall_after_seconds),
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Record a fresh poll observation for the current download items.
+    pub fn observe(&self, items: &[CachedActivityItem]) {
+        self.observe_at(items, Instant::now());
+    }
+
+    /// Return the IDs currently considered stalled.
+    pub fn stalled_ids(&self, items: &[CachedActivityItem]) -> Vec<String> {
+        self.stalled_ids_at(items, Instant::now())
+    }
+
+    fn observe_at(&self, items: &[CachedActivityItem], now: Instant) {
+        let mut tracked = self.inner.lock().expect("activity stall tracker lock");
+        let mut active_ids: HashSet<String> = HashSet::new();
+
+        for item in items {
+            let id = format!("{}:{}", item.definition_id, item.download.hash);
+
+            if item.download.state != DownloadState::Downloading {
+                tracked.remove(&id);
+                continue;
+            }
+
+            let progress_percent = item.download.progress_percent;
+            match tracked.get_mut(&id) {
+                Some(entry) if entry.progress_percent == progress_percent => {
+                    entry.repeated_samples += 1;
+                }
+                Some(entry) => {
+                    entry.progress_percent = progress_percent;
+                    entry.last_progress_at = now;
+                    entry.repeated_samples = 1;
+                }
+                None => {
+                    tracked.insert(
+                        id.clone(),
+                        TrackedActivityProgress {
+                            progress_percent,
+                            last_progress_at: now,
+                            repeated_samples: 1,
+                        },
+                    );
+                }
+            }
+
+            active_ids.insert(id);
+        }
+
+        tracked.retain(|id, _| active_ids.contains(id));
+    }
+
+    fn stalled_ids_at(&self, items: &[CachedActivityItem], now: Instant) -> Vec<String> {
+        let tracked = self.inner.lock().expect("activity stall tracker lock");
+
+        items
+            .iter()
+            .filter(|item| item.download.state == DownloadState::Downloading)
+            .filter_map(|item| {
+                let id = format!("{}:{}", item.definition_id, item.download.hash);
+                tracked.get(&id).and_then(|entry| {
+                    if entry.progress_percent == item.download.progress_percent
+                        && entry.repeated_samples >= 2
+                        && now.duration_since(entry.last_progress_at) >= self.stall_after
+                    {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
+    }
+}
+
+impl Default for ActivityStallTracker {
+    fn default() -> Self {
+        Self::new(300)
     }
 }
 
@@ -161,6 +270,8 @@ pub struct AppState {
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
     pub activity_snapshot_cache: ActivitySnapshotCache,
+    /// In-memory tracker used to detect downloads that stop making progress.
+    pub activity_stall_tracker: ActivityStallTracker,
 }
 
 impl AppState {
@@ -177,6 +288,10 @@ impl AppState {
         response_cache: ResponseCache,
     ) -> Self {
         Self {
+            activity_snapshot_cache: ActivitySnapshotCache::default(),
+            activity_stall_tracker: ActivityStallTracker::new(
+                config.activity.stall_after_seconds,
+            ),
             config,
             artist_repository,
             album_repository,
@@ -186,7 +301,6 @@ impl AppState {
             indexer_definition_repository,
             download_client_definition_repository,
             response_cache,
-            activity_snapshot_cache: ActivitySnapshotCache::default(),
         }
     }
 
