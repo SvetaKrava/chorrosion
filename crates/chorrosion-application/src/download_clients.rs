@@ -260,9 +260,13 @@ impl NzbgetClient {
     }
 
     fn endpoint(&self) -> Result<Url, DownloadClientError> {
-        let base = Url::parse(&self.base_url)
+        let mut base = Url::parse(&self.base_url)
             .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
-        base.join("/jsonrpc")
+        if !base.path().ends_with('/') {
+            let path = format!("{}/", base.path());
+            base.set_path(&path);
+        }
+        base.join("jsonrpc")
             .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
     }
 
