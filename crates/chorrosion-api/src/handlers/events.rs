@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::broadcast;
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::ToSchema;
 
 const SSE_EVENT_INTERVAL_SECS: u64 = 5;
@@ -306,7 +306,13 @@ pub async fn stream_download_progress_events(
 
             tokio::time::sleep(Duration::from_secs(SSE_EVENT_INTERVAL_SECS)).await;
 
-            let queue = activity_queue_snapshot(&state).await;
+            let queue = activity_queue_snapshot(&state).await.unwrap_or_else(|e| {
+                warn!(target: "api", error = %e, "SSE: failed to build activity queue snapshot");
+                ActivityListResponse {
+                    items: vec![],
+                    total: 0,
+                }
+            });
             let payload = DownloadProgressEventPayload { sequence, queue };
             let data = serde_json::to_string(&payload)
                 .expect("DownloadProgressEventPayload is always serializable");

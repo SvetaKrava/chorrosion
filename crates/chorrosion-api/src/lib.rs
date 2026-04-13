@@ -18,9 +18,9 @@ use chorrosion_application::AppState;
 use chorrosion_config::PermissionLevel;
 use chorrosion_infrastructure::repositories::Repository;
 use handlers::activity::{
-    get_activity_history, get_activity_processing, get_activity_queue, ActivityItemResponse,
-    ActivityListResponse, __path_get_activity_history, __path_get_activity_processing,
-    __path_get_activity_queue,
+    get_activity_history, get_activity_processing, get_activity_queue, ActivityErrorResponse,
+    ActivityItemResponse, ActivityListResponse, __path_get_activity_history,
+    __path_get_activity_processing, __path_get_activity_queue,
 };
 use handlers::albums::{
     create_album, delete_album, get_album, list_albums, list_albums_by_artist,
@@ -337,6 +337,7 @@ async fn metrics() -> axum::response::Response {
             NotificationTestResponse,
             ActivityItemResponse,
             ActivityListResponse,
+            ActivityErrorResponse,
             BroadcastErrorResponse,
             SseConnectionsResponse,
             ListQualityProfilesResponse,
