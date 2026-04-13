@@ -225,14 +225,12 @@ pub(crate) async fn activity_stalled_snapshot(
     let filtered: Vec<_> = snapshot
         .items
         .into_iter()
+        .filter(|item| item.download.state == DownloadState::Downloading)
         .map(|item| {
             let item_id = format!("{}:{}", item.definition_id, item.download.hash);
             (item_id, item)
         })
-        .filter(|(item_id, item)| {
-            item.download.state == DownloadState::Downloading
-                && stalled_ids.contains(item_id)
-        })
+        .filter(|(item_id, _)| stalled_ids.contains(item_id))
         .map(|(_, item)| item)
         .collect();
 

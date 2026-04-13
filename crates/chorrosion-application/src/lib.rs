@@ -168,9 +168,6 @@ pub struct ActivityStallTracker {
     inner: Arc<Mutex<HashMap<String, TrackedActivityProgress>>>,
 }
 
-/// Default stall detection window in seconds.
-const ACTIVITY_STALL_AFTER_SECONDS: u64 = 300;
-
 impl ActivityStallTracker {
     /// Create a new tracker with the given stall window.
     pub fn new(stall_after_seconds: u64) -> Self {
@@ -255,7 +252,7 @@ impl ActivityStallTracker {
 
 impl Default for ActivityStallTracker {
     fn default() -> Self {
-        Self::new(ACTIVITY_STALL_AFTER_SECONDS)
+        Self::new(300)
     }
 }
 
