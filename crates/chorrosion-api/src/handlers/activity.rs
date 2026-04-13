@@ -155,6 +155,22 @@ pub(crate) async fn activity_history_snapshot(
     })
 }
 
+pub(crate) async fn activity_failed_snapshot(
+    state: &AppState,
+) -> Result<ActivityListResponse, String> {
+    let queue = activity_queue_snapshot(state).await?;
+    let items: Vec<ActivityItemResponse> = queue
+        .items
+        .into_iter()
+        .filter(|item| item.state == state_label(&DownloadState::Error))
+        .collect();
+
+    Ok(ActivityListResponse {
+        total: items.len() as i64,
+        items,
+    })
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityErrorResponse {
     pub error: String,
@@ -200,6 +216,31 @@ pub async fn get_activity_history(
     debug!(target: "api", "fetching activity history");
 
     activity_history_snapshot(&state)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ActivityErrorResponse { error: e }),
+            )
+        })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/activity/failed",
+    responses(
+        (status = 200, description = "Failed downloads", body = ActivityListResponse),
+        (status = 500, description = "Internal server error", body = ActivityErrorResponse)
+    ),
+    tag = "activity"
+)]
+pub async fn get_activity_failed(
+    State(state): State<AppState>,
+) -> Result<Json<ActivityListResponse>, (StatusCode, Json<ActivityErrorResponse>)> {
+    debug!(target: "api", "fetching failed downloads");
+
+    activity_failed_snapshot(&state)
         .await
         .map(Json)
         .map_err(|e| {
@@ -619,5 +660,68 @@ mod tests {
         assert_eq!(payload["items"][0]["name"], "qbit-healthy: Good Album");
         assert_eq!(payload["items"][0]["state"], "downloading");
         assert_eq!(payload["items"][0]["progress_percent"], 50);
+    }
+
+    #[tokio::test]
+    async fn get_activity_failed_returns_only_error_items() {
+        let state = make_test_state().await;
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                    {
+                        "hash": "err1",
+                        "name": "Broken Album",
+                        "progress": 0.2,
+                        "state": "error",
+                        "category": "music"
+                    },
+                    {
+                        "hash": "ok1",
+                        "name": "Fine Album",
+                        "progress": 0.8,
+                        "state": "downloading",
+                        "category": "music"
+                    }
+                ]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        let app = crate::router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activity/failed")
+                    .header("Authorization", "Basic dXNlcjpwYXNz")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should be readable");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("body should be valid JSON");
+
+        assert_eq!(payload["total"], 1);
+        assert_eq!(payload["items"][0]["state"], "error");
+        assert_eq!(payload["items"][0]["name"], "qbit-main: Broken Album");
     }
 }
