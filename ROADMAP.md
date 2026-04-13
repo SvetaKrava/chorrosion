@@ -200,7 +200,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] Transmission client (Issue #349) ✓
 - [x] Deluge client (Issue #352) ✓
 - [x] SABnzbd client (Usenet) (Issue #355) ✓
-- [ ] NZBGet client (Usenet)
+- [x] NZBGet client (Usenet) (Issue #357) ✓
 - [x] Download queue management (Issue #32, PR #148) ✓
 
 ### 4.3 Download Monitoring

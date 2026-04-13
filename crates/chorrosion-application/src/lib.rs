@@ -33,7 +33,7 @@ pub mod tag_sanitation;
 
 pub use download_clients::{
     AddTorrentRequest, DelugeClient, DownloadClient, DownloadClientError, DownloadItem,
-    DownloadState, QBittorrentClient, SabnzbdClient, TransmissionClient,
+    DownloadState, NzbgetClient, QBittorrentClient, SabnzbdClient, TransmissionClient,
 };
 pub use embedded_tags::{
     EmbeddedTagError, EmbeddedTagMatchingService, EmbeddedTagResult, ExtractedTags,

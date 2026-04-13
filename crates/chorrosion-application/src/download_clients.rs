@@ -103,6 +103,13 @@ pub struct SabnzbdClient {
     api_key: Option<String>,
 }
 
+pub struct NzbgetClient {
+    client: Client,
+    base_url: String,
+    username: Option<String>,
+    password: Option<String>,
+}
+
 impl DelugeClient {
     pub fn new(base_url: String, password: Option<String>) -> Self {
         let client = build_download_client_http_client();
@@ -236,6 +243,79 @@ impl SabnzbdClient {
         }
 
         serde_json::from_str(&body).map_err(|e| DownloadClientError::Deserialization(e.to_string()))
+    }
+}
+
+impl NzbgetClient {
+    pub fn new(base_url: String, username: Option<String>, password: Option<String>) -> Self {
+        let client = build_download_client_http_client();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        debug!(target: "download_clients", %base_url, "Initialized NzbgetClient");
+        Self {
+            client,
+            base_url,
+            username,
+            password,
+        }
+    }
+
+    fn endpoint(&self) -> Result<Url, DownloadClientError> {
+        let mut base = Url::parse(&self.base_url)
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
+        if !base.path().ends_with('/') {
+            let path = format!("{}/", base.path());
+            base.set_path(&path);
+        }
+        base.join("jsonrpc")
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
+    }
+
+    async fn rpc_call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<T, DownloadClientError> {
+        let url = self.endpoint()?;
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "id": 1,
+        });
+
+        let mut request = self.client.post(url).json(&payload);
+        if let Some(username) = self.username.as_deref() {
+            request = request.basic_auth(username, self.password.as_deref());
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(DownloadClientError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let rpc: NzbgetRpcResponse<T> = serde_json::from_str(&body)
+            .map_err(|e| DownloadClientError::Deserialization(e.to_string()))?;
+        if let Some(error) = rpc.error {
+            return Err(DownloadClientError::Request(format!(
+                "nzbget RPC error: {}",
+                error.message
+            )));
+        }
+
+        Ok(rpc.result)
     }
 }
 
@@ -763,6 +843,105 @@ impl DownloadClient for SabnzbdClient {
     }
 }
 
+#[async_trait]
+impl DownloadClient for NzbgetClient {
+    async fn test_connection(&self) -> Result<(), DownloadClientError> {
+        let version: String = self.rpc_call("version", json!([])).await?;
+        if version.trim().is_empty() {
+            return Err(DownloadClientError::Request(
+                "nzbget version endpoint did not return a version".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn add_torrent(&self, request: AddTorrentRequest) -> Result<(), DownloadClientError> {
+        let category = request.category.unwrap_or_default();
+        let nzb_id: i64 = self
+            .rpc_call(
+                "append",
+                json!([
+                    "",
+                    request.torrent_or_magnet,
+                    category,
+                    0,
+                    false,
+                    false,
+                    "",
+                    0,
+                    "SCORE",
+                    []
+                ]),
+            )
+            .await?;
+
+        if nzb_id <= 0 {
+            return Err(DownloadClientError::Request(
+                "nzbget failed to append URL".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn set_category(&self, hash: &str, category: &str) -> Result<(), DownloadClientError> {
+        let id = hash.parse::<i64>().map_err(|_| {
+            DownloadClientError::Request("nzbget item id must be numeric".to_string())
+        })?;
+
+        let success: bool = self
+            .rpc_call("editqueue", json!(["GroupSetCategory", 0, category, [id]]))
+            .await?;
+        if !success {
+            return Err(DownloadClientError::Request(
+                "nzbget failed to set category".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn list_downloads(&self) -> Result<Vec<DownloadItem>, DownloadClientError> {
+        let groups: Vec<NzbgetGroup> = self.rpc_call("listgroups", json!([0])).await?;
+
+        Ok(groups
+            .into_iter()
+            .map(|group| {
+                let progress_percent = if group.file_size_mb > 0 {
+                    let downloaded = (group.file_size_mb - group.remaining_size_mb).max(0);
+                    ((downloaded as f32 / group.file_size_mb as f32) * 100.0)
+                        .round()
+                        .clamp(0.0, 100.0) as u8
+                } else {
+                    0
+                };
+
+                DownloadItem {
+                    hash: group.nzb_id.to_string(),
+                    name: group.nzb_name,
+                    progress_percent,
+                    category: group.category.filter(|value| !value.trim().is_empty()),
+                    state: map_nzbget_state(&group.status),
+                }
+            })
+            .collect())
+    }
+
+    async fn prioritize_download(&self, hash: &str) -> Result<(), DownloadClientError> {
+        let id = hash.parse::<i64>().map_err(|_| {
+            DownloadClientError::Request("nzbget item id must be numeric".to_string())
+        })?;
+
+        let success: bool = self
+            .rpc_call("editqueue", json!(["GroupMoveTop", 0, "", [id]]))
+            .await?;
+        if !success {
+            return Err(DownloadClientError::Request(
+                "nzbget failed to prioritize queue item".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct QBittorrentTorrent {
     hash: String,
@@ -848,6 +1027,33 @@ struct SabnzbdQueueSlot {
     cat: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct NzbgetRpcResponse<T> {
+    result: T,
+    error: Option<NzbgetRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NzbgetRpcError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NzbgetGroup {
+    #[serde(rename = "NZBID")]
+    nzb_id: i64,
+    #[serde(rename = "NZBName")]
+    nzb_name: String,
+    #[serde(default, rename = "Category")]
+    category: Option<String>,
+    #[serde(default, rename = "Status")]
+    status: String,
+    #[serde(default, rename = "FileSizeMB")]
+    file_size_mb: i64,
+    #[serde(default, rename = "RemainingSizeMB")]
+    remaining_size_mb: i64,
+}
+
 fn map_qbittorrent_state(state: &str) -> DownloadState {
     let state = state.to_lowercase();
     if state.contains("error") || state.contains("missingfiles") {
@@ -898,12 +1104,31 @@ fn map_sabnzbd_state(state: Option<&str>) -> DownloadState {
     }
 }
 
+fn map_nzbget_state(state: &str) -> DownloadState {
+    match state.to_lowercase().as_str() {
+        s if s.contains("failure") || s.contains("error") => DownloadState::Error,
+        s if s.contains("paused") => DownloadState::Paused,
+        s if s.contains("pp_")
+            || s.contains("unpacking")
+            || s.contains("repairing")
+            || s.contains("verifying")
+            || s.contains("moving")
+            || s.contains("executing_script") =>
+        {
+            DownloadState::Completed
+        }
+        s if s.contains("queued") || s.contains("fetching") => DownloadState::Queued,
+        s if s.contains("downloading") => DownloadState::Downloading,
+        _ => DownloadState::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        map_deluge_state, map_sabnzbd_state, map_transmission_state, AddTorrentRequest,
-        DelugeClient, DownloadClient, DownloadState, QBittorrentClient, SabnzbdClient,
-        TransmissionClient,
+        map_deluge_state, map_nzbget_state, map_sabnzbd_state, map_transmission_state,
+        AddTorrentRequest, DelugeClient, DownloadClient, DownloadState, NzbgetClient,
+        QBittorrentClient, SabnzbdClient, TransmissionClient,
     };
     use wiremock::matchers::{body_string_contains, method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1562,5 +1787,140 @@ mod tests {
         );
         assert_eq!(map_sabnzbd_state(Some("Failed")), DownloadState::Error);
         assert_eq!(map_sabnzbd_state(None), DownloadState::Unknown);
+    }
+
+    #[tokio::test]
+    async fn nzbget_test_connection_calls_version() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/jsonrpc"))
+            .and(body_string_contains("\"method\":\"version\""))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":"24.5","error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = NzbgetClient::new(
+            server.uri(),
+            Some("nzbget".to_string()),
+            Some("secret".to_string()),
+        );
+        let result = client.test_connection().await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn nzbget_add_torrent_calls_append() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/jsonrpc"))
+            .and(body_string_contains("\"method\":\"append\""))
+            .and(body_string_contains("https://example.com/release.nzb"))
+            .and(body_string_contains("music"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"{"result":42,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = NzbgetClient::new(server.uri(), None, None);
+        let result = client
+            .add_torrent(AddTorrentRequest {
+                torrent_or_magnet: "https://example.com/release.nzb".to_string(),
+                category: Some("music".to_string()),
+            })
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn nzbget_set_category_calls_editqueue() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/jsonrpc"))
+            .and(body_string_contains("\"method\":\"editqueue\""))
+            .and(body_string_contains("GroupSetCategory"))
+            .and(body_string_contains("lossless"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":true,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = NzbgetClient::new(server.uri(), None, None);
+        let result = client.set_category("42", "lossless").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn nzbget_list_downloads_maps_state_and_progress() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/jsonrpc"))
+            .and(body_string_contains("\"method\":\"listgroups\""))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "result": [
+                        {
+                            "NZBID": 42,
+                            "NZBName": "Album FLAC",
+                            "Category": "music",
+                            "Status": "DOWNLOADING",
+                            "FileSizeMB": 100,
+                            "RemainingSizeMB": 25
+                        }
+                    ],
+                    "error": null,
+                    "id": 1
+                }"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = NzbgetClient::new(server.uri(), None, None);
+        let downloads = client.list_downloads().await.expect("downloads parse");
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].hash, "42");
+        assert_eq!(downloads[0].name, "Album FLAC");
+        assert_eq!(downloads[0].progress_percent, 75);
+        assert_eq!(downloads[0].state, DownloadState::Downloading);
+        assert_eq!(downloads[0].category.as_deref(), Some("music"));
+    }
+
+    #[tokio::test]
+    async fn nzbget_prioritize_download_calls_group_move_top() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/jsonrpc"))
+            .and(body_string_contains("\"method\":\"editqueue\""))
+            .and(body_string_contains("GroupMoveTop"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"result":true,"error":null,"id":1}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = NzbgetClient::new(server.uri(), None, None);
+        let result = client.prioritize_download("42").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn nzbget_state_mapping() {
+        assert_eq!(map_nzbget_state("QUEUED"), DownloadState::Queued);
+        assert_eq!(map_nzbget_state("PAUSED"), DownloadState::Paused);
+        assert_eq!(map_nzbget_state("DOWNLOADING"), DownloadState::Downloading);
+        assert_eq!(map_nzbget_state("PP_QUEUED"), DownloadState::Completed);
+        assert_eq!(map_nzbget_state("FAILURE"), DownloadState::Error);
+        assert_eq!(map_nzbget_state("SOMETHING_ELSE"), DownloadState::Unknown);
     }
 }
