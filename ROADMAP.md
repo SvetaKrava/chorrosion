@@ -206,7 +206,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 ### 4.3 Download Monitoring
 
 - [x] Download status tracking (Issue #359) ✓
-- [ ] Completion detection
+- [x] Completion detection (Issue #361) ✓
 - [ ] Failed download handling
 - [ ] Stalled download detection
 - [ ] Download history

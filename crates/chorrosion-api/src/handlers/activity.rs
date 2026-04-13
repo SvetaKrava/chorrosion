@@ -139,6 +139,22 @@ pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListR
     }
 }
 
+pub(crate) async fn activity_history_snapshot(
+    state: &AppState,
+) -> Result<ActivityListResponse, String> {
+    let queue = activity_queue_snapshot(state).await?;
+    let items: Vec<ActivityItemResponse> = queue
+        .items
+        .into_iter()
+        .filter(|item| item.state == state_label(&DownloadState::Completed))
+        .collect();
+
+    Ok(ActivityListResponse {
+        total: items.len() as i64,
+        items,
+    })
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityErrorResponse {
     pub error: String,
@@ -173,18 +189,25 @@ pub async fn get_activity_queue(
     get,
     path = "/api/v1/activity/history",
     responses(
-        (status = 200, description = "Activity history", body = ActivityListResponse)
+        (status = 200, description = "Activity history", body = ActivityListResponse),
+        (status = 500, description = "Internal server error", body = ActivityErrorResponse)
     ),
     tag = "activity"
 )]
-pub async fn get_activity_history(State(_state): State<AppState>) -> Json<ActivityListResponse> {
+pub async fn get_activity_history(
+    State(state): State<AppState>,
+) -> Result<Json<ActivityListResponse>, (StatusCode, Json<ActivityErrorResponse>)> {
     debug!(target: "api", "fetching activity history");
 
-    // Placeholder until history persistence/querying is implemented.
-    Json(ActivityListResponse {
-        items: vec![],
-        total: 0,
-    })
+    activity_history_snapshot(&state)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ActivityErrorResponse { error: e }),
+            )
+        })
 }
 
 #[utoipa::path(
@@ -292,6 +315,69 @@ mod tests {
     async fn get_activity_history_returns_empty_placeholder_payload() {
         let state = make_test_state().await;
         assert_empty_activity_response(state, "/api/v1/activity/history").await;
+    }
+
+    #[tokio::test]
+    async fn get_activity_history_returns_only_completed_items() {
+        let state = make_test_state().await;
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                    {
+                        "hash": "completed1",
+                        "name": "Album Done",
+                        "progress": 1.0,
+                        "state": "uploading",
+                        "category": "music"
+                    },
+                    {
+                        "hash": "active1",
+                        "name": "Album Active",
+                        "progress": 0.4,
+                        "state": "downloading",
+                        "category": "music"
+                    }
+                ]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        let app = crate::router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activity/history")
+                    .header("Authorization", "Basic dXNlcjpwYXNz")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should be readable");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("body should be valid JSON");
+
+        assert_eq!(payload["total"], 1);
+        assert_eq!(payload["items"][0]["state"], "completed");
+        assert_eq!(payload["items"][0]["name"], "qbit-main: Album Done");
     }
 
     #[tokio::test]
