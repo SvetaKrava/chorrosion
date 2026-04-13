@@ -146,7 +146,7 @@ pub(crate) async fn activity_history_snapshot(
     let items: Vec<ActivityItemResponse> = queue
         .items
         .into_iter()
-        .filter(|item| item.state == "completed")
+        .filter(|item| item.state == state_label(&DownloadState::Completed))
         .collect();
 
     Ok(ActivityListResponse {
