@@ -199,7 +199,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Status monitoring ✓
 - [x] Transmission client (Issue #349) ✓
 - [x] Deluge client (Issue #352) ✓
-- [ ] SABnzbd client (Usenet)
+- [x] SABnzbd client (Usenet) (Issue #355) ✓
 - [ ] NZBGet client (Usenet)
 - [x] Download queue management (Issue #32, PR #148) ✓
 

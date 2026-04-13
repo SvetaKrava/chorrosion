@@ -97,6 +97,12 @@ pub struct DelugeClient {
     password: Option<String>,
 }
 
+pub struct SabnzbdClient {
+    client: Client,
+    base_url: String,
+    api_key: Option<String>,
+}
+
 impl DelugeClient {
     pub fn new(base_url: String, password: Option<String>) -> Self {
         let client = build_download_client_http_client();
@@ -175,6 +181,61 @@ impl DelugeClient {
         } else {
             Err(DownloadClientError::Authentication)
         }
+    }
+}
+
+impl SabnzbdClient {
+    pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        let client = build_download_client_http_client();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        debug!(target: "download_clients", %base_url, "Initialized SabnzbdClient");
+        Self {
+            client,
+            base_url,
+            api_key,
+        }
+    }
+
+    fn endpoint(&self) -> Result<Url, DownloadClientError> {
+        let mut base = Url::parse(&self.base_url)
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))?;
+        if !base.path().ends_with('/') {
+            let path = format!("{}/", base.path());
+            base.set_path(&path);
+        }
+        base.join("api")
+            .map_err(|err| DownloadClientError::InvalidBaseUrl(err.to_string()))
+    }
+
+    async fn api_get(&self, mut params: Vec<(&str, String)>) -> Result<Value, DownloadClientError> {
+        let url = self.endpoint()?;
+        params.push(("output", "json".to_string()));
+        if let Some(api_key) = self.api_key.clone() {
+            params.push(("apikey", api_key));
+        }
+
+        let response = self
+            .client
+            .get(url)
+            .query(&params)
+            .send()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DownloadClientError::Request(e.to_string()))?;
+
+        if !status.is_success() {
+            return Err(DownloadClientError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        serde_json::from_str(&body).map_err(|e| DownloadClientError::Deserialization(e.to_string()))
     }
 }
 
@@ -592,6 +653,116 @@ impl DownloadClient for DelugeClient {
     }
 }
 
+#[async_trait]
+impl DownloadClient for SabnzbdClient {
+    async fn test_connection(&self) -> Result<(), DownloadClientError> {
+        let response = self.api_get(vec![("mode", "version".to_string())]).await?;
+        let version = response
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if version.is_empty() {
+            return Err(DownloadClientError::Request(
+                "sabnzbd version endpoint did not return a version".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn add_torrent(&self, request: AddTorrentRequest) -> Result<(), DownloadClientError> {
+        let mut params = vec![
+            ("mode", "addurl".to_string()),
+            ("name", request.torrent_or_magnet),
+        ];
+        if let Some(category) = request.category {
+            params.push(("cat", category));
+        }
+        let response = self.api_get(params).await?;
+        if !response
+            .get("status")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(DownloadClientError::Request(
+                "sabnzbd failed to add URL".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn set_category(&self, hash: &str, category: &str) -> Result<(), DownloadClientError> {
+        let response = self
+            .api_get(vec![
+                ("mode", "change_cat".to_string()),
+                ("name", hash.to_string()),
+                ("value", category.to_string()),
+            ])
+            .await?;
+        if !response
+            .get("status")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(DownloadClientError::Request(
+                "sabnzbd failed to change category".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn list_downloads(&self) -> Result<Vec<DownloadItem>, DownloadClientError> {
+        let response = self
+            .api_get(vec![
+                ("mode", "queue".to_string()),
+                ("start", "0".to_string()),
+                ("limit", "200".to_string()),
+            ])
+            .await?;
+        let queue: SabnzbdQueueResponse = serde_json::from_value(response)
+            .map_err(|e| DownloadClientError::Deserialization(e.to_string()))?;
+
+        let queue_status = queue.queue.status;
+        Ok(queue
+            .queue
+            .slots
+            .into_iter()
+            .map(|slot| DownloadItem {
+                hash: slot.nzo_id,
+                name: slot.filename,
+                progress_percent: slot
+                    .percentage
+                    .parse::<f32>()
+                    .ok()
+                    .map(|v| v.round().clamp(0.0, 100.0) as u8)
+                    .unwrap_or(0),
+                category: slot.cat.filter(|v| !v.trim().is_empty()),
+                state: map_sabnzbd_state(slot.status.as_deref().or(queue_status.as_deref())),
+            })
+            .collect())
+    }
+
+    async fn prioritize_download(&self, hash: &str) -> Result<(), DownloadClientError> {
+        let response = self
+            .api_get(vec![
+                ("mode", "queue".to_string()),
+                ("name", "priority".to_string()),
+                ("value", "2".to_string()),
+                ("nzo_ids", hash.to_string()),
+            ])
+            .await?;
+        if !response
+            .get("status")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(DownloadClientError::Request(
+                "sabnzbd failed to update priority".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct QBittorrentTorrent {
     hash: String,
@@ -652,6 +823,31 @@ struct DelugeTorrent {
     download_location: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SabnzbdQueueResponse {
+    queue: SabnzbdQueue,
+}
+
+#[derive(Debug, Deserialize)]
+struct SabnzbdQueue {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    slots: Vec<SabnzbdQueueSlot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SabnzbdQueueSlot {
+    nzo_id: String,
+    filename: String,
+    #[serde(default)]
+    percentage: String,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    cat: Option<String>,
+}
+
 fn map_qbittorrent_state(state: &str) -> DownloadState {
     let state = state.to_lowercase();
     if state.contains("error") || state.contains("missingfiles") {
@@ -691,13 +887,25 @@ fn map_deluge_state(state: &str) -> DownloadState {
     }
 }
 
+fn map_sabnzbd_state(state: Option<&str>) -> DownloadState {
+    match state.unwrap_or_default().to_lowercase().as_str() {
+        s if s.contains("failed") || s.contains("error") => DownloadState::Error,
+        s if s.contains("paused") => DownloadState::Paused,
+        s if s.contains("queued") || s.contains("fetching") => DownloadState::Queued,
+        s if s.contains("completed") || s.contains("idle") => DownloadState::Completed,
+        s if s.contains("downloading") || s.contains("extracting") => DownloadState::Downloading,
+        _ => DownloadState::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        map_deluge_state, map_transmission_state, AddTorrentRequest, DelugeClient, DownloadClient,
-        DownloadState, QBittorrentClient, TransmissionClient,
+        map_deluge_state, map_sabnzbd_state, map_transmission_state, AddTorrentRequest,
+        DelugeClient, DownloadClient, DownloadState, QBittorrentClient, SabnzbdClient,
+        TransmissionClient,
     };
-    use wiremock::matchers::{body_string_contains, method, path, path_regex};
+    use wiremock::matchers::{body_string_contains, method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -1227,5 +1435,132 @@ mod tests {
         assert_eq!(map_deluge_state("Seeding"), DownloadState::Completed);
         assert_eq!(map_deluge_state("Downloading"), DownloadState::Downloading);
         assert_eq!(map_deluge_state("UnknownState"), DownloadState::Unknown);
+    }
+
+    #[tokio::test]
+    async fn sabnzbd_test_connection_calls_version_api() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("mode", "version"))
+            .and(query_param("output", "json"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"version":"4.3.0"}"#))
+            .mount(&server)
+            .await;
+
+        let client = SabnzbdClient::new(server.uri(), None);
+        let result = client.test_connection().await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn sabnzbd_add_torrent_calls_addurl_api() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("mode", "addurl"))
+            .and(query_param("name", "https://example.com/release.nzb"))
+            .and(query_param("cat", "music"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":true}"#))
+            .mount(&server)
+            .await;
+
+        let client = SabnzbdClient::new(server.uri(), None);
+        let result = client
+            .add_torrent(AddTorrentRequest {
+                torrent_or_magnet: "https://example.com/release.nzb".to_string(),
+                category: Some("music".to_string()),
+            })
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn sabnzbd_set_category_calls_change_cat_api() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("mode", "change_cat"))
+            .and(query_param("name", "SAB123"))
+            .and(query_param("value", "lossless"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":true}"#))
+            .mount(&server)
+            .await;
+
+        let client = SabnzbdClient::new(server.uri(), None);
+        let result = client.set_category("SAB123", "lossless").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn sabnzbd_list_downloads_maps_state_and_progress() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("mode", "queue"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "queue": {
+                        "status": "Downloading",
+                        "slots": [
+                            {
+                                "nzo_id": "SAB123",
+                                "filename": "Album FLAC.nzb",
+                                "percentage": "37.4",
+                                "cat": "music"
+                            }
+                        ]
+                    }
+                }"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = SabnzbdClient::new(server.uri(), None);
+        let downloads = client.list_downloads().await.expect("downloads parse");
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].hash, "SAB123");
+        assert_eq!(downloads[0].name, "Album FLAC.nzb");
+        assert_eq!(downloads[0].progress_percent, 37);
+        assert_eq!(downloads[0].state, DownloadState::Downloading);
+        assert_eq!(downloads[0].category.as_deref(), Some("music"));
+    }
+
+    #[tokio::test]
+    async fn sabnzbd_prioritize_download_calls_queue_priority_api() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("mode", "queue"))
+            .and(query_param("name", "priority"))
+            .and(query_param("nzo_ids", "SAB123"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":true}"#))
+            .mount(&server)
+            .await;
+
+        let client = SabnzbdClient::new(server.uri(), None);
+        let result = client.prioritize_download("SAB123").await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn sabnzbd_state_mapping() {
+        assert_eq!(
+            map_sabnzbd_state(Some("Downloading")),
+            DownloadState::Downloading
+        );
+        assert_eq!(map_sabnzbd_state(Some("Paused")), DownloadState::Paused);
+        assert_eq!(map_sabnzbd_state(Some("Queued")), DownloadState::Queued);
+        assert_eq!(
+            map_sabnzbd_state(Some("Completed")),
+            DownloadState::Completed
+        );
+        assert_eq!(map_sabnzbd_state(Some("Failed")), DownloadState::Error);
+        assert_eq!(map_sabnzbd_state(None), DownloadState::Unknown);
     }
 }
