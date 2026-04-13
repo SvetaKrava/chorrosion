@@ -9,7 +9,11 @@
 
 ## Related Issue
 
-- Closes #<!-- issue number, if applicable -->
+- Closes #<!-- issue number (create an issue first if one does not exist) -->
+
+## Milestone
+
+- Milestone: <!-- e.g. Phase 4: Download Client Integration -->
 
 ## Type of change
 
@@ -22,6 +26,8 @@
 
 ## Checklist
 
+- [ ] This PR links a related issue using `Closes #<issue>` / `Fixes #<issue>` / `Resolves #<issue>`
+- [ ] This PR has an assigned milestone that matches the roadmap phase
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] I ran `cargo fmt` and `cargo clippy -- -D warnings` locally
 - [ ] I updated documentation (if required)
