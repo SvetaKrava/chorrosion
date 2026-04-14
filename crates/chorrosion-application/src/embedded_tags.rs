@@ -11,7 +11,7 @@
 use crate::matching::MatchResult;
 use lofty::file::TaggedFileExt;
 use lofty::prelude::Accessor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::debug;
 
@@ -20,9 +20,6 @@ use tracing::debug;
 pub enum EmbeddedTagError {
     #[error("File not found: {0}")]
     FileNotFound(String),
-
-    #[error("Tag parsing not implemented: {0}")]
-    NotImplemented(String),
 
     #[error("Failed to extract tags: {0}")]
     ExtractionFailed(String),
@@ -54,12 +51,14 @@ pub struct EmbeddedTagMatchingService;
 impl EmbeddedTagMatchingService {
     /// Extract metadata from embedded tags in an audio file.
     ///
-    /// Currently returns `NotImplemented` as this requires external audio libraries.
-    /// Future implementation will support:
+    /// Supports the following formats via the `lofty` audio library:
     /// - ID3v2 tags (MP3)
     /// - Vorbis comments (OGG, FLAC)
     /// - MP4 atoms (M4A)
     /// - APEv2 tags
+    ///
+    /// The blocking file I/O is offloaded to a thread pool via
+    /// `tokio::task::spawn_blocking` so it does not stall the async runtime.
     ///
     /// # Arguments
     /// * `path` - Path to the audio file
@@ -67,7 +66,8 @@ impl EmbeddedTagMatchingService {
     /// # Returns
     /// * `Ok(ExtractedTags)` - Successfully extracted tags
     /// * `Err(EmbeddedTagError::FileNotFound)` - File does not exist
-    /// * `Err(EmbeddedTagError::NotImplemented)` - Tag parsing not yet available
+    /// * `Err(EmbeddedTagError::ExtractionFailed)` - lofty could not parse the file
+    /// * `Err(EmbeddedTagError::InsufficientMetadata)` - File parsed but has no tag block
     pub async fn extract_tags(&self, path: impl AsRef<Path>) -> EmbeddedTagResult<ExtractedTags> {
         let path = path.as_ref();
         debug!(target: "matching", path = %path.display(), "attempting to extract embedded tags");
@@ -82,9 +82,24 @@ impl EmbeddedTagMatchingService {
             .unwrap_or("")
             .to_lowercase();
 
-        // Read the metadata from the file using lofty
-        let metadata = match lofty::read_from_path(path) {
-            Ok(mtag) => mtag,
+        // Offload blocking file I/O + tag parsing to the thread pool so the
+        // async runtime worker thread is not blocked during imports/matching.
+        let owned_path: PathBuf = path.to_path_buf();
+        let owned_ext = ext.clone();
+        let tags_result = tokio::task::spawn_blocking(move || {
+            match lofty::read_from_path(&owned_path) {
+                Ok(mtag) => Ok((mtag, owned_ext)),
+                Err(e) => Err(EmbeddedTagError::ExtractionFailed(format!(
+                    "Failed to read metadata: {}",
+                    e
+                ))),
+            }
+        })
+        .await
+        .map_err(|e| EmbeddedTagError::ExtractionFailed(format!("Task join error: {}", e)))?;
+
+        let (metadata, ext) = match tags_result {
+            Ok(pair) => pair,
             Err(e) => {
                 debug!(
                     target: "matching",
@@ -93,10 +108,7 @@ impl EmbeddedTagMatchingService {
                     error = %e,
                     "failed to read metadata from audio file"
                 );
-                return Err(EmbeddedTagError::ExtractionFailed(format!(
-                    "Failed to read metadata: {}",
-                    e
-                )));
+                return Err(e);
             }
         };
 
@@ -109,6 +121,7 @@ impl EmbeddedTagMatchingService {
         debug!(
             target: "matching",
             path = %path.display(),
+            format = %ext,
             artist = ?tag.artist(),
             album = ?tag.album(),
             title = ?tag.title(),
@@ -176,6 +189,82 @@ impl EmbeddedTagMatchingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    // ── Minimal valid audio fixtures ─────────────────────────────────────────
+    //
+    // Identical to those used in tag_embedding.rs; duplicated here so this
+    // module stays self-contained and both sets of tests remain independent.
+
+    /// Minimal valid MPEG/MP3 file (two MPEG1-L3 frames at 32 kbps/44100 Hz).
+    const MINIMAL_MP3: &[u8] = &{
+        const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
+        let mut b = [0u8; 218];
+        b[0] = b'I';
+        b[1] = b'D';
+        b[2] = b'3';
+        b[3] = 4;
+        b[10] = FRAME_HDR[0];
+        b[11] = FRAME_HDR[1];
+        b[12] = FRAME_HDR[2];
+        b[13] = FRAME_HDR[3];
+        b[114] = FRAME_HDR[0];
+        b[115] = FRAME_HDR[1];
+        b[116] = FRAME_HDR[2];
+        b[117] = FRAME_HDR[3];
+        b
+    };
+
+    /// Minimal valid FLAC stream (STREAMINFO + empty PADDING block).
+    const MINIMAL_FLAC: &[u8] = &[
+        b'f', b'L', b'a', b'C',
+        0x00, 0x00, 0x00, 0x22,
+        0x00, 0x10, 0x00, 0x10,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x81, 0x00, 0x00, 0x00,
+    ];
+
+    fn write_fixture(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = dir.path().join(name);
+        fs::write(&path, bytes).expect("fixture write");
+        path
+    }
+
+    /// Write known artist/album/title/track tags to a file using lofty, then
+    /// return the path so tests can call `extract_tags` on it.
+    fn embed_known_tags(path: &PathBuf) {
+        use lofty::config::WriteOptions;
+        use lofty::file::{AudioFile, TaggedFileExt};
+        use lofty::prelude::Accessor;
+        use lofty::probe::Probe;
+
+        let mut tagged = Probe::open(path)
+            .expect("probe open")
+            .guess_file_type()
+            .expect("guess type")
+            .read()
+            .expect("read tagged file");
+
+        let tag = if let Some(t) = tagged.primary_tag_mut() {
+            t
+        } else {
+            let tag_type = tagged.primary_tag_type();
+            tagged.insert_tag(lofty::tag::Tag::new(tag_type));
+            tagged.primary_tag_mut().expect("tag inserted")
+        };
+
+        tag.set_artist("Test Artist".to_string());
+        tag.set_album("Test Album".to_string());
+        tag.set_title("Test Title".to_string());
+        tag.set_track(3);
+
+        tagged
+            .save_to_path(path, WriteOptions::default())
+            .expect("save tags");
+    }
 
     #[tokio::test]
     async fn returns_file_not_found_error() {
@@ -204,5 +293,35 @@ mod tests {
             result,
             Err(EmbeddedTagError::ExtractionFailed(_) | EmbeddedTagError::InsufficientMetadata)
         ));
+    }
+
+    #[tokio::test]
+    async fn extract_tags_mp3_returns_known_tags() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_fixture(&dir, "track.mp3", MINIMAL_MP3);
+        embed_known_tags(&path);
+
+        let svc = EmbeddedTagMatchingService;
+        let tags = svc.extract_tags(&path).await.expect("extract should succeed");
+
+        assert_eq!(tags.artist.as_deref(), Some("Test Artist"));
+        assert_eq!(tags.album.as_deref(), Some("Test Album"));
+        assert_eq!(tags.title.as_deref(), Some("Test Title"));
+        assert_eq!(tags.track_number, Some(3));
+    }
+
+    #[tokio::test]
+    async fn extract_tags_flac_returns_known_tags() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_fixture(&dir, "track.flac", MINIMAL_FLAC);
+        embed_known_tags(&path);
+
+        let svc = EmbeddedTagMatchingService;
+        let tags = svc.extract_tags(&path).await.expect("extract should succeed");
+
+        assert_eq!(tags.artist.as_deref(), Some("Test Artist"));
+        assert_eq!(tags.album.as_deref(), Some("Test Album"));
+        assert_eq!(tags.title.as_deref(), Some("Test Title"));
+        assert_eq!(tags.track_number, Some(3));
     }
 }
