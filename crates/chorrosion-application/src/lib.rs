@@ -34,6 +34,8 @@ pub mod scan_cache;
 pub mod search_automation;
 pub mod tag_embedding;
 pub mod tag_sanitation;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 
 pub use download_clients::{
     AddTorrentRequest, DelugeClient, DownloadClient, DownloadClientError, DownloadItem,

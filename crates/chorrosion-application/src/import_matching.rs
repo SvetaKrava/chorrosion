@@ -138,7 +138,7 @@ pub fn scan_audio_files(
     Ok(scanned)
 }
 
-pub fn parse_track_metadata(
+pub async fn parse_track_metadata(
     raw: &RawTrackMetadata,
 ) -> Result<ParsedTrackMetadata, ImportMatchingError> {
     if !raw.file_path.exists() {
@@ -160,7 +160,7 @@ pub fn parse_track_metadata(
             album,
             title,
             duration_seconds: raw.duration_seconds,
-            bitrate_kbps: resolve_bitrate(raw),
+            bitrate_kbps: resolve_bitrate(raw).await,
             source: MetadataSource::EmbeddedTags,
         });
     }
@@ -213,15 +213,19 @@ pub fn parse_track_metadata(
         album,
         title,
         duration_seconds: raw.duration_seconds,
-        bitrate_kbps: resolve_bitrate(raw),
+        bitrate_kbps: resolve_bitrate(raw).await,
         source: MetadataSource::FilenameHeuristics,
     })
 }
 
-fn resolve_bitrate(raw: &RawTrackMetadata) -> Option<u32> {
-    raw.bitrate_kbps
-        .or_else(|| extract_bitrate_from_audio_stream(&raw.file_path))
-        .or_else(|| extract_bitrate_from_filename(&raw.file_path))
+async fn resolve_bitrate(raw: &RawTrackMetadata) -> Option<u32> {
+    if let Some(kbps) = raw.bitrate_kbps {
+        return Some(kbps);
+    }
+    if let Some(kbps) = extract_bitrate_from_audio_stream(&raw.file_path).await {
+        return Some(kbps);
+    }
+    extract_bitrate_from_filename(&raw.file_path)
 }
 
 pub fn evaluate_import_match(
@@ -477,13 +481,18 @@ fn extract_bitrate_from_filename(path: &Path) -> Option<u32> {
         .and_then(|value| value.as_str().parse::<u32>().ok())
 }
 
-fn extract_bitrate_from_audio_stream(path: &Path) -> Option<u32> {
-    let metadata = lofty::read_from_path(path).ok()?;
-    let properties = metadata.properties();
-    properties
-        .audio_bitrate()
-        .or_else(|| properties.overall_bitrate())
-        .filter(|bitrate| *bitrate > 0)
+async fn extract_bitrate_from_audio_stream(path: &Path) -> Option<u32> {
+    let owned = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let metadata = lofty::read_from_path(&owned).ok()?;
+        let properties = metadata.properties();
+        properties
+            .audio_bitrate()
+            .or_else(|| properties.overall_bitrate())
+            .filter(|bitrate| *bitrate > 0)
+    })
+    .await
+    .unwrap_or(None)
 }
 
 fn resolve_track_file_quality(track_file: &TrackFile, profile: &QualityProfile) -> Option<String> {
@@ -646,27 +655,9 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixtures::MINIMAL_MP3;
     use chorrosion_domain::{ProfileId, TrackId};
     use chrono::Utc;
-
-    /// Minimal valid MPEG/MP3 file (two MPEG1-L3 frames at 32 kbps/44100 Hz).
-    const MINIMAL_MP3: &[u8] = &{
-        const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
-        let mut b = [0u8; 218];
-        b[0] = b'I';
-        b[1] = b'D';
-        b[2] = b'3';
-        b[3] = 4;
-        b[10] = FRAME_HDR[0];
-        b[11] = FRAME_HDR[1];
-        b[12] = FRAME_HDR[2];
-        b[13] = FRAME_HDR[3];
-        b[114] = FRAME_HDR[0];
-        b[115] = FRAME_HDR[1];
-        b[116] = FRAME_HDR[2];
-        b[117] = FRAME_HDR[3];
-        b
-    };
 
     #[test]
     fn scan_audio_files_recursively_filters_supported_extensions() {
@@ -686,8 +677,8 @@ mod tests {
         assert_eq!(scanned[0].extension, "mp3");
     }
 
-    #[test]
-    fn parse_track_metadata_prefers_embedded_tags() {
+    #[tokio::test]
+    async fn parse_track_metadata_prefers_embedded_tags() {
         let root = tempfile::tempdir().expect("temp dir should be created");
         let file = root.path().join("any.mp3");
         fs::write(&file, b"audio-data").expect("file should exist");
@@ -700,6 +691,7 @@ mod tests {
             duration_seconds: Some(321),
             bitrate_kbps: Some(320),
         })
+        .await
         .expect("metadata parsing should succeed");
 
         assert_eq!(parsed.artist, "Autechre");
@@ -708,8 +700,8 @@ mod tests {
         assert_eq!(parsed.source, MetadataSource::EmbeddedTags);
     }
 
-    #[test]
-    fn parse_track_metadata_falls_back_to_filename_heuristics() {
+    #[tokio::test]
+    async fn parse_track_metadata_falls_back_to_filename_heuristics() {
         let root = tempfile::tempdir().expect("temp dir should be created");
         let album_dir = root
             .path()
@@ -728,6 +720,7 @@ mod tests {
             duration_seconds: None,
             bitrate_kbps: None,
         })
+        .await
         .expect("fallback parsing should succeed");
 
         assert_eq!(parsed.artist, "Boards of Canada");
@@ -736,8 +729,8 @@ mod tests {
         assert_eq!(parsed.bitrate_kbps, Some(320));
     }
 
-    #[test]
-    fn parse_track_metadata_reads_bitrate_from_audio_stream_with_embedded_tags() {
+    #[tokio::test]
+    async fn parse_track_metadata_reads_bitrate_from_audio_stream_with_embedded_tags() {
         let root = tempfile::tempdir().expect("temp dir should be created");
         let file = root.path().join("no-bitrate-name.mp3");
         fs::write(&file, MINIMAL_MP3).expect("file should exist");
@@ -750,14 +743,15 @@ mod tests {
             duration_seconds: Some(321),
             bitrate_kbps: None,
         })
+        .await
         .expect("metadata parsing should succeed");
 
         assert_eq!(parsed.source, MetadataSource::EmbeddedTags);
-        assert!(parsed.bitrate_kbps.is_some());
+        assert_eq!(parsed.bitrate_kbps, Some(32));
     }
 
-    #[test]
-    fn parse_track_metadata_reads_bitrate_from_audio_stream_before_filename_fallback() {
+    #[tokio::test]
+    async fn parse_track_metadata_reads_bitrate_from_audio_stream_before_filename_fallback() {
         let root = tempfile::tempdir().expect("temp dir should be created");
         let album_dir = root
             .path()
@@ -776,10 +770,47 @@ mod tests {
             duration_seconds: None,
             bitrate_kbps: None,
         })
+        .await
         .expect("fallback parsing should succeed");
 
         assert_eq!(parsed.source, MetadataSource::FilenameHeuristics);
-        assert!(parsed.bitrate_kbps.is_some());
+        assert_eq!(parsed.bitrate_kbps, Some(32));
+    }
+
+    /// Stream bitrate must win over a conflicting filename token.
+    ///
+    /// The fixture is 32 kbps (from MPEG frame headers) but the filename
+    /// contains "320kbps".  The precedence order is:
+    ///   explicit RawTrackMetadata.bitrate_kbps → audio stream → filename token
+    /// so the result must be 32, not 320.
+    #[tokio::test]
+    async fn parse_track_metadata_stream_bitrate_takes_precedence_over_filename_token() {
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let album_dir = root
+            .path()
+            .join("Boards of Canada")
+            .join("Music Has the Right to Children");
+        fs::create_dir_all(&album_dir).expect("nested dir should exist");
+
+        // Filename claims 320 kbps; actual MPEG frames are 32 kbps.
+        let file = album_dir.join("Boards of Canada - 01 - Wildlife Analysis 320kbps.mp3");
+        fs::write(&file, MINIMAL_MP3).expect("file should exist");
+
+        let parsed = parse_track_metadata(&RawTrackMetadata {
+            file_path: file,
+            embedded_artist: None,
+            embedded_album: None,
+            embedded_title: None,
+            duration_seconds: None,
+            bitrate_kbps: None,
+        })
+        .await
+        .expect("fallback parsing should succeed");
+
+        assert_eq!(parsed.source, MetadataSource::FilenameHeuristics);
+        // Stream bitrate (32 kbps from MPEG headers) must win over the
+        // "320kbps" token in the filename.
+        assert_eq!(parsed.bitrate_kbps, Some(32));
     }
 
     #[test]
