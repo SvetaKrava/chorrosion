@@ -142,6 +142,7 @@ async fn poll_cached_snapshot(state: &AppState) -> Result<PolledActivitySnapshot
 
     let items: Vec<_> = results.into_iter().flatten().collect();
 
+    state.activity_history_store.observe_terminal(&items);
     state.activity_stall_tracker.observe(&items);
 
     // Store in cache for subsequent requests within the TTL window.
@@ -187,14 +188,11 @@ pub(crate) async fn activity_import_snapshot(_state: &AppState) -> ActivityListR
 pub(crate) async fn activity_history_snapshot(
     state: &AppState,
 ) -> Result<ActivityListResponse, String> {
-    let snapshot = poll_cached_snapshot(state).await?;
-    let filtered: Vec<_> = snapshot
-        .items
-        .into_iter()
-        .filter(|item| item.download.state == DownloadState::Completed)
-        .collect();
-
-    Ok(snapshot_to_response(filtered))
+    // Ensure we refresh history state when cache is stale.
+    let _ = poll_cached_snapshot(state).await?;
+    Ok(snapshot_to_response(
+        state.activity_history_store.snapshot(),
+    ))
 }
 
 pub(crate) async fn activity_failed_snapshot(
@@ -511,6 +509,61 @@ mod tests {
         assert_eq!(payload["total"], 1);
         assert_eq!(payload["items"][0]["state"], "completed");
         assert_eq!(payload["items"][0]["name"], "qbit-main: Album Done");
+    }
+
+    #[tokio::test]
+    async fn get_activity_history_persists_after_item_leaves_queue() {
+        let state = make_test_state().await;
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                    {
+                        "hash": "completed1",
+                        "name": "Album Done",
+                        "progress": 1.0,
+                        "state": "uploading",
+                        "category": "music"
+                    }
+                ]"#,
+            ))
+            .mount(&server)
+            .await;
+
+        state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "qbit-main",
+                "qbittorrent",
+                server.uri(),
+            ))
+            .await
+            .expect("create download client definition");
+
+        let first = activity_history_snapshot(&state)
+            .await
+            .expect("first history snapshot should succeed");
+        assert_eq!(first.total, 1);
+        assert_eq!(first.items[0].state, "completed");
+
+        server.reset().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v2/torrents/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("[]"))
+            .mount(&server)
+            .await;
+
+        state.activity_snapshot_cache.clear();
+
+        let second = activity_history_snapshot(&state)
+            .await
+            .expect("second history snapshot should succeed");
+
+        assert_eq!(second.total, 1);
+        assert_eq!(second.items[0].state, "completed");
+        assert_eq!(second.items[0].name, "qbit-main: Album Done");
     }
 
     #[tokio::test]

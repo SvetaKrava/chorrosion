@@ -209,7 +209,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] Completion detection (Issue #361) ✓
 - [x] Failed download handling (Issue #363) ✓
 - [x] Stalled download detection (Issue #365) ✓
-- [ ] Download history
+- [x] Download history (Issue #367) ✓
 
 ---
 

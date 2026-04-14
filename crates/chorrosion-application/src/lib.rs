@@ -155,6 +155,81 @@ impl Default for ActivitySnapshotCache {
 }
 
 #[derive(Clone, Debug)]
+struct ActivityHistoryRecord {
+    item: CachedActivityItem,
+    last_seen: Instant,
+}
+
+/// In-memory history of terminal download states observed across fresh polls.
+#[derive(Clone, Debug)]
+pub struct ActivityHistoryStore {
+    max_entries: usize,
+    inner: Arc<Mutex<HashMap<String, ActivityHistoryRecord>>>,
+}
+
+/// Default maximum number of download history records to retain.
+const ACTIVITY_HISTORY_MAX_ENTRIES: usize = 500;
+
+impl ActivityHistoryStore {
+    /// Create a new in-memory store with bounded capacity.
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            max_entries: max_entries.max(1),
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Record terminal items (completed or error) from a fresh poll.
+    pub fn observe_terminal(&self, items: &[CachedActivityItem]) {
+        let now = Instant::now();
+        let mut records = self.inner.lock().expect("activity history store lock");
+
+        for item in items {
+            if !matches!(
+                item.download.state,
+                DownloadState::Completed | DownloadState::Error
+            ) {
+                continue;
+            }
+
+            let id = format!("{}:{}", item.definition_id, item.download.hash);
+            records.insert(
+                id,
+                ActivityHistoryRecord {
+                    item: item.clone(),
+                    last_seen: now,
+                },
+            );
+        }
+
+        while records.len() > self.max_entries {
+            let Some(evict_id) = records
+                .iter()
+                .min_by_key(|(_, record)| record.last_seen)
+                .map(|(id, _)| id.clone())
+            else {
+                break;
+            };
+            records.remove(&evict_id);
+        }
+    }
+
+    /// Return history items sorted by latest observation first.
+    pub fn snapshot(&self) -> Vec<CachedActivityItem> {
+        let records = self.inner.lock().expect("activity history store lock");
+        let mut sorted: Vec<_> = records.values().cloned().collect();
+        sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        sorted.into_iter().map(|record| record.item).collect()
+    }
+}
+
+impl Default for ActivityHistoryStore {
+    fn default() -> Self {
+        Self::new(ACTIVITY_HISTORY_MAX_ENTRIES)
+    }
+}
+
+#[derive(Clone, Debug)]
 struct TrackedActivityProgress {
     progress_percent: u8,
     last_progress_at: Instant,
@@ -270,6 +345,8 @@ pub struct AppState {
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
     pub activity_snapshot_cache: ActivitySnapshotCache,
+    /// In-memory terminal-state history accumulated across fresh polls.
+    pub activity_history_store: ActivityHistoryStore,
     /// In-memory tracker used to detect downloads that stop making progress.
     pub activity_stall_tracker: ActivityStallTracker,
 }
@@ -289,9 +366,8 @@ impl AppState {
     ) -> Self {
         Self {
             activity_snapshot_cache: ActivitySnapshotCache::default(),
-            activity_stall_tracker: ActivityStallTracker::new(
-                config.activity.stall_after_seconds,
-            ),
+            activity_history_store: ActivityHistoryStore::default(),
+            activity_stall_tracker: ActivityStallTracker::new(config.activity.stall_after_seconds),
             config,
             artist_repository,
             album_repository,
