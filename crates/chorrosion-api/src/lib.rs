@@ -63,6 +63,12 @@ use handlers::events::{
     stream_import_progress_events, stream_job_status_events, BroadcastErrorResponse,
     BroadcastEventRequest, BroadcastEventResponse, SseConnectionsResponse,
 };
+use handlers::imports::{
+    evaluate_import_candidate, submit_manual_import_decision, CatalogAlbumMatchResponse,
+    ImportCandidateRequest, ImportCandidateResponse, ImportDecisionResponse, ImportErrorResponse,
+    ImportRawMetadataRequest, ManualImportDecisionRequest, ManualImportDecisionResponse,
+    ParsedMetadataResponse, __path_evaluate_import_candidate, __path_submit_manual_import_decision,
+};
 use handlers::indexers::{
     create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
     update_indexer, CreateIndexerRequest, IndexerCapabilitiesResponse, IndexerErrorResponse,
@@ -290,6 +296,8 @@ async fn metrics() -> axum::response::Response {
         update_indexer,
         delete_indexer,
         test_indexer_endpoint,
+        evaluate_import_candidate,
+        submit_manual_import_decision,
         list_wanted_albums,
         list_missing_albums,
         list_cutoff_unmet_albums,
@@ -367,6 +375,15 @@ async fn metrics() -> axum::response::Response {
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
             IndexerTestErrorResponse,
+            ImportErrorResponse,
+            ImportRawMetadataRequest,
+            ImportCandidateRequest,
+            ParsedMetadataResponse,
+            CatalogAlbumMatchResponse,
+            ImportDecisionResponse,
+            ImportCandidateResponse,
+            ManualImportDecisionRequest,
+            ManualImportDecisionResponse,
             WantedAlbumsResponse,
             WantedAlbumResponse,
             WantedErrorResponse,
@@ -385,6 +402,7 @@ async fn metrics() -> axum::response::Response {
         (name = "auth", description = "Authentication and API key management endpoints"),
         (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints"),
+        (name = "imports", description = "Import evaluation and manual decision endpoints"),
         (name = "wanted", description = "Wanted and missing album tracking"),
         (name = "calendar", description = "Upcoming releases calendar")
     ),
@@ -490,6 +508,8 @@ pub fn router(state: AppState) -> Router {
             get(get_indexer).put(update_indexer).delete(delete_indexer),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
+        .route("/imports/evaluate", post(evaluate_import_candidate))
+        .route("/imports/decision", post(submit_manual_import_decision))
         .route("/wanted", get(list_wanted_albums))
         .route("/wanted/missing", get(list_missing_albums))
         .route("/wanted/cutoff", get(list_cutoff_unmet_albums))

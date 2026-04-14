@@ -242,7 +242,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] NeedsReview flagging for low-confidence matches ✓
   - [x] Catalog match evaluation (ImportEvaluation) ✓
   - [x] Quality upgrade / duplicate-file decisions (Issue #334) ✓
-  - [ ] Manual import UI support
+  - [x] Manual import UI support (Issue #375) ✓
 
 ### 5.2 File Organization
 
