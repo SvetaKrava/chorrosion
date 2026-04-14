@@ -85,21 +85,16 @@ impl EmbeddedTagMatchingService {
         // Offload blocking file I/O + tag parsing to the thread pool so the
         // async runtime worker thread is not blocked during imports/matching.
         let owned_path: PathBuf = path.to_path_buf();
-        let owned_ext = ext.clone();
         let tags_result = tokio::task::spawn_blocking(move || {
-            match lofty::read_from_path(&owned_path) {
-                Ok(mtag) => Ok((mtag, owned_ext)),
-                Err(e) => Err(EmbeddedTagError::ExtractionFailed(format!(
-                    "Failed to read metadata: {}",
-                    e
-                ))),
-            }
+            lofty::read_from_path(&owned_path).map_err(|e| {
+                EmbeddedTagError::ExtractionFailed(format!("Failed to read metadata: {}", e))
+            })
         })
         .await
         .map_err(|e| EmbeddedTagError::ExtractionFailed(format!("Task join error: {}", e)))?;
 
-        let (metadata, ext) = match tags_result {
-            Ok(pair) => pair,
+        let metadata = match tags_result {
+            Ok(mtag) => mtag,
             Err(e) => {
                 debug!(
                     target: "matching",
@@ -199,15 +194,18 @@ mod tests {
     /// Minimal valid MPEG/MP3 file (two MPEG1-L3 frames at 32 kbps/44100 Hz).
     const MINIMAL_MP3: &[u8] = &{
         const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
-        let mut b = [0u8; 218];
+        let mut b = [0u8; 218]; // 10-byte ID3 header + 2 × 104-byte MPEG frames
+        // ID3v2.4 header at offset 0 (10 bytes, size field = 0)
         b[0] = b'I';
         b[1] = b'D';
         b[2] = b'3';
-        b[3] = 4;
+        b[3] = 4; // version: ID3v2.4
+        // Frame 1 at offset 10 (frame_length = floor(1152×32000/(8×44100)) = 104 bytes)
         b[10] = FRAME_HDR[0];
         b[11] = FRAME_HDR[1];
         b[12] = FRAME_HDR[2];
         b[13] = FRAME_HDR[3];
+        // Frame 2 at offset 10 + 104 = 114
         b[114] = FRAME_HDR[0];
         b[115] = FRAME_HDR[1];
         b[116] = FRAME_HDR[2];
