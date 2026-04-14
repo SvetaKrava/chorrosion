@@ -4,6 +4,7 @@ use crate::filename_heuristics::FilenameHeuristicsService;
 use crate::quality_upgrade::{QualityUpgradeService, UpgradeReason};
 use chorrosion_domain::{AlbumId, ArtistId, QualityProfile, TrackFile};
 use lazy_static::lazy_static;
+use lofty::file::AudioFile;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -159,9 +160,7 @@ pub fn parse_track_metadata(
             album,
             title,
             duration_seconds: raw.duration_seconds,
-            bitrate_kbps: raw
-                .bitrate_kbps
-                .or_else(|| extract_bitrate_from_filename(&raw.file_path)),
+            bitrate_kbps: resolve_bitrate(raw),
             source: MetadataSource::EmbeddedTags,
         });
     }
@@ -214,11 +213,15 @@ pub fn parse_track_metadata(
         album,
         title,
         duration_seconds: raw.duration_seconds,
-        bitrate_kbps: raw
-            .bitrate_kbps
-            .or_else(|| extract_bitrate_from_filename(&raw.file_path)),
+        bitrate_kbps: resolve_bitrate(raw),
         source: MetadataSource::FilenameHeuristics,
     })
+}
+
+fn resolve_bitrate(raw: &RawTrackMetadata) -> Option<u32> {
+    raw.bitrate_kbps
+        .or_else(|| extract_bitrate_from_audio_stream(&raw.file_path))
+        .or_else(|| extract_bitrate_from_filename(&raw.file_path))
 }
 
 pub fn evaluate_import_match(
@@ -474,6 +477,15 @@ fn extract_bitrate_from_filename(path: &Path) -> Option<u32> {
         .and_then(|value| value.as_str().parse::<u32>().ok())
 }
 
+fn extract_bitrate_from_audio_stream(path: &Path) -> Option<u32> {
+    let metadata = lofty::read_from_path(path).ok()?;
+    let properties = metadata.properties();
+    properties
+        .audio_bitrate()
+        .or_else(|| properties.overall_bitrate())
+        .filter(|bitrate| *bitrate > 0)
+}
+
 fn resolve_track_file_quality(track_file: &TrackFile, profile: &QualityProfile) -> Option<String> {
     if let Some(quality) = track_file.quality.as_deref() {
         if let Some(resolved) = find_allowed_quality(quality, profile) {
@@ -637,6 +649,25 @@ mod tests {
     use chorrosion_domain::{ProfileId, TrackId};
     use chrono::Utc;
 
+    /// Minimal valid MPEG/MP3 file (two MPEG1-L3 frames at 32 kbps/44100 Hz).
+    const MINIMAL_MP3: &[u8] = &{
+        const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
+        let mut b = [0u8; 218];
+        b[0] = b'I';
+        b[1] = b'D';
+        b[2] = b'3';
+        b[3] = 4;
+        b[10] = FRAME_HDR[0];
+        b[11] = FRAME_HDR[1];
+        b[12] = FRAME_HDR[2];
+        b[13] = FRAME_HDR[3];
+        b[114] = FRAME_HDR[0];
+        b[115] = FRAME_HDR[1];
+        b[116] = FRAME_HDR[2];
+        b[117] = FRAME_HDR[3];
+        b
+    };
+
     #[test]
     fn scan_audio_files_recursively_filters_supported_extensions() {
         let root = tempfile::tempdir().expect("temp dir should be created");
@@ -703,6 +734,52 @@ mod tests {
         assert_eq!(parsed.album, "Music Has the Right to Children");
         assert_eq!(parsed.source, MetadataSource::FilenameHeuristics);
         assert_eq!(parsed.bitrate_kbps, Some(320));
+    }
+
+    #[test]
+    fn parse_track_metadata_reads_bitrate_from_audio_stream_with_embedded_tags() {
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let file = root.path().join("no-bitrate-name.mp3");
+        fs::write(&file, MINIMAL_MP3).expect("file should exist");
+
+        let parsed = parse_track_metadata(&RawTrackMetadata {
+            file_path: file,
+            embedded_artist: Some("Autechre".to_string()),
+            embedded_album: Some("Amber".to_string()),
+            embedded_title: Some("Foil".to_string()),
+            duration_seconds: Some(321),
+            bitrate_kbps: None,
+        })
+        .expect("metadata parsing should succeed");
+
+        assert_eq!(parsed.source, MetadataSource::EmbeddedTags);
+        assert!(parsed.bitrate_kbps.is_some());
+    }
+
+    #[test]
+    fn parse_track_metadata_reads_bitrate_from_audio_stream_before_filename_fallback() {
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let album_dir = root
+            .path()
+            .join("Boards of Canada")
+            .join("Music Has the Right to Children");
+        fs::create_dir_all(&album_dir).expect("nested dir should exist");
+
+        let file = album_dir.join("01 - Wildlife Analysis.mp3");
+        fs::write(&file, MINIMAL_MP3).expect("file should exist");
+
+        let parsed = parse_track_metadata(&RawTrackMetadata {
+            file_path: file,
+            embedded_artist: None,
+            embedded_album: None,
+            embedded_title: None,
+            duration_seconds: None,
+            bitrate_kbps: None,
+        })
+        .expect("fallback parsing should succeed");
+
+        assert_eq!(parsed.source, MetadataSource::FilenameHeuristics);
+        assert!(parsed.bitrate_kbps.is_some());
     }
 
     #[test]

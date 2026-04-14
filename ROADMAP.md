@@ -223,7 +223,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Duration read from file system metadata ✓
   - [x] Bitrate extraction from filename heuristics (BITRATE_REGEX) ✓
   - [x] Library-based tag reading (ID3/FLAC/Vorbis/APEv2) (Issue #369) ✓
-  - [ ] Bitrate from audio codec/stream data (not just filename)
+  - [x] Bitrate from audio codec/stream data (not just filename) (Issue #371) ✓
 - [x] **Fingerprint generation during import** (Issue #67) ✓
   - [x] Generate Chromaprint fingerprint ✓
   - [x] Cache in database (Issue #66) ✓
