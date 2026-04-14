@@ -232,7 +232,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] **Primary: Fingerprint-based lookup** (Issue #68) ✓
     - [x] Query AcoustID with fingerprint ✓
     - [x] Link to MusicBrainz recording ✓
-    - [ ] Link to artist/album via recording
+    - [x] Link to artist/album via recording (Issue #373) ✓
   - [x] Fallback: Embedded tag matching (Issue #28) ✓
   - [x] Fallback: Filename heuristics (Issue #28) ✓
   - [x] Fuzzy matching for poor metadata (Issue #34, PR #152, PR #153) ✓

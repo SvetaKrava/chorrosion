@@ -20,9 +20,11 @@
 
 use chorrosion_domain::{Track, TrackFile, TrackFileId, TrackId};
 use chorrosion_fingerprint::{AcoustidClient, Fingerprint, FingerprintError};
+use chorrosion_musicbrainz::{MusicBrainzClient, MusicBrainzError, Recording};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 /// Errors that can occur during track matching
 #[derive(Debug, Error)]
@@ -41,16 +43,39 @@ pub enum MatchingError {
 
     #[error("Invalid confidence score: {0}")]
     InvalidConfidenceScore(f32),
+
+    #[error("Invalid MusicBrainz recording ID: {0}")]
+    InvalidRecordingId(String),
+
+    #[error("MusicBrainz error: {0}")]
+    MusicBrainzError(#[from] MusicBrainzError),
 }
 
 /// Result type for matching operations
 pub type MatchingResult<T> = Result<T, MatchingError>;
+
+fn extract_artist_album_links(recording: &Recording) -> (Option<String>, Option<String>) {
+    let artist_id = recording
+        .artist_credit
+        .first()
+        .map(|credit| credit.artist.id.to_string());
+    let release_group_id = recording
+        .releases
+        .first()
+        .map(|release| release.release_group.id.to_string());
+
+    (artist_id, release_group_id)
+}
 
 /// Metadata about a successful match
 #[derive(Debug, Clone)]
 pub struct MatchResult {
     /// MusicBrainz recording ID from AcoustID lookup
     pub musicbrainz_recording_id: String,
+    /// Linked MusicBrainz artist ID resolved from the matched recording.
+    pub musicbrainz_artist_id: Option<String>,
+    /// Linked MusicBrainz release-group ID (album) resolved from the matched recording.
+    pub musicbrainz_release_group_id: Option<String>,
     /// Confidence score from AcoustID (0.0-1.0)
     pub confidence_score: f32,
 }
@@ -64,6 +89,7 @@ pub struct MatchResult {
 /// 4. Can filter by minimum confidence threshold
 pub struct TrackMatchingService {
     acoustid_client: Arc<AcoustidClient>,
+    musicbrainz_client: Option<Arc<MusicBrainzClient>>,
 }
 
 impl TrackMatchingService {
@@ -75,6 +101,18 @@ impl TrackMatchingService {
     pub fn new(acoustid_client: AcoustidClient) -> Self {
         Self {
             acoustid_client: Arc::new(acoustid_client),
+            musicbrainz_client: None,
+        }
+    }
+
+    /// Create a new matching service with MusicBrainz linkage enabled.
+    pub fn new_with_musicbrainz(
+        acoustid_client: AcoustidClient,
+        musicbrainz_client: MusicBrainzClient,
+    ) -> Self {
+        Self {
+            acoustid_client: Arc::new(acoustid_client),
+            musicbrainz_client: Some(Arc::new(musicbrainz_client)),
         }
     }
 
@@ -132,6 +170,18 @@ impl TrackMatchingService {
             .await?;
 
         let recording_id = recording_match.id.to_string();
+        let (musicbrainz_artist_id, musicbrainz_release_group_id) = self
+            .resolve_recording_links(&recording_id)
+            .await
+            .unwrap_or_else(|error| {
+                warn!(
+                    target: "matching",
+                    recording_id = %recording_id,
+                    error = %error,
+                    "unable to resolve recording artist/album links"
+                );
+                (None, None)
+            });
 
         debug!(
             target: "matching",
@@ -143,8 +193,25 @@ impl TrackMatchingService {
 
         Ok(MatchResult {
             musicbrainz_recording_id: recording_id,
+            musicbrainz_artist_id,
+            musicbrainz_release_group_id,
             confidence_score: recording_match.score,
         })
+    }
+
+    async fn resolve_recording_links(
+        &self,
+        recording_id: &str,
+    ) -> MatchingResult<(Option<String>, Option<String>)> {
+        let Some(client) = &self.musicbrainz_client else {
+            return Ok((None, None));
+        };
+
+        let recording_uuid = Uuid::parse_str(recording_id)
+            .map_err(|_| MatchingError::InvalidRecordingId(recording_id.to_string()))?;
+
+        let recording = client.lookup_recording(recording_uuid).await?;
+        Ok(extract_artist_album_links(&recording))
     }
 
     /// Update a track with matching results.
@@ -218,6 +285,7 @@ impl TrackMatchingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn invalid_confidence_threshold() {
@@ -235,6 +303,8 @@ mod tests {
 
         let match_result = MatchResult {
             musicbrainz_recording_id: "12345678-1234-1234-1234-123456789012".to_string(),
+            musicbrainz_artist_id: Some("a74b1b7f-71a5-4011-9441-d0b5e4122711".to_string()),
+            musicbrainz_release_group_id: Some("b1392450-e666-3926-a536-22c65f834433".to_string()),
             confidence_score: 0.95,
         };
 
@@ -259,5 +329,67 @@ mod tests {
             MatchingError::NoFingerprint(track_file.id),
             MatchingError::NoFingerprint(_)
         ));
+    }
+
+    #[test]
+    fn extract_artist_album_links_returns_primary_ids() {
+        let recording: Recording = serde_json::from_value(json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "title": "Test Recording",
+            "length": 180000,
+            "artist-credit": [
+                {
+                    "name": "Test Artist",
+                    "artist": {
+                        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "name": "Test Artist",
+                        "sort-name": "Artist, Test"
+                    }
+                }
+            ],
+            "releases": [
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "title": "Test Release",
+                    "status": "Official",
+                    "country": "US",
+                    "date": "2020-01-01",
+                    "release-group": {
+                        "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                        "title": "Test Album",
+                        "primary-type": "Album"
+                    }
+                }
+            ]
+        }))
+        .expect("recording json should parse");
+
+        let (artist_id, release_group_id) = extract_artist_album_links(&recording);
+
+        assert_eq!(
+            artist_id.as_deref(),
+            Some("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        );
+        assert_eq!(
+            release_group_id.as_deref(),
+            Some("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        );
+    }
+
+    #[test]
+    fn extract_artist_album_links_returns_none_when_missing() {
+        let recording: Recording = serde_json::from_value(json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "title": "Test Recording",
+            "length": null,
+            "artist-credit": [],
+            "releases": []
+        }))
+        .expect("recording json should parse");
+
+        let (artist_id, release_group_id) = extract_artist_album_links(&recording);
+
+        assert!(artist_id.is_none());
+        assert!(release_group_id.is_none());
     }
 }
