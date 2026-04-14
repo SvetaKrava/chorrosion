@@ -5,14 +5,15 @@
 //! This module provides basic matching using embedded audio metadata
 //! (artist/album/track name from ID3/FLAC/Vorbis tags).
 //!
-//! Note: This is a placeholder implementation. Full tag extraction requires
-//! external audio libraries (metaflac, id3, etc.). For now, we provide the
-//! infrastructure and error handling.
+//! Supports extraction from ID3v2 (MP3), Vorbis Comments (FLAC/OGG),
+//! MP4 atoms (M4A), and APEv2 tags via the `lofty` audio library.
 
 use crate::matching::MatchResult;
+use lofty::file::TaggedFileExt;
+use lofty::prelude::Accessor;
 use std::path::Path;
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Errors that can occur during embedded tag matching
 #[derive(Debug, Error)]
@@ -81,30 +82,57 @@ impl EmbeddedTagMatchingService {
             .unwrap_or("")
             .to_lowercase();
 
-        // Placeholder: Tag extraction not yet implemented
-        warn!(
+        // Read the metadata from the file using lofty
+        let metadata = match lofty::read_from_path(path) {
+            Ok(mtag) => mtag,
+            Err(e) => {
+                debug!(
+                    target: "matching",
+                    path = %path.display(),
+                    format = %ext,
+                    error = %e,
+                    "failed to read metadata from audio file"
+                );
+                return Err(EmbeddedTagError::ExtractionFailed(format!(
+                    "Failed to read metadata: {}",
+                    e
+                )));
+            }
+        };
+
+        // Extract primary tag (most common tag type for the format)
+        let tag = metadata
+            .primary_tag()
+            .or_else(|| metadata.first_tag())
+            .ok_or(EmbeddedTagError::InsufficientMetadata)?;
+
+        debug!(
             target: "matching",
             path = %path.display(),
-            format = %ext,
-            "embedded tag extraction not yet implemented"
+            artist = ?tag.artist(),
+            album = ?tag.album(),
+            title = ?tag.title(),
+            track_number = ?tag.track(),
+            "extracted tags from audio file"
         );
 
-        Err(EmbeddedTagError::NotImplemented(
-            "Tag parsing requires external audio libraries (metaflac, id3, etc.)".to_string(),
-        ))
+        Ok(ExtractedTags {
+            artist: tag.artist().map(|s| s.to_string()),
+            album: tag.album().map(|s| s.to_string()),
+            title: tag.title().map(|s| s.to_string()),
+            track_number: tag.track(),
+        })
     }
 
     /// Attempt to match using embedded tags from the given file path.
     ///
     /// Returns `Ok(None)` when no match can be determined due to missing tags
-    /// or when tag parsing is not yet implemented.
+    /// or when tag parsing fails.
     ///
     /// # Note
-    /// This is a placeholder that returns None until tag parsing is implemented.
-    /// The actual matching logic would:
-    /// 1. Extract artist, album, and track name
-    /// 2. Search MusicBrainz API with this metadata
-    /// 3. Return the best match (lower confidence than fingerprint matching)
+    /// This extracts the tags successfully but returns None because the
+    /// MusicBrainz matching logic for tagged metadata is still being
+    /// implemented as part of the fingerprint-based lookup phase.
     pub async fn match_from_file(
         &self,
         path: impl AsRef<Path>,
@@ -128,7 +156,9 @@ impl EmbeddedTagMatchingService {
                 );
 
                 // TODO: Implement MusicBrainz search with extracted metadata
-                // For now, return None (match deferred to filename heuristics)
+                // Search priority: (artist + album + track_number) > (artist + album) > artist
+                // Return match with lower confidence than fingerprint matching
+                // (fingerprint is more reliable when available)
                 Ok(None)
             }
             Err(EmbeddedTagError::FileNotFound(_)) => {
@@ -155,21 +185,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returns_none_on_extraction_not_implemented() {
+    async fn returns_none_on_no_musicbrainz_match() {
         let svc = EmbeddedTagMatchingService;
         let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
         let result = svc.match_from_file(&test_file).await;
-        // Should return None since extraction is not yet implemented
+        // Should return None since MusicBrainz matching is not yet implemented (deferred)
         assert!(matches!(result, Ok(None)));
     }
 
     #[tokio::test]
-    async fn extract_tags_not_yet_implemented() {
+    async fn extract_tags_returns_error_for_non_audio_file() {
         let svc = EmbeddedTagMatchingService;
         let test_file = std::env::current_dir().unwrap().join("Cargo.toml");
 
-        // Verify extract_tags returns NotImplemented error
+        // Verify extract_tags returns an error for non-audio files
         let result = svc.extract_tags(&test_file).await;
-        assert!(matches!(result, Err(EmbeddedTagError::NotImplemented(_))));
+        assert!(matches!(
+            result,
+            Err(EmbeddedTagError::ExtractionFailed(_) | EmbeddedTagError::InsufficientMetadata)
+        ));
     }
 }
