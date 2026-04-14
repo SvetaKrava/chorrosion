@@ -483,7 +483,7 @@ fn extract_bitrate_from_filename(path: &Path) -> Option<u32> {
 
 async fn extract_bitrate_from_audio_stream(path: &Path) -> Option<u32> {
     let owned = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    match tokio::task::spawn_blocking(move || {
         let metadata = lofty::read_from_path(&owned).ok()?;
         let properties = metadata.properties();
         properties
@@ -492,7 +492,13 @@ async fn extract_bitrate_from_audio_stream(path: &Path) -> Option<u32> {
             .filter(|bitrate| *bitrate > 0)
     })
     .await
-    .unwrap_or(None)
+    {
+        Ok(result) => result,
+        Err(e) => {
+            warn!(target: "import", error = %e, "audio stream bitrate task panicked");
+            None
+        }
+    }
 }
 
 fn resolve_track_file_quality(track_file: &TrackFile, profile: &QualityProfile) -> Option<String> {
