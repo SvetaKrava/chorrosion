@@ -222,7 +222,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Embedded tag field model (artist, album, title) ✓
   - [x] Duration read from file system metadata ✓
   - [x] Bitrate extraction from filename heuristics (BITRATE_REGEX) ✓
-  - [ ] Library-based tag reading (ID3/FLAC/Vorbis/APEv2) — placeholder only
+  - [x] Library-based tag reading (ID3/FLAC/Vorbis/APEv2) (Issue #369) ✓
   - [ ] Bitrate from audio codec/stream data (not just filename)
 - [x] **Fingerprint generation during import** (Issue #67) ✓
   - [x] Generate Chromaprint fingerprint ✓
