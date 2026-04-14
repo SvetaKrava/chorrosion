@@ -2,7 +2,7 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use chorrosion_application::{
     evaluate_import_match, parse_track_metadata, CatalogAlbum, CatalogAlbumMatch, ImportDecision,
-    RawTrackMetadata,
+    ImportMatchingError, MatchStrategy, MetadataSource, RawTrackMetadata,
 };
 use chorrosion_domain::{AlbumId, ArtistId};
 use serde::{Deserialize, Serialize};
@@ -134,7 +134,11 @@ pub async fn evaluate_import_candidate(
 
     let parsed = parse_track_metadata(&raw)
         .await
-        .map_err(|e| bad_request(&e.to_string()))?;
+        .map_err(|e| match e {
+            ImportMatchingError::PathNotFound(_) => bad_request("file not found"),
+            ImportMatchingError::Io(_) => bad_request("unable to read file"),
+            ImportMatchingError::MetadataParsing(msg) => bad_request(&msg),
+        })?;
 
     let catalog = request
         .catalog
@@ -164,7 +168,7 @@ pub async fn evaluate_import_candidate(
             title: parsed.title,
             duration_seconds: parsed.duration_seconds,
             bitrate_kbps: parsed.bitrate_kbps,
-            source: format!("{:?}", parsed.source),
+            source: map_metadata_source(&parsed.source).to_string(),
         },
         best_match: evaluation.best_match.map(map_best_match),
         decision: map_decision(evaluation.decision),
@@ -189,7 +193,12 @@ pub async fn submit_manual_import_decision(
     let decision = match action.as_str() {
         "import" => {
             let artist_id = match request.artist_id {
-                Some(value) if !value.trim().is_empty() => value,
+                Some(value) if !value.trim().is_empty() => {
+                    match parse_artist_id(value.trim()) {
+                        Ok(id) => id,
+                        Err(e) => return e.into_response(),
+                    }
+                }
                 _ => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -201,7 +210,12 @@ pub async fn submit_manual_import_decision(
                 }
             };
             let album_id = match request.album_id {
-                Some(value) if !value.trim().is_empty() => value,
+                Some(value) if !value.trim().is_empty() => {
+                    match parse_album_id(value.trim()) {
+                        Ok(id) => id,
+                        Err(e) => return e.into_response(),
+                    }
+                }
                 _ => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -213,10 +227,22 @@ pub async fn submit_manual_import_decision(
                 }
             };
 
+            if let Some(c) = request.confidence {
+                if !(0.0..=1.0).contains(&c) {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ImportErrorResponse {
+                            error: "confidence must be between 0.0 and 1.0".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+
             ImportDecisionResponse {
                 decision_type: "import".to_string(),
-                artist_id: Some(artist_id),
-                album_id: Some(album_id),
+                artist_id: Some(artist_id.to_string()),
+                album_id: Some(album_id.to_string()),
                 confidence: request.confidence,
                 reason: None,
             }
@@ -258,12 +284,26 @@ pub async fn submit_manual_import_decision(
         .into_response()
 }
 
+fn map_match_strategy(strategy: &MatchStrategy) -> &'static str {
+    match strategy {
+        MatchStrategy::Exact => "exact",
+        MatchStrategy::Fuzzy => "fuzzy",
+    }
+}
+
+fn map_metadata_source(source: &MetadataSource) -> &'static str {
+    match source {
+        MetadataSource::EmbeddedTags => "embedded_tags",
+        MetadataSource::FilenameHeuristics => "filename_heuristics",
+    }
+}
+
 fn map_best_match(best_match: CatalogAlbumMatch) -> CatalogAlbumMatchResponse {
     CatalogAlbumMatchResponse {
         artist_id: best_match.artist_id.to_string(),
         album_id: best_match.album_id.to_string(),
         confidence: best_match.confidence,
-        strategy: format!("{:?}", best_match.strategy),
+        strategy: map_match_strategy(&best_match.strategy).to_string(),
     }
 }
 
@@ -319,6 +359,293 @@ fn bad_request(message: &str) -> (StatusCode, Json<ImportErrorResponse>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+        routing::post,
+        Router,
+    };
+    use serde_json::json;
+    use tower::util::ServiceExt;
+
+    fn imports_router() -> Router {
+        Router::new()
+            .route(
+                "/api/v1/imports/evaluate",
+                post(evaluate_import_candidate),
+            )
+            .route(
+                "/api/v1/imports/decision",
+                post(submit_manual_import_decision),
+            )
+    }
+
+    async fn post_json(app: Router, uri: &str, body: serde_json::Value) -> axum::response::Response {
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn response_json(response: axum::response::Response) -> serde_json::Value {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    // ---- evaluate_import_candidate ----
+
+    #[tokio::test]
+    async fn evaluate_rejects_fuzzy_threshold_out_of_range() {
+        let app = imports_router();
+        let body = json!({
+            "raw_metadata": {
+                "file_path": "/tmp/nonexistent.mp3",
+                "embedded_artist": "Artist",
+                "embedded_album": "Album",
+                "embedded_title": "Title",
+                "bitrate_kbps": 320
+            },
+            "catalog": [],
+            "fuzzy_threshold": 1.5,
+            "auto_import_threshold": 0.8
+        });
+        let response = post_json(app, "/api/v1/imports/evaluate", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("fuzzy_threshold"));
+    }
+
+    #[tokio::test]
+    async fn evaluate_rejects_invalid_catalog_uuid() {
+        let app = imports_router();
+        let body = json!({
+            "raw_metadata": {
+                "file_path": "/tmp/nonexistent.mp3",
+                "embedded_artist": "Artist",
+                "embedded_album": "Album",
+                "embedded_title": "Title",
+                "bitrate_kbps": 320
+            },
+            "catalog": [{
+                "artist_id": "not-a-uuid",
+                "album_id": "00000000-0000-0000-0000-000000000001",
+                "artist_name": "Artist",
+                "album_title": "Album"
+            }],
+            "fuzzy_threshold": 0.7,
+            "auto_import_threshold": 0.8
+        });
+        let response = post_json(app, "/api/v1/imports/evaluate", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("artist_id"));
+    }
+
+    #[tokio::test]
+    async fn evaluate_returns_file_not_found_without_leaking_path() {
+        let app = imports_router();
+        let body = json!({
+            "raw_metadata": {
+                "file_path": "/tmp/chorrosion_test_nonexistent_123456.mp3",
+                "embedded_artist": "Artist",
+                "embedded_album": "Album",
+                "embedded_title": "Title",
+                "bitrate_kbps": 320
+            },
+            "catalog": [],
+            "fuzzy_threshold": 0.7,
+            "auto_import_threshold": 0.8
+        });
+        let response = post_json(app, "/api/v1/imports/evaluate", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        let error_msg = payload["error"].as_str().unwrap();
+        assert_eq!(error_msg, "file not found");
+        assert!(!error_msg.contains("chorrosion_test_nonexistent_123456"));
+    }
+
+    #[tokio::test]
+    async fn evaluate_happy_path_returns_parsed_metadata_and_decision() {
+        use std::io::Write;
+
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        tmp.as_file().write_all(b"dummy").expect("write temp file content");
+        let path = tmp.path().to_string_lossy().to_string();
+
+        let artist_uuid = "00000000-0000-0000-0000-000000000001";
+        let album_uuid = "00000000-0000-0000-0000-000000000002";
+        let app = imports_router();
+        let body = json!({
+            "raw_metadata": {
+                "file_path": path,
+                "embedded_artist": "Pink Floyd",
+                "embedded_album": "The Wall",
+                "embedded_title": "Comfortably Numb",
+                "bitrate_kbps": 320
+            },
+            "catalog": [{
+                "artist_id": artist_uuid,
+                "album_id": album_uuid,
+                "artist_name": "Pink Floyd",
+                "album_title": "The Wall"
+            }],
+            "fuzzy_threshold": 0.7,
+            "auto_import_threshold": 0.8
+        });
+        let response = post_json(app, "/api/v1/imports/evaluate", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+
+        assert_eq!(payload["parsed_metadata"]["artist"], "Pink Floyd");
+        assert_eq!(payload["parsed_metadata"]["album"], "The Wall");
+        assert_eq!(payload["parsed_metadata"]["source"], "embedded_tags");
+        assert!(payload["best_match"].is_object());
+        let strategy = payload["best_match"]["strategy"].as_str().unwrap();
+        assert!(strategy == "exact" || strategy == "fuzzy");
+        assert_eq!(payload["decision"]["decision_type"], "import");
+    }
+
+    // ---- submit_manual_import_decision ----
+
+    #[tokio::test]
+    async fn decision_happy_path_import_action() {
+        let artist_uuid = "00000000-0000-0000-0000-000000000001";
+        let album_uuid = "00000000-0000-0000-0000-000000000002";
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "artist_id": artist_uuid,
+            "album_id": album_uuid
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["accepted"], true);
+        assert_eq!(payload["decision"]["decision_type"], "import");
+        assert_eq!(payload["decision"]["artist_id"], artist_uuid);
+        assert_eq!(payload["decision"]["album_id"], album_uuid);
+    }
+
+    #[tokio::test]
+    async fn decision_normalizes_uuid_to_canonical_form() {
+        let artist_uuid_upper = "00000000-0000-0000-0000-00000000ABCD";
+        let album_uuid_upper = "00000000-0000-0000-0000-00000000DCBA";
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "artist_id": artist_uuid_upper,
+            "album_id": album_uuid_upper
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        // canonical UUID strings are lowercase
+        assert_eq!(
+            payload["decision"]["artist_id"],
+            artist_uuid_upper.to_ascii_lowercase()
+        );
+        assert_eq!(
+            payload["decision"]["album_id"],
+            album_uuid_upper.to_ascii_lowercase()
+        );
+    }
+
+    #[tokio::test]
+    async fn decision_happy_path_skip_action() {
+        let app = imports_router();
+        let body = json!({ "action": "skip", "reason": "already have it" });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["accepted"], true);
+        assert_eq!(payload["decision"]["decision_type"], "skip");
+        assert_eq!(payload["decision"]["reason"], "already have it");
+    }
+
+    #[tokio::test]
+    async fn decision_happy_path_needs_review_action() {
+        let app = imports_router();
+        let body = json!({ "action": "needs_review" });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["accepted"], true);
+        assert_eq!(payload["decision"]["decision_type"], "needs_review");
+    }
+
+    #[tokio::test]
+    async fn decision_rejects_import_without_artist_id() {
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "album_id": "00000000-0000-0000-0000-000000000002"
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("artist_id"));
+    }
+
+    #[tokio::test]
+    async fn decision_rejects_import_with_invalid_artist_uuid() {
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "artist_id": "not-a-uuid",
+            "album_id": "00000000-0000-0000-0000-000000000002"
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("artist_id"));
+    }
+
+    #[tokio::test]
+    async fn decision_rejects_import_with_invalid_album_uuid() {
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "artist_id": "00000000-0000-0000-0000-000000000001",
+            "album_id": "not-a-uuid"
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("album_id"));
+    }
+
+    #[tokio::test]
+    async fn decision_rejects_import_with_confidence_out_of_range() {
+        let app = imports_router();
+        let body = json!({
+            "action": "import",
+            "artist_id": "00000000-0000-0000-0000-000000000001",
+            "album_id": "00000000-0000-0000-0000-000000000002",
+            "confidence": 1.5
+        });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("confidence"));
+    }
+
+    #[tokio::test]
+    async fn decision_rejects_unknown_action() {
+        let app = imports_router();
+        let body = json!({ "action": "delete_everything" });
+        let response = post_json(app, "/api/v1/imports/decision", body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload = response_json(response).await;
+        assert!(payload["error"].as_str().unwrap().contains("action"));
+    }
+
+    // ---- unit tests for helper functions ----
 
     #[test]
     fn map_import_decision_sets_ids() {
@@ -345,5 +672,23 @@ mod tests {
     fn parse_album_id_rejects_invalid_uuid() {
         let result = parse_album_id("not-a-uuid");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn map_match_strategy_returns_stable_strings() {
+        assert_eq!(map_match_strategy(&MatchStrategy::Exact), "exact");
+        assert_eq!(map_match_strategy(&MatchStrategy::Fuzzy), "fuzzy");
+    }
+
+    #[test]
+    fn map_metadata_source_returns_stable_strings() {
+        assert_eq!(
+            map_metadata_source(&MetadataSource::EmbeddedTags),
+            "embedded_tags"
+        );
+        assert_eq!(
+            map_metadata_source(&MetadataSource::FilenameHeuristics),
+            "filename_heuristics"
+        );
     }
 }
