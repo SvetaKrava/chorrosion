@@ -184,46 +184,8 @@ impl EmbeddedTagMatchingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixtures::{MINIMAL_FLAC, MINIMAL_MP3};
     use std::fs;
-
-    // ── Minimal valid audio fixtures ─────────────────────────────────────────
-    //
-    // Identical to those used in tag_embedding.rs; duplicated here so this
-    // module stays self-contained and both sets of tests remain independent.
-
-    /// Minimal valid MPEG/MP3 file (two MPEG1-L3 frames at 32 kbps/44100 Hz).
-    const MINIMAL_MP3: &[u8] = &{
-        const FRAME_HDR: [u8; 4] = [0xFF, 0xFB, 0x10, 0x44];
-        let mut b = [0u8; 218]; // 10-byte ID3 header + 2 × 104-byte MPEG frames
-        // ID3v2.4 header at offset 0 (10 bytes, size field = 0)
-        b[0] = b'I';
-        b[1] = b'D';
-        b[2] = b'3';
-        b[3] = 4; // version: ID3v2.4
-        // Frame 1 at offset 10 (frame_length = floor(1152×32000/(8×44100)) = 104 bytes)
-        b[10] = FRAME_HDR[0];
-        b[11] = FRAME_HDR[1];
-        b[12] = FRAME_HDR[2];
-        b[13] = FRAME_HDR[3];
-        // Frame 2 at offset 10 + 104 = 114
-        b[114] = FRAME_HDR[0];
-        b[115] = FRAME_HDR[1];
-        b[116] = FRAME_HDR[2];
-        b[117] = FRAME_HDR[3];
-        b
-    };
-
-    /// Minimal valid FLAC stream (STREAMINFO + empty PADDING block).
-    const MINIMAL_FLAC: &[u8] = &[
-        b'f', b'L', b'a', b'C',
-        0x00, 0x00, 0x00, 0x22,
-        0x00, 0x10, 0x00, 0x10,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x81, 0x00, 0x00, 0x00,
-    ];
 
     fn write_fixture(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {
         let path = dir.path().join(name);
@@ -300,7 +262,10 @@ mod tests {
         embed_known_tags(&path);
 
         let svc = EmbeddedTagMatchingService;
-        let tags = svc.extract_tags(&path).await.expect("extract should succeed");
+        let tags = svc
+            .extract_tags(&path)
+            .await
+            .expect("extract should succeed");
 
         assert_eq!(tags.artist.as_deref(), Some("Test Artist"));
         assert_eq!(tags.album.as_deref(), Some("Test Album"));
@@ -315,7 +280,10 @@ mod tests {
         embed_known_tags(&path);
 
         let svc = EmbeddedTagMatchingService;
-        let tags = svc.extract_tags(&path).await.expect("extract should succeed");
+        let tags = svc
+            .extract_tags(&path)
+            .await
+            .expect("extract should succeed");
 
         assert_eq!(tags.artist.as_deref(), Some("Test Artist"));
         assert_eq!(tags.album.as_deref(), Some("Test Album"));
