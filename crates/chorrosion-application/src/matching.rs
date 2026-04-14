@@ -44,9 +44,6 @@ pub enum MatchingError {
     #[error("Invalid confidence score: {0}")]
     InvalidConfidenceScore(f32),
 
-    #[error("Invalid MusicBrainz recording ID: {0}")]
-    InvalidRecordingId(String),
-
     #[error("MusicBrainz error: {0}")]
     MusicBrainzError(#[from] MusicBrainzError),
 }
@@ -61,7 +58,21 @@ fn extract_artist_album_links(recording: &Recording) -> (Option<String>, Option<
         .map(|credit| credit.artist.id.to_string());
     let release_group_id = recording
         .releases
-        .first()
+        .iter()
+        .find(|release| {
+            release
+                .status
+                .as_ref()
+                .map(|status| status == "Official")
+                .unwrap_or(false)
+                && release
+                    .release_group
+                    .primary_type
+                    .as_ref()
+                    .map(|primary_type| primary_type == "Album")
+                    .unwrap_or(false)
+        })
+        .or_else(|| recording.releases.first())
         .map(|release| release.release_group.id.to_string());
 
     (artist_id, release_group_id)
@@ -169,19 +180,21 @@ impl TrackMatchingService {
             .lookup_best(&fingerprint, min_confidence)
             .await?;
 
-        let recording_id = recording_match.id.to_string();
+        let recording_uuid = recording_match.id;
         let (musicbrainz_artist_id, musicbrainz_release_group_id) = self
-            .resolve_recording_links(&recording_id)
+            .resolve_recording_links(recording_uuid)
             .await
             .unwrap_or_else(|error| {
                 warn!(
                     target: "matching",
-                    recording_id = %recording_id,
+                    recording_id = %recording_uuid,
                     error = %error,
                     "unable to resolve recording artist/album links"
                 );
                 (None, None)
             });
+
+        let recording_id = recording_uuid.to_string();
 
         debug!(
             target: "matching",
@@ -201,16 +214,13 @@ impl TrackMatchingService {
 
     async fn resolve_recording_links(
         &self,
-        recording_id: &str,
+        recording_id: Uuid,
     ) -> MatchingResult<(Option<String>, Option<String>)> {
         let Some(client) = &self.musicbrainz_client else {
             return Ok((None, None));
         };
 
-        let recording_uuid = Uuid::parse_str(recording_id)
-            .map_err(|_| MatchingError::InvalidRecordingId(recording_id.to_string()))?;
-
-        let recording = client.lookup_recording(recording_uuid).await?;
+        let recording = client.lookup_recording(recording_id).await?;
         Ok(extract_artist_album_links(&recording))
     }
 
@@ -373,6 +383,102 @@ mod tests {
         assert_eq!(
             release_group_id.as_deref(),
             Some("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        );
+    }
+
+    #[test]
+    fn extract_artist_album_links_prefers_official_album_release() {
+        // The Single release appears first; the Official Album should be preferred.
+        let recording: Recording = serde_json::from_value(json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "title": "Test Recording",
+            "length": 210000,
+            "artist-credit": [
+                {
+                    "name": "Test Artist",
+                    "artist": {
+                        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "name": "Test Artist",
+                        "sort-name": "Artist, Test"
+                    }
+                }
+            ],
+            "releases": [
+                {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "title": "Test Single",
+                    "status": "Official",
+                    "country": "US",
+                    "date": "2020-01-01",
+                    "release-group": {
+                        "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                        "title": "Test Single",
+                        "primary-type": "Single"
+                    }
+                },
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "title": "Test Album",
+                    "status": "Official",
+                    "country": "US",
+                    "date": "2020-06-01",
+                    "release-group": {
+                        "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                        "title": "Test Album",
+                        "primary-type": "Album"
+                    }
+                }
+            ]
+        }))
+        .expect("recording json should parse");
+
+        let (_artist_id, release_group_id) = extract_artist_album_links(&recording);
+
+        assert_eq!(
+            release_group_id.as_deref(),
+            Some("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        );
+    }
+
+    #[test]
+    fn extract_artist_album_links_falls_back_to_first_when_no_official_album() {
+        // No Official Album exists; the first release (a Single) should be returned.
+        let recording: Recording = serde_json::from_value(json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "title": "Test Recording",
+            "length": 210000,
+            "artist-credit": [
+                {
+                    "name": "Test Artist",
+                    "artist": {
+                        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "name": "Test Artist",
+                        "sort-name": "Artist, Test"
+                    }
+                }
+            ],
+            "releases": [
+                {
+                    "id": "33333333-3333-3333-3333-333333333333",
+                    "title": "Test Single",
+                    "status": "Official",
+                    "country": "US",
+                    "date": "2020-01-01",
+                    "release-group": {
+                        "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                        "title": "Test Single",
+                        "primary-type": "Single"
+                    }
+                }
+            ]
+        }))
+        .expect("recording json should parse");
+
+        let (_artist_id, release_group_id) = extract_artist_album_links(&recording);
+
+        assert_eq!(
+            release_group_id.as_deref(),
+            Some("cccccccc-cccc-cccc-cccc-cccccccccccc")
         );
     }
 
