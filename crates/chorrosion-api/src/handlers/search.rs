@@ -173,11 +173,13 @@ pub async fn manual_search_endpoint(
     let ranked_results = match protocol {
         IndexerProtocol::Newznab => {
             let client = NewznabClient::new(config);
-            manual_search(&client, &manual_request, &options).await
+            let result = manual_search(&client, &manual_request, &options).await;
+            result
         }
         IndexerProtocol::Torznab => {
             let client = TorznabClient::new(config);
-            manual_search(&client, &manual_request, &options).await
+            let result = manual_search(&client, &manual_request, &options).await;
+            result
         }
         IndexerProtocol::Gazelle | IndexerProtocol::Custom => {
             return (
