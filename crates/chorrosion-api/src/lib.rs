@@ -16,7 +16,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_config::PermissionLevel;
-use chorrosion_infrastructure::repositories::Repository;
 use handlers::activity::{
     get_activity_failed, get_activity_history, get_activity_processing, get_activity_queue,
     get_activity_stalled, ActivityErrorResponse, ActivityItemResponse, ActivityListResponse,

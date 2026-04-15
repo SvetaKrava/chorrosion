@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::{AppState, IndexerCapabilities, IndexerProtocol};
 use chorrosion_domain::IndexerDefinition;
-use chorrosion_infrastructure::repositories::{IndexerDefinitionRepository, Repository};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};

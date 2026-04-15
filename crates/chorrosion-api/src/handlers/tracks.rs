@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{ArtistId, Track};
-use chorrosion_infrastructure::repositories::{Repository, TrackRepository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};

@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::DownloadClientDefinition;
-use chorrosion_infrastructure::repositories::{DownloadClientDefinitionRepository, Repository};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};

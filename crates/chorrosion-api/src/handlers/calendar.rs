@@ -6,7 +6,6 @@ use axum::{
     Json,
 };
 use chorrosion_application::AppState;
-use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
@@ -351,7 +350,6 @@ mod tests {
     use axum::body::to_bytes;
     use chorrosion_config::AppConfig;
     use chorrosion_domain::{Album, AlbumStatus, Artist, ArtistId};
-    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,

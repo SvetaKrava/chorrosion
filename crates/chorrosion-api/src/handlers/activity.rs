@@ -5,7 +5,6 @@ use chorrosion_application::{
     QBittorrentClient, SabnzbdClient, TransmissionClient,
 };
 use chorrosion_domain::DownloadClientDefinition;
-use chorrosion_infrastructure::repositories::Repository;
 use futures_util::future::join_all;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -364,7 +363,6 @@ mod tests {
     use chorrosion_application::ActivityStallTracker;
     use chorrosion_config::AppConfig;
     use chorrosion_domain::DownloadClientDefinition;
-    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,

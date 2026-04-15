@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::{
-    sqlite_adapters::{
-        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
-        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteTrackRepository,
+    repositories::{
+        AlbumRepository, ArtistRepository, DownloadClientDefinitionRepository,
+        IndexerDefinitionRepository, MetadataProfileRepository, QualityProfileRepository,
+        TrackRepository,
     },
     ResponseCache,
 };
@@ -336,13 +336,13 @@ impl Default for ActivityStallTracker {
 #[derive(Clone)]
 pub struct AppState {
     pub config: AppConfig,
-    pub artist_repository: Arc<SqliteArtistRepository>,
-    pub album_repository: Arc<SqliteAlbumRepository>,
-    pub track_repository: Arc<SqliteTrackRepository>,
-    pub quality_profile_repository: Arc<SqliteQualityProfileRepository>,
-    pub metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
-    pub indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
-    pub download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
+    pub artist_repository: Arc<dyn ArtistRepository>,
+    pub album_repository: Arc<dyn AlbumRepository>,
+    pub track_repository: Arc<dyn TrackRepository>,
+    pub quality_profile_repository: Arc<dyn QualityProfileRepository>,
+    pub metadata_profile_repository: Arc<dyn MetadataProfileRepository>,
+    pub indexer_definition_repository: Arc<dyn IndexerDefinitionRepository>,
+    pub download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
@@ -357,13 +357,13 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: AppConfig,
-        artist_repository: Arc<SqliteArtistRepository>,
-        album_repository: Arc<SqliteAlbumRepository>,
-        track_repository: Arc<SqliteTrackRepository>,
-        quality_profile_repository: Arc<SqliteQualityProfileRepository>,
-        metadata_profile_repository: Arc<SqliteMetadataProfileRepository>,
-        indexer_definition_repository: Arc<SqliteIndexerDefinitionRepository>,
-        download_client_definition_repository: Arc<SqliteDownloadClientDefinitionRepository>,
+        artist_repository: Arc<dyn ArtistRepository>,
+        album_repository: Arc<dyn AlbumRepository>,
+        track_repository: Arc<dyn TrackRepository>,
+        quality_profile_repository: Arc<dyn QualityProfileRepository>,
+        metadata_profile_repository: Arc<dyn MetadataProfileRepository>,
+        indexer_definition_repository: Arc<dyn IndexerDefinitionRepository>,
+        download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
         response_cache: ResponseCache,
     ) -> Self {
         Self {

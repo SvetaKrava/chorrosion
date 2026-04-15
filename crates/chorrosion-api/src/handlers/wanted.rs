@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Album, AlbumStatus};
-use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use utoipa::{IntoParams, ToSchema};
@@ -364,7 +363,6 @@ mod tests {
     use super::*;
     use axum::extract::Path;
     use chorrosion_config::AppConfig;
-    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,

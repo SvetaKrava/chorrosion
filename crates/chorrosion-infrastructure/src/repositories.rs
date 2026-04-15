@@ -15,10 +15,10 @@ use chrono::NaiveDate;
 #[async_trait::async_trait]
 pub trait Repository<T>: Send + Sync {
     async fn create(&self, entity: T) -> Result<T>;
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<T>>;
+    async fn get_by_id(&self, id: String) -> Result<Option<T>>;
     async fn list(&self, limit: i64, offset: i64) -> Result<Vec<T>>;
     async fn update(&self, entity: T) -> Result<T>;
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()>;
+    async fn delete(&self, id: String) -> Result<()>;
 }
 
 /// Artist repository with specialized queries

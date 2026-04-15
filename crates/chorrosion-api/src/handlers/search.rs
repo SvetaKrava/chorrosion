@@ -4,7 +4,6 @@ use chorrosion_application::{
     manual_search, AppState, AudioQuality, IndexerConfig, IndexerError, IndexerProtocol,
     ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
 };
-use chorrosion_infrastructure::repositories::Repository;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
