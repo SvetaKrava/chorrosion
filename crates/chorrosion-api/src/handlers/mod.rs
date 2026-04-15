@@ -10,6 +10,7 @@ pub mod imports;
 pub mod indexers;
 pub mod metadata_profiles;
 pub mod quality_profiles;
+pub mod search;
 pub mod system;
 pub mod tracks;
 pub mod wanted;
