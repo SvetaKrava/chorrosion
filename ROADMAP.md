@@ -424,7 +424,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 8.4 Maintenance & Dependencies
 
 - [x] Address future-incompat warnings in dependencies ✓
-  - [x] Upgrade `sqlx`/`sqlx-postgres` to 0.8.x or newer to resolve never-type fallback warnings
+  - [x] Upgrade `sqlx`/`sqlx-postgres` to 0.8.x or newer to resolve never-type fallback warnings ✓
   - [x] Gate PostgreSQL behind a feature and disable by default to avoid pulling incompatible crates until upgraded (Issue #326) ✓
   - [x] Add a CI job to run `cargo report future-incompatibilities --id 2` and fail on new findings (Issue #328) ✓
   - [x] Track Rust 2024 edition changes (e.g., never type fallback) and ensure readiness before edition bump (Issue #330) ✓
