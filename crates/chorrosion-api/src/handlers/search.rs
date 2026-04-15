@@ -75,6 +75,54 @@ pub async fn manual_search_endpoint(
             .into_response();
     }
 
+    let artist = request
+        .artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let album = request
+        .album
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let query = request
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
+    if artist.is_none() && album.is_none() && query.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SearchErrorResponse {
+                error: "at least one of artist, album, or query must be provided".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let preferred_qualities = match parse_preferred_qualities(&request.preferred_qualities) {
+        Ok(values) => values,
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, Json(SearchErrorResponse { error })).into_response();
+        }
+    };
+
+    let options = ReleaseFilterOptions {
+        preferred_qualities,
+        min_bitrate_kbps: request.min_bitrate_kbps,
+        preferred_release_groups: request.preferred_release_groups,
+    };
+
+    let manual_request = ManualSearchRequest {
+        artist,
+        album,
+        query,
+    };
+
     let indexer = match state
         .indexer_definition_repository
         .get_by_id(request.indexer_id.clone())
@@ -112,54 +160,6 @@ pub async fn manual_search_endpoint(
             )
                 .into_response();
         }
-    };
-
-    let preferred_qualities = match parse_preferred_qualities(&request.preferred_qualities) {
-        Ok(values) => values,
-        Err(error) => {
-            return (StatusCode::BAD_REQUEST, Json(SearchErrorResponse { error })).into_response();
-        }
-    };
-
-    let options = ReleaseFilterOptions {
-        preferred_qualities,
-        min_bitrate_kbps: request.min_bitrate_kbps,
-        preferred_release_groups: request.preferred_release_groups,
-    };
-
-    let artist = request
-        .artist
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-    let album = request
-        .album
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-    let query = request
-        .query
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-
-    if artist.is_none() && album.is_none() && query.is_none() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(SearchErrorResponse {
-                error: "at least one of artist, album, or query must be provided".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    let manual_request = ManualSearchRequest {
-        artist,
-        album,
-        query,
     };
 
     let config = IndexerConfig {
