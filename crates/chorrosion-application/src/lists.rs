@@ -793,8 +793,7 @@ mod tests {
             Ok(entity)
         }
 
-        async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Artist>> {
-            let id = id.into();
+        async fn get_by_id(&self, id: &str) -> Result<Option<Artist>> {
             Ok(self
                 .artists
                 .lock()
@@ -822,8 +821,7 @@ mod tests {
             Ok(entity)
         }
 
-        async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-            let id = id.into();
+        async fn delete(&self, id: &str) -> Result<()> {
             let mut artists = self.artists.lock().unwrap();
             artists.retain(|artist| artist.id.to_string() != id);
             Ok(())
@@ -892,8 +890,7 @@ mod tests {
             Ok(entity)
         }
 
-        async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Album>> {
-            let id = id.into();
+        async fn get_by_id(&self, id: &str) -> Result<Option<Album>> {
             Ok(self
                 .albums
                 .lock()
@@ -921,8 +918,7 @@ mod tests {
             Ok(entity)
         }
 
-        async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-            let id = id.into();
+        async fn delete(&self, id: &str) -> Result<()> {
             let mut albums = self.albums.lock().unwrap();
             albums.retain(|album| album.id.to_string() != id);
             Ok(())

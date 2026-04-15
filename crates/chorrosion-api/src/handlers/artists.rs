@@ -334,7 +334,7 @@ pub async fn get_artist(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching artist");
 
-    match state.artist_repository.get_by_id(id.clone()).await {
+    match state.artist_repository.get_by_id(&id).await {
         Ok(Some(artist)) => (StatusCode::OK, Json(ArtistResponse::from(artist))).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -373,7 +373,7 @@ pub async fn get_artist_statistics(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching artist statistics");
 
-    let artist = match state.artist_repository.get_by_id(id.clone()).await {
+    let artist = match state.artist_repository.get_by_id(&id).await {
         Ok(Some(artist)) => artist,
         Ok(None) => {
             return (
@@ -559,7 +559,7 @@ pub async fn update_artist(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, ?request, "updating artist");
 
-    let mut artist = match state.artist_repository.get_by_id(id.clone()).await {
+    let mut artist = match state.artist_repository.get_by_id(&id).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return (
@@ -632,13 +632,13 @@ pub async fn delete_artist(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting artist");
 
-    match state.artist_repository.get_by_id(id.clone()).await {
+    match state.artist_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.artist_repository.delete(id.clone()).await {
+            match state.artist_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Check if the artist was concurrently deleted before we could.
-                    match state.artist_repository.get_by_id(id.clone()).await {
+                    match state.artist_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {

@@ -191,11 +191,7 @@ pub async fn get_metadata_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching metadata profile");
 
-    match state
-        .metadata_profile_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    match state.metadata_profile_repository.get_by_id(&id).await {
         Ok(Some(profile)) => {
             (StatusCode::OK, Json(MetadataProfileResponse::from(profile))).into_response()
         }
@@ -284,11 +280,7 @@ pub async fn update_metadata_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, ?request, "updating metadata profile");
 
-    let mut profile = match state
-        .metadata_profile_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    let mut profile = match state.metadata_profile_repository.get_by_id(&id).await {
         Ok(Some(profile)) => profile,
         Ok(None) => {
             return (
@@ -358,22 +350,14 @@ pub async fn delete_metadata_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting metadata profile");
 
-    match state
-        .metadata_profile_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    match state.metadata_profile_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.metadata_profile_repository.delete(id.clone()).await {
+            match state.metadata_profile_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Recheck existence to distinguish concurrent deletion (404)
                     // from a transient delete failure (500).
-                    match state
-                        .metadata_profile_repository
-                        .get_by_id(id.clone())
-                        .await
-                    {
+                    match state.metadata_profile_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {
@@ -620,7 +604,7 @@ mod tests {
 
             let persisted = state
                 .metadata_profile_repository
-                .get_by_id(profile.id.to_string())
+                .get_by_id(&profile.id.to_string())
                 .await
                 .expect("get_by_id succeeds")
                 .expect("profile still exists");

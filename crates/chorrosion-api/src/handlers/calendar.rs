@@ -175,7 +175,7 @@ pub async fn list_upcoming_releases(
             Entry::Vacant(e) => {
                 let name = state
                     .artist_repository
-                    .get_by_id(e.key().clone())
+                    .get_by_id(e.key())
                     .await
                     .map_err(|e| {
                         (
@@ -283,7 +283,7 @@ X-WR-CALNAME:Chorrosion Music Releases\r\n",
         let artist_name = match artist_cache.entry(artist_id_str) {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => {
-                let name = match state.artist_repository.get_by_id(e.key().clone()).await {
+                let name = match state.artist_repository.get_by_id(e.key()).await {
                     Ok(artist) => artist
                         .map(|a| a.name)
                         .unwrap_or_else(|| "Unknown Artist".to_string()),

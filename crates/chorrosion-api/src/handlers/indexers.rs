@@ -254,11 +254,7 @@ pub async fn get_indexer(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state
-        .indexer_definition_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    match state.indexer_definition_repository.get_by_id(&id).await {
         Ok(Some(indexer)) => (StatusCode::OK, Json(IndexerResponse::from(indexer))).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -391,11 +387,7 @@ pub async fn update_indexer(
     Path(id): Path<String>,
     Json(request): Json<UpdateIndexerRequest>,
 ) -> impl IntoResponse {
-    let mut indexer = match state
-        .indexer_definition_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    let mut indexer = match state.indexer_definition_repository.get_by_id(&id).await {
         Ok(Some(indexer)) => indexer,
         Ok(None) => {
             return (
@@ -508,22 +500,14 @@ pub async fn delete_indexer(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state
-        .indexer_definition_repository
-        .get_by_id(id.clone())
-        .await
-    {
+    match state.indexer_definition_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.indexer_definition_repository.delete(id.clone()).await {
+            match state.indexer_definition_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Recheck existence to distinguish concurrent deletion (404)
                     // from a transient delete failure (500).
-                    match state
-                        .indexer_definition_repository
-                        .get_by_id(id.clone())
-                        .await
-                    {
+                    match state.indexer_definition_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(IndexerErrorResponse {
@@ -779,7 +763,7 @@ mod tests {
 
         let fetched = state
             .indexer_definition_repository
-            .get_by_id(created.id.to_string())
+            .get_by_id(&created.id.to_string())
             .await
             .expect("get indexer")
             .expect("indexer exists");

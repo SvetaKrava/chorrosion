@@ -281,7 +281,7 @@ pub async fn trigger_wanted_album_search(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "triggering wanted album search");
 
-    let album = match state.album_repository.get_by_id(id.clone()).await {
+    let album = match state.album_repository.get_by_id(&id).await {
         Ok(Some(album)) => album,
         Ok(None) => {
             return (
@@ -318,7 +318,7 @@ pub async fn trigger_wanted_album_search(
 
     let artist_name = match state
         .artist_repository
-        .get_by_id(album.artist_id.to_string())
+        .get_by_id(&album.artist_id.to_string())
         .await
     {
         Ok(Some(artist)) => artist.name,
@@ -363,6 +363,7 @@ mod tests {
     use super::*;
     use axum::extract::Path;
     use chorrosion_config::AppConfig;
+    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,

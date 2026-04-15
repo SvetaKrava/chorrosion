@@ -248,7 +248,7 @@ pub async fn get_download_client(
 ) -> impl IntoResponse {
     match state
         .download_client_definition_repository
-        .get_by_id(id.clone())
+        .get_by_id(&id)
         .await
     {
         Ok(Some(client)) => {
@@ -388,7 +388,7 @@ pub async fn update_download_client(
 ) -> impl IntoResponse {
     let mut client = match state
         .download_client_definition_repository
-        .get_by_id(id.clone())
+        .get_by_id(&id)
         .await
     {
         Ok(Some(client)) => client,
@@ -516,13 +516,13 @@ pub async fn delete_download_client(
 ) -> impl IntoResponse {
     match state
         .download_client_definition_repository
-        .get_by_id(id.clone())
+        .get_by_id(&id)
         .await
     {
         Ok(Some(_)) => {
             match state
                 .download_client_definition_repository
-                .delete(id.clone())
+                .delete(&id)
                 .await
             {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -531,7 +531,7 @@ pub async fn delete_download_client(
                     // from a transient delete failure (500).
                     match state
                         .download_client_definition_repository
-                        .get_by_id(id.clone())
+                        .get_by_id(&id)
                         .await
                     {
                         Ok(None) => (
@@ -770,7 +770,7 @@ mod tests {
 
         let updated = state
             .download_client_definition_repository
-            .get_by_id(created.id.to_string())
+            .get_by_id(&created.id.to_string())
             .await
             .expect("fetch")
             .expect("exists");

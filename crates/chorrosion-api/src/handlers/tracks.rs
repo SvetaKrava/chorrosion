@@ -214,7 +214,7 @@ pub async fn list_tracks_by_album(
 
     let album = state
         .album_repository
-        .get_by_id(album_id.clone())
+        .get_by_id(&album_id)
         .await
         .map_err(|error| {
             (
@@ -316,7 +316,7 @@ pub async fn list_tracks_by_artist(
 
     let artist = state
         .artist_repository
-        .get_by_id(artist_id.clone())
+        .get_by_id(&artist_id)
         .await
         .map_err(|error| {
             (
@@ -392,7 +392,7 @@ pub async fn list_tracks_by_artist(
 pub async fn get_track(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching track");
 
-    match state.track_repository.get_by_id(id.clone()).await {
+    match state.track_repository.get_by_id(&id).await {
         Ok(Some(track)) => (StatusCode::OK, Json(TrackResponse::from(track))).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -429,11 +429,7 @@ pub async fn create_track(
 ) -> impl IntoResponse {
     debug!(target: "api", ?request, "creating track");
 
-    let album = match state
-        .album_repository
-        .get_by_id(request.album_id.clone())
-        .await
-    {
+    let album = match state.album_repository.get_by_id(&request.album_id).await {
         Ok(Some(album)) => album,
         Ok(None) => {
             return (
@@ -455,11 +451,7 @@ pub async fn create_track(
         }
     };
 
-    let artist = match state
-        .artist_repository
-        .get_by_id(request.artist_id.clone())
-        .await
-    {
+    let artist = match state.artist_repository.get_by_id(&request.artist_id).await {
         Ok(Some(artist)) => artist,
         Ok(None) => {
             return (
@@ -543,7 +535,7 @@ pub async fn update_track(
         monitored,
     } = request;
 
-    let mut track = match state.track_repository.get_by_id(id.clone()).await {
+    let mut track = match state.track_repository.get_by_id(&id).await {
         Ok(Some(track)) => track,
         Ok(None) => {
             return (
@@ -574,7 +566,7 @@ pub async fn update_track(
     let mut fetched_album_artist_id: Option<ArtistId> = None;
 
     if let Some(album_id) = album_id {
-        match state.album_repository.get_by_id(album_id.clone()).await {
+        match state.album_repository.get_by_id(&album_id).await {
             Ok(Some(album)) => {
                 fetched_album_artist_id = Some(album.artist_id);
                 track.album_id = album.id;
@@ -604,7 +596,7 @@ pub async fn update_track(
     }
 
     if let Some(artist_id) = artist_id {
-        match state.artist_repository.get_by_id(artist_id.clone()).await {
+        match state.artist_repository.get_by_id(&artist_id).await {
             Ok(Some(artist)) => {
                 track.artist_id = artist.id;
             }
@@ -639,7 +631,7 @@ pub async fn update_track(
                 // Only artist_id changed; fetch the album to get its artist_id.
                 match state
                     .album_repository
-                    .get_by_id(track.album_id.to_string())
+                    .get_by_id(&track.album_id.to_string())
                     .await
                 {
                     Ok(Some(album)) => album.artist_id,
@@ -725,13 +717,13 @@ pub async fn delete_track(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting track");
 
-    match state.track_repository.get_by_id(id.clone()).await {
+    match state.track_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.track_repository.delete(id.clone()).await {
+            match state.track_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Check if the track was concurrently deleted before we could.
-                    match state.track_repository.get_by_id(id.clone()).await {
+                    match state.track_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {

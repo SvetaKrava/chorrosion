@@ -84,13 +84,13 @@ impl Repository<Artist> for SqliteArtistRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<Artist>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", %id, "fetching artist by id");
         let row = self
             .profiler
             .timed("artists::get_by_id", || async {
                 sqlx::query("SELECT * FROM artists WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -164,10 +164,10 @@ impl Repository<Artist> for SqliteArtistRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting artist");
         let result = sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -517,13 +517,13 @@ impl Repository<Album> for SqliteAlbumRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<Album>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<Album>> {
         debug!(target: "repository", %id, "fetching album by id");
         let row = self
             .profiler
             .timed("albums::get_by_id", || async {
                 sqlx::query("SELECT * FROM albums WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -601,10 +601,10 @@ impl Repository<Album> for SqliteAlbumRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting album");
         let result = sqlx::query("DELETE FROM albums WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -933,13 +933,13 @@ impl Repository<Track> for SqliteTrackRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<Track>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<Track>> {
         debug!(target: "repository", %id, "fetching track by id");
         let row = self
             .profiler
             .timed("tracks::get_by_id", || async {
                 sqlx::query("SELECT * FROM tracks WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -1001,10 +1001,10 @@ impl Repository<Track> for SqliteTrackRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting track");
         let result = sqlx::query("DELETE FROM tracks WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1277,10 +1277,10 @@ impl Repository<QualityProfile> for SqliteQualityProfileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<QualityProfile>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<QualityProfile>> {
         debug!(target: "repository", %id, "fetching quality profile by id");
         let row = sqlx::query("SELECT * FROM quality_profiles WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1331,10 +1331,10 @@ impl Repository<QualityProfile> for SqliteQualityProfileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting quality profile");
         let result = sqlx::query("DELETE FROM quality_profiles WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1404,10 +1404,10 @@ impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<MetadataProfile>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<MetadataProfile>> {
         debug!(target: "repository", %id, "fetching metadata profile by id");
         let row = sqlx::query("SELECT * FROM metadata_profiles WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1460,10 +1460,10 @@ impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting metadata profile");
         let result = sqlx::query("DELETE FROM metadata_profiles WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1530,10 +1530,10 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<IndexerDefinition>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<IndexerDefinition>> {
         debug!(target: "repository", %id, "fetching indexer definition by id");
         let row = sqlx::query("SELECT * FROM indexer_definitions WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1585,10 +1585,10 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting indexer definition");
         let result = sqlx::query("DELETE FROM indexer_definitions WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1657,10 +1657,10 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<DownloadClientDefinition>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<DownloadClientDefinition>> {
         debug!(target: "repository", %id, "fetching download client definition by id");
         let row = sqlx::query("SELECT * FROM download_client_definitions WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1717,10 +1717,10 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting download client definition");
         let result = sqlx::query("DELETE FROM download_client_definitions WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1866,7 +1866,7 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<TrackFile>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<TrackFile>> {
         debug!(target: "repository", track_file_id = %id, "fetching track file by id");
         let row = self
             .profiler
@@ -1941,11 +1941,11 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", track_file_id = %id, "deleting track file");
 
         let q = "DELETE FROM track_files WHERE id = ?";
-        sqlx::query(q).bind(&id).execute(&self.pool).await?;
+        sqlx::query(q).bind(id).execute(&self.pool).await?;
 
         debug!(target: "repository", track_file_id = %id, "track file deleted successfully");
         Ok(())
@@ -2068,7 +2068,7 @@ impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: String) -> Result<Option<ArtistRelationship>> {
+    async fn get_by_id(&self, id: &str) -> Result<Option<ArtistRelationship>> {
         debug!(target: "repository", %id, "fetching artist relationship by id");
 
         let row = sqlx::query("SELECT * FROM artist_relationships WHERE id = ? LIMIT 1")
@@ -2128,7 +2128,7 @@ impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: String) -> Result<()> {
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting artist relationship");
 
         sqlx::query("DELETE FROM artist_relationships WHERE id = ?")

@@ -124,7 +124,7 @@ pub async fn manual_search_endpoint(
 
     let indexer = match state
         .indexer_definition_repository
-        .get_by_id(request.indexer_id.clone())
+        .get_by_id(&request.indexer_id)
         .await
     {
         Ok(Some(indexer)) => indexer,
