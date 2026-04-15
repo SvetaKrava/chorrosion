@@ -123,6 +123,20 @@ pub async fn evaluate_import_candidate(
         ));
     }
 
+    // Validate catalog UUIDs before doing any filesystem I/O.
+    let catalog = request
+        .catalog
+        .into_iter()
+        .map(|item| {
+            Ok(CatalogAlbum {
+                artist_id: parse_artist_id(&item.artist_id)?,
+                album_id: parse_album_id(&item.album_id)?,
+                artist_name: item.artist_name,
+                album_title: item.album_title,
+            })
+        })
+        .collect::<Result<Vec<_>, (StatusCode, Json<ImportErrorResponse>)>>()?;
+
     let raw = RawTrackMetadata {
         file_path: request.raw_metadata.file_path.into(),
         embedded_artist: request.raw_metadata.embedded_artist,
@@ -139,19 +153,6 @@ pub async fn evaluate_import_candidate(
             ImportMatchingError::Io(_) => bad_request("unable to read file"),
             ImportMatchingError::MetadataParsing(msg) => bad_request(&msg),
         })?;
-
-    let catalog = request
-        .catalog
-        .into_iter()
-        .map(|item| {
-            Ok(CatalogAlbum {
-                artist_id: parse_artist_id(&item.artist_id)?,
-                album_id: parse_album_id(&item.album_id)?,
-                artist_name: item.artist_name,
-                album_title: item.album_title,
-            })
-        })
-        .collect::<Result<Vec<_>, (StatusCode, Json<ImportErrorResponse>)>>()?;
 
     let evaluation = evaluate_import_match(
         &parsed,
