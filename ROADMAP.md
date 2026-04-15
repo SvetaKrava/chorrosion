@@ -383,7 +383,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 8.1 Performance Optimization
 
-- [ ] Database query optimization
+- [x] Database query optimization ✓
   - [x] Add indexes for common queries (Issue #270) ✓
   - [x] Query profiling and tuning (Issue #273) ✓
 - [x] Caching layer (Issue #278) ✓
@@ -395,36 +395,36 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 8.2 Reliability
 
-- [ ] Comprehensive error handling
+- [x] Comprehensive error handling ✓
   - [x] Retry logic for external APIs (Issue #288) ✓
   - [x] Timeout handling (Issue #291) ✓
   - [x] Rate limit handling (Issue #294) ✓
-- [ ] Data integrity
+- [x] Data integrity ✓
   - [x] Database constraints (Issue #297) ✓
   - [x] Transaction management (Issue #300) ✓
   - [x] Backup/restore functionality (Issue #302) ✓
-- [ ] Monitoring and observability
+- [x] Monitoring and observability ✓
   - [x] Metrics collection (Prometheus) (Issue #306) ✓
   - [x] Health checks (Issue #308) ✓
   - [x] Performance tracing (Issue #310) ✓
 
 ### 8.3 Testing
 
-- [ ] Unit test coverage
+- [x] Unit test coverage ✓
   - [x] Repository tests (Issue #316) ✓
   - [x] Business logic tests (Issue #314) ✓
   - [x] API endpoint tests (Issue #312) ✓
-- [ ] Integration tests
+- [x] Integration tests ✓
   - [x] Database integration tests (Issue #318) ✓
   - [x] External API mock tests (Issue #320) ✓
-- [ ] End-to-end tests
+- [x] End-to-end tests ✓
   - [x] Full workflow tests (Issue #322) ✓
   - [x] Performance benchmarks (Issue #324) ✓
 
 ### 8.4 Maintenance & Dependencies
 
-- [ ] Address future-incompat warnings in dependencies
-  - [x] Upgrade `sqlx`/`sqlx-postgres` to 0.8.x or newer to resolve never-type fallback warnings
+- [x] Address future-incompat warnings in dependencies ✓
+  - [x] Upgrade `sqlx`/`sqlx-postgres` to 0.8.x or newer to resolve never-type fallback warnings ✓
   - [x] Gate PostgreSQL behind a feature and disable by default to avoid pulling incompatible crates until upgraded (Issue #326) ✓
   - [x] Add a CI job to run `cargo report future-incompatibilities --id 2` and fail on new findings (Issue #328) ✓
   - [x] Track Rust 2024 edition changes (e.g., never type fallback) and ensure readiness before edition bump (Issue #330) ✓
