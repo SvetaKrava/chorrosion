@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chorrosion_application::{
-    manual_search, AppState, AudioQuality, IndexerConfig, IndexerProtocol, ManualSearchRequest,
-    NewznabClient, ReleaseFilterOptions, TorznabClient,
+    manual_search, AppState, AudioQuality, IndexerConfig, IndexerError, IndexerProtocol,
+    ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
 };
 use chorrosion_infrastructure::repositories::Repository;
 use serde::{Deserialize, Serialize};
@@ -56,6 +56,7 @@ pub struct SearchErrorResponse {
         (status = 200, description = "Manual search results", body = ManualSearchApiResponse),
         (status = 400, description = "Invalid request", body = SearchErrorResponse),
         (status = 404, description = "Indexer not found", body = SearchErrorResponse),
+        (status = 500, description = "Internal server error", body = SearchErrorResponse),
         (status = 502, description = "Indexer search failed", body = SearchErrorResponse)
     ),
     tag = "search"
@@ -126,10 +127,39 @@ pub async fn manual_search_endpoint(
         preferred_release_groups: request.preferred_release_groups,
     };
 
+    let artist = request
+        .artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let album = request
+        .album
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let query = request
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
+    if artist.is_none() && album.is_none() && query.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SearchErrorResponse {
+                error: "at least one of artist, album, or query must be provided".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
     let manual_request = ManualSearchRequest {
-        artist: request.artist,
-        album: request.album,
-        query: request.query,
+        artist,
+        album,
+        query,
     };
 
     let config = IndexerConfig {
@@ -175,7 +205,7 @@ pub async fn manual_search_endpoint(
                     leechers: result.search_result.leechers,
                     parsed_artist: result.parsed.artist,
                     parsed_album: result.parsed.album,
-                    parsed_quality: format!("{:?}", result.parsed.quality),
+                    parsed_quality: result.parsed.quality.as_str().to_string(),
                     parsed_bitrate_kbps: result.parsed.bitrate_kbps,
                     parsed_release_group: result.parsed.release_group,
                 })
@@ -190,6 +220,13 @@ pub async fn manual_search_endpoint(
             )
                 .into_response()
         }
+        Err(IndexerError::Request(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(SearchErrorResponse {
+                error: format!("invalid search request: {msg}"),
+            }),
+        )
+            .into_response(),
         Err(error) => (
             StatusCode::BAD_GATEWAY,
             Json(SearchErrorResponse {
@@ -302,6 +339,51 @@ mod tests {
                 artist: None,
                 album: None,
                 query: Some("test".to_string()),
+                preferred_qualities: vec![],
+                min_bitrate_kbps: None,
+                preferred_release_groups: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn manual_search_endpoint_returns_400_when_no_search_criteria() {
+        let state = make_test_state().await;
+
+        // All of artist, album, query are None – empty criteria should yield 400
+        let response = manual_search_endpoint(
+            State(state),
+            Json(ManualSearchApiRequest {
+                indexer_id: "00000000-0000-0000-0000-000000000000".to_string(),
+                artist: None,
+                album: None,
+                query: None,
+                preferred_qualities: vec![],
+                min_bitrate_kbps: None,
+                preferred_release_groups: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn manual_search_endpoint_returns_400_when_criteria_are_only_whitespace() {
+        let state = make_test_state().await;
+
+        let response = manual_search_endpoint(
+            State(state),
+            Json(ManualSearchApiRequest {
+                indexer_id: "00000000-0000-0000-0000-000000000000".to_string(),
+                artist: Some("   ".to_string()),
+                album: Some("  ".to_string()),
+                query: Some("".to_string()),
                 preferred_qualities: vec![],
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],

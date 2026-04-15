@@ -282,15 +282,21 @@ fn clean_component(value: &str) -> Option<String> {
     }
 }
 
-impl ParsedReleaseTitle {
-    fn quality_key(&self) -> &'static str {
-        match self.quality {
+impl AudioQuality {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             AudioQuality::Flac => "flac",
             AudioQuality::Mp3 => "mp3",
             AudioQuality::Aac => "aac",
             AudioQuality::Alac => "alac",
             AudioQuality::Unknown => "unknown",
         }
+    }
+}
+
+impl ParsedReleaseTitle {
+    fn quality_key(&self) -> &'static str {
+        self.quality.as_str()
     }
 }
 
