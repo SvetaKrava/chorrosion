@@ -37,6 +37,7 @@ http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 wiremock = "0.6"
+tempfile = "3"
 
 [[bench]]
 name = "api_workflow_benchmarks"

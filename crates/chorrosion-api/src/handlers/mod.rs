@@ -6,6 +6,7 @@ pub mod auth;
 pub mod calendar;
 pub mod download_clients;
 pub mod events;
+pub mod imports;
 pub mod indexers;
 pub mod metadata_profiles;
 pub mod quality_profiles;
