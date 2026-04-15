@@ -92,6 +92,10 @@ use handlers::quality_profiles::{
     __path_delete_quality_profile, __path_get_quality_profile, __path_list_quality_profiles,
     __path_update_quality_profile,
 };
+use handlers::search::{
+    manual_search_endpoint, ManualSearchApiRequest, ManualSearchApiResponse,
+    ManualSearchResultItem, SearchErrorResponse, __path_manual_search_endpoint,
+};
 use handlers::system::{
     get_system_logs, get_system_notifications, get_system_status, get_system_tasks,
     get_system_version, post_system_notifications_test, NotificationProviderStatusResponse,
@@ -296,6 +300,7 @@ async fn metrics() -> axum::response::Response {
         update_indexer,
         delete_indexer,
         test_indexer_endpoint,
+        manual_search_endpoint,
         evaluate_import_candidate,
         submit_manual_import_decision,
         list_wanted_albums,
@@ -375,6 +380,10 @@ async fn metrics() -> axum::response::Response {
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
             IndexerTestErrorResponse,
+            ManualSearchApiRequest,
+            ManualSearchResultItem,
+            ManualSearchApiResponse,
+            SearchErrorResponse,
             ImportErrorResponse,
             ImportRawMetadataRequest,
             ImportCandidateRequest,
@@ -402,6 +411,7 @@ async fn metrics() -> axum::response::Response {
         (name = "auth", description = "Authentication and API key management endpoints"),
         (name = "settings", description = "Configuration and profile endpoints"),
         (name = "indexers", description = "Indexer configuration and validation endpoints"),
+        (name = "search", description = "Manual and interactive search endpoints"),
         (name = "imports", description = "Import evaluation and manual decision endpoints"),
         (name = "wanted", description = "Wanted and missing album tracking"),
         (name = "calendar", description = "Upcoming releases calendar")
@@ -508,6 +518,7 @@ pub fn router(state: AppState) -> Router {
             get(get_indexer).put(update_indexer).delete(delete_indexer),
         )
         .route("/indexers/test", post(test_indexer_endpoint))
+        .route("/search/manual", post(manual_search_endpoint))
         .route("/imports/evaluate", post(evaluate_import_candidate))
         .route("/imports/decision", post(submit_manual_import_decision))
         .route("/wanted", get(list_wanted_albums))

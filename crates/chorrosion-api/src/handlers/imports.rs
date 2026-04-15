@@ -146,13 +146,11 @@ pub async fn evaluate_import_candidate(
         bitrate_kbps: request.raw_metadata.bitrate_kbps,
     };
 
-    let parsed = parse_track_metadata(&raw)
-        .await
-        .map_err(|e| match e {
-            ImportMatchingError::PathNotFound(_) => bad_request("file not found"),
-            ImportMatchingError::Io(_) => bad_request("unable to read file"),
-            ImportMatchingError::MetadataParsing(msg) => bad_request(&msg),
-        })?;
+    let parsed = parse_track_metadata(&raw).await.map_err(|e| match e {
+        ImportMatchingError::PathNotFound(_) => bad_request("file not found"),
+        ImportMatchingError::Io(_) => bad_request("unable to read file"),
+        ImportMatchingError::MetadataParsing(msg) => bad_request(&msg),
+    })?;
 
     let evaluation = evaluate_import_match(
         &parsed,
@@ -194,12 +192,10 @@ pub async fn submit_manual_import_decision(
     let decision = match action.as_str() {
         "import" => {
             let artist_id = match request.artist_id {
-                Some(value) if !value.trim().is_empty() => {
-                    match parse_artist_id(value.trim()) {
-                        Ok(id) => id,
-                        Err(e) => return e.into_response(),
-                    }
-                }
+                Some(value) if !value.trim().is_empty() => match parse_artist_id(value.trim()) {
+                    Ok(id) => id,
+                    Err(e) => return e.into_response(),
+                },
                 _ => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -211,12 +207,10 @@ pub async fn submit_manual_import_decision(
                 }
             };
             let album_id = match request.album_id {
-                Some(value) if !value.trim().is_empty() => {
-                    match parse_album_id(value.trim()) {
-                        Ok(id) => id,
-                        Err(e) => return e.into_response(),
-                    }
-                }
+                Some(value) if !value.trim().is_empty() => match parse_album_id(value.trim()) {
+                    Ok(id) => id,
+                    Err(e) => return e.into_response(),
+                },
                 _ => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -371,17 +365,18 @@ mod tests {
 
     fn imports_router() -> Router {
         Router::new()
-            .route(
-                "/api/v1/imports/evaluate",
-                post(evaluate_import_candidate),
-            )
+            .route("/api/v1/imports/evaluate", post(evaluate_import_candidate))
             .route(
                 "/api/v1/imports/decision",
                 post(submit_manual_import_decision),
             )
     }
 
-    async fn post_json(app: Router, uri: &str, body: serde_json::Value) -> axum::response::Response {
+    async fn post_json(
+        app: Router,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> axum::response::Response {
         app.oneshot(
             Request::builder()
                 .method("POST")
@@ -419,7 +414,10 @@ mod tests {
         let response = post_json(app, "/api/v1/imports/evaluate", body).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let payload = response_json(response).await;
-        assert!(payload["error"].as_str().unwrap().contains("fuzzy_threshold"));
+        assert!(payload["error"]
+            .as_str()
+            .unwrap()
+            .contains("fuzzy_threshold"));
     }
 
     #[tokio::test]
@@ -476,7 +474,9 @@ mod tests {
         use std::io::Write;
 
         let tmp = tempfile::NamedTempFile::new().expect("temp file");
-        tmp.as_file().write_all(b"dummy").expect("write temp file content");
+        tmp.as_file()
+            .write_all(b"dummy")
+            .expect("write temp file content");
         let path = tmp.path().to_string_lossy().to_string();
 
         let artist_uuid = "00000000-0000-0000-0000-000000000001";

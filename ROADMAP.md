@@ -180,7 +180,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] Manual search implementation (Issue #33, PR #145) ✓ PARTIALLY COMPLETE
   - [x] Artist search ✓
   - [x] Album search ✓
-  - [ ] Interactive search UI support
+  - [x] Interactive search UI support (Issue #377) ✓
 - [x] Automatic search (Issue #33, PR #145) ✓ COMPLETE
   - [x] Missing album detection ✓
   - [x] Search triggering logic ✓
