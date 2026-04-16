@@ -594,12 +594,13 @@ impl AlbumRepository for PostgresAlbumRepository {
     ) -> Result<Option<Album>> {
         debug!(target: "repository", %artist_id, title, "fetching album by artist and title (postgres)");
 
-        let row =
-            sqlx::query("SELECT * FROM albums WHERE artist_id = $1 AND title ILIKE $2 LIMIT 1")
-                .bind(artist_id.to_string())
-                .bind(title)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query(
+            "SELECT * FROM albums WHERE artist_id = $1 AND LOWER(title) = LOWER($2) LIMIT 1",
+        )
+        .bind(artist_id.to_string())
+        .bind(title)
+        .fetch_optional(&self.pool)
+        .await?;
 
         Ok(row.map(|r| row_to_album(&r)).transpose()?)
     }
@@ -716,7 +717,7 @@ impl AlbumRepository for PostgresAlbumRepository {
                        SELECT 1 FROM jsonb_array_elements_text(qp.allowed_qualities::jsonb) WITH ORDINALITY AS q(val, ord) \
                        WHERE LOWER(q.val) = LOWER(tf.codec) \
                          AND q.ord <= ( \
-                           SELECT ord FROM jsonb_array_elements_text(qp.allowed_qualities::jsonb) WITH ORDINALITY AS q2(val2, ord2) \
+                            SELECT ord2 FROM jsonb_array_elements_text(qp.allowed_qualities::jsonb) WITH ORDINALITY AS q2(val2, ord2) \
                            WHERE LOWER(q2.val2) = LOWER(qp.cutoff_quality) LIMIT 1 \
                          ) \
                      ) \
