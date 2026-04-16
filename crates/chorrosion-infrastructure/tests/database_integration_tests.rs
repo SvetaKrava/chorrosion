@@ -8,6 +8,8 @@ use chorrosion_domain::{
 };
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::create_postgres_pool;
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::init_postgres_database;
 use chorrosion_infrastructure::init_database;
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::postgres_adapters::{
@@ -193,6 +195,31 @@ async fn postgres_pool_connectivity_check() {
         .fetch_one(&pool)
         .await
         .expect("postgres connectivity query should succeed");
+    assert_eq!(one, 1);
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_init_database_runs_migrations() {
+    let Some(_pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
+        .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
+
+    let mut config = AppConfig::default();
+    config.database.url = postgres_url;
+    config.database.pool_max_size = 2;
+
+    let pool = init_postgres_database(&config)
+        .await
+        .expect("postgres init should run migrations successfully");
+
+    let one: i64 = sqlx::query_scalar("SELECT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("postgres connection should remain usable after migration");
     assert_eq!(one, 1);
 }
 
