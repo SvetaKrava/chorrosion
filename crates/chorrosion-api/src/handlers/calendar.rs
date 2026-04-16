@@ -6,7 +6,6 @@ use axum::{
     Json,
 };
 use chorrosion_application::AppState;
-use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
@@ -176,7 +175,7 @@ pub async fn list_upcoming_releases(
             Entry::Vacant(e) => {
                 let name = state
                     .artist_repository
-                    .get_by_id(e.key().clone())
+                    .get_by_id(e.key())
                     .await
                     .map_err(|e| {
                         (
@@ -284,7 +283,7 @@ X-WR-CALNAME:Chorrosion Music Releases\r\n",
         let artist_name = match artist_cache.entry(artist_id_str) {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => {
-                let name = match state.artist_repository.get_by_id(e.key().clone()).await {
+                let name = match state.artist_repository.get_by_id(e.key()).await {
                     Ok(artist) => artist
                         .map(|a| a.name)
                         .unwrap_or_else(|| "Unknown Artist".to_string()),
@@ -351,7 +350,6 @@ mod tests {
     use axum::body::to_bytes;
     use chorrosion_config::AppConfig;
     use chorrosion_domain::{Album, AlbumStatus, Artist, ArtistId};
-    use chorrosion_infrastructure::repositories::Repository;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,

@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::QualityProfile;
-use chorrosion_infrastructure::repositories::Repository;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -205,7 +204,7 @@ pub async fn get_quality_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching quality profile");
 
-    match state.quality_profile_repository.get_by_id(id.clone()).await {
+    match state.quality_profile_repository.get_by_id(&id).await {
         Ok(Some(profile)) => {
             (StatusCode::OK, Json(QualityProfileResponse::from(profile))).into_response()
         }
@@ -290,7 +289,7 @@ pub async fn update_quality_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, ?request, "updating quality profile");
 
-    let mut profile = match state.quality_profile_repository.get_by_id(id.clone()).await {
+    let mut profile = match state.quality_profile_repository.get_by_id(&id).await {
         Ok(Some(profile)) => profile,
         Ok(None) => {
             return (
@@ -362,14 +361,14 @@ pub async fn delete_quality_profile(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting quality profile");
 
-    match state.quality_profile_repository.get_by_id(id.clone()).await {
+    match state.quality_profile_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.quality_profile_repository.delete(id.clone()).await {
+            match state.quality_profile_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Recheck existence to distinguish concurrent deletion (404)
                     // from a transient delete failure (500).
-                    match state.quality_profile_repository.get_by_id(id.clone()).await {
+                    match state.quality_profile_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {

@@ -7,7 +7,6 @@ use axum::{
 };
 use chorrosion_application::AppState;
 use chorrosion_domain::{Album, AlbumStatus};
-use chorrosion_infrastructure::repositories::{AlbumRepository, Repository};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use utoipa::{IntoParams, ToSchema};
@@ -240,7 +239,7 @@ pub async fn list_albums_by_artist(
 
     let artist = state
         .artist_repository
-        .get_by_id(artist_id.clone())
+        .get_by_id(&artist_id)
         .await
         .map_err(|error| {
             (
@@ -313,7 +312,7 @@ pub async fn list_albums_by_artist(
 pub async fn get_album(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     debug!(target: "api", %id, "fetching album");
 
-    match state.album_repository.get_by_id(id.clone()).await {
+    match state.album_repository.get_by_id(&id).await {
         Ok(Some(album)) => (StatusCode::OK, Json(AlbumResponse::from(album))).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -351,7 +350,7 @@ pub async fn trigger_album_search(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "triggering album search");
 
-    let album = match state.album_repository.get_by_id(id.clone()).await {
+    let album = match state.album_repository.get_by_id(&id).await {
         Ok(Some(album)) => album,
         Ok(None) => {
             return (
@@ -375,7 +374,7 @@ pub async fn trigger_album_search(
 
     let artist_name = match state
         .artist_repository
-        .get_by_id(album.artist_id.to_string())
+        .get_by_id(&album.artist_id.to_string())
         .await
     {
         Ok(Some(artist)) => artist.name,
@@ -424,11 +423,7 @@ pub async fn create_album(
 ) -> impl IntoResponse {
     debug!(target: "api", ?request, "creating album");
 
-    let artist = match state
-        .artist_repository
-        .get_by_id(request.artist_id.clone())
-        .await
-    {
+    let artist = match state.artist_repository.get_by_id(&request.artist_id).await {
         Ok(Some(artist)) => artist,
         Ok(None) => {
             return (
@@ -503,7 +498,7 @@ pub async fn update_album(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, ?request, "updating album");
 
-    let mut album = match state.album_repository.get_by_id(id.clone()).await {
+    let mut album = match state.album_repository.get_by_id(&id).await {
         Ok(Some(album)) => album,
         Ok(None) => {
             return (
@@ -526,7 +521,7 @@ pub async fn update_album(
     };
 
     if let Some(artist_id) = request.artist_id {
-        match state.artist_repository.get_by_id(artist_id.clone()).await {
+        match state.artist_repository.get_by_id(&artist_id).await {
             Ok(Some(artist)) => {
                 album.artist_id = artist.id;
             }
@@ -607,13 +602,13 @@ pub async fn delete_album(
 ) -> impl IntoResponse {
     debug!(target: "api", %id, "deleting album");
 
-    match state.album_repository.get_by_id(id.clone()).await {
+    match state.album_repository.get_by_id(&id).await {
         Ok(Some(_)) => {
-            match state.album_repository.delete(id.clone()).await {
+            match state.album_repository.delete(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(delete_error) => {
                     // Check if the album was concurrently deleted before we could.
-                    match state.album_repository.get_by_id(id.clone()).await {
+                    match state.album_repository.get_by_id(&id).await {
                         Ok(None) => (
                             StatusCode::NOT_FOUND,
                             Json(ErrorResponse {

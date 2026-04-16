@@ -84,14 +84,13 @@ impl Repository<Artist> for SqliteArtistRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Artist>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", %id, "fetching artist by id");
         let row = self
             .profiler
             .timed("artists::get_by_id", || async {
                 sqlx::query("SELECT * FROM artists WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -165,11 +164,10 @@ impl Repository<Artist> for SqliteArtistRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting artist");
         let result = sqlx::query("DELETE FROM artists WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -519,14 +517,13 @@ impl Repository<Album> for SqliteAlbumRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Album>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<Album>> {
         debug!(target: "repository", %id, "fetching album by id");
         let row = self
             .profiler
             .timed("albums::get_by_id", || async {
                 sqlx::query("SELECT * FROM albums WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -604,11 +601,10 @@ impl Repository<Album> for SqliteAlbumRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting album");
         let result = sqlx::query("DELETE FROM albums WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -937,14 +933,13 @@ impl Repository<Track> for SqliteTrackRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<Track>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<Track>> {
         debug!(target: "repository", %id, "fetching track by id");
         let row = self
             .profiler
             .timed("tracks::get_by_id", || async {
                 sqlx::query("SELECT * FROM tracks WHERE id = ? LIMIT 1")
-                    .bind(&id)
+                    .bind(id)
                     .fetch_optional(&self.pool)
                     .await
             })
@@ -1006,11 +1001,10 @@ impl Repository<Track> for SqliteTrackRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting track");
         let result = sqlx::query("DELETE FROM tracks WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1283,11 +1277,10 @@ impl Repository<QualityProfile> for SqliteQualityProfileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<QualityProfile>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<QualityProfile>> {
         debug!(target: "repository", %id, "fetching quality profile by id");
         let row = sqlx::query("SELECT * FROM quality_profiles WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1338,11 +1331,10 @@ impl Repository<QualityProfile> for SqliteQualityProfileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting quality profile");
         let result = sqlx::query("DELETE FROM quality_profiles WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1412,11 +1404,10 @@ impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<MetadataProfile>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<MetadataProfile>> {
         debug!(target: "repository", %id, "fetching metadata profile by id");
         let row = sqlx::query("SELECT * FROM metadata_profiles WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1469,11 +1460,10 @@ impl Repository<MetadataProfile> for SqliteMetadataProfileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting metadata profile");
         let result = sqlx::query("DELETE FROM metadata_profiles WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1540,11 +1530,10 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<IndexerDefinition>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<IndexerDefinition>> {
         debug!(target: "repository", %id, "fetching indexer definition by id");
         let row = sqlx::query("SELECT * FROM indexer_definitions WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1596,11 +1585,10 @@ impl Repository<IndexerDefinition> for SqliteIndexerDefinitionRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting indexer definition");
         let result = sqlx::query("DELETE FROM indexer_definitions WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1669,14 +1657,10 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         Ok(entity)
     }
 
-    async fn get_by_id(
-        &self,
-        id: impl Into<String> + Send,
-    ) -> Result<Option<DownloadClientDefinition>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<DownloadClientDefinition>> {
         debug!(target: "repository", %id, "fetching download client definition by id");
         let row = sqlx::query("SELECT * FROM download_client_definitions WHERE id = ? LIMIT 1")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
         if let Some(r) = row {
@@ -1733,11 +1717,10 @@ impl Repository<DownloadClientDefinition> for SqliteDownloadClientDefinitionRepo
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting download client definition");
         let result = sqlx::query("DELETE FROM download_client_definitions WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         if result.rows_affected() == 0 {
@@ -1883,17 +1866,13 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<TrackFile>> {
-        let id_str = id.into();
-        debug!(target: "repository", track_file_id = %id_str, "fetching track file by id");
+    async fn get_by_id(&self, id: &str) -> Result<Option<TrackFile>> {
+        debug!(target: "repository", track_file_id = %id, "fetching track file by id");
         let row = self
             .profiler
             .timed("track_files::get_by_id", || async {
                 let q = "SELECT * FROM track_files WHERE id = ?";
-                sqlx::query(q)
-                    .bind(&id_str)
-                    .fetch_optional(&self.pool)
-                    .await
+                sqlx::query(q).bind(id).fetch_optional(&self.pool).await
             })
             .await?;
         match row {
@@ -1962,14 +1941,13 @@ impl Repository<TrackFile> for SqliteTrackFileRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id_str = id.into();
-        debug!(target: "repository", track_file_id = %id_str, "deleting track file");
+    async fn delete(&self, id: &str) -> Result<()> {
+        debug!(target: "repository", track_file_id = %id, "deleting track file");
 
         let q = "DELETE FROM track_files WHERE id = ?";
-        sqlx::query(q).bind(&id_str).execute(&self.pool).await?;
+        sqlx::query(q).bind(id).execute(&self.pool).await?;
 
-        debug!(target: "repository", track_file_id = %id_str, "track file deleted successfully");
+        debug!(target: "repository", track_file_id = %id, "track file deleted successfully");
         Ok(())
     }
 }
@@ -2090,8 +2068,7 @@ impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
         Ok(entity)
     }
 
-    async fn get_by_id(&self, id: impl Into<String> + Send) -> Result<Option<ArtistRelationship>> {
-        let id = id.into();
+    async fn get_by_id(&self, id: &str) -> Result<Option<ArtistRelationship>> {
         debug!(target: "repository", %id, "fetching artist relationship by id");
 
         let row = sqlx::query("SELECT * FROM artist_relationships WHERE id = ? LIMIT 1")
@@ -2151,8 +2128,7 @@ impl Repository<ArtistRelationship> for SqliteArtistRelationshipRepository {
         Ok(entity)
     }
 
-    async fn delete(&self, id: impl Into<String> + Send) -> Result<()> {
-        let id = id.into();
+    async fn delete(&self, id: &str) -> Result<()> {
         debug!(target: "repository", %id, "deleting artist relationship");
 
         sqlx::query("DELETE FROM artist_relationships WHERE id = ?")
@@ -2302,7 +2278,7 @@ mod tests {
         assert_eq!(created.id, id);
 
         let fetched = repo
-            .get_by_id(id.to_string())
+            .get_by_id(&id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -2432,13 +2408,13 @@ mod tests {
         assert_eq!(updated.name, "After");
         assert!(!updated.monitored);
 
-        let fetched = repo.get_by_id(id.to_string()).await.unwrap().unwrap();
+        let fetched = repo.get_by_id(&id.to_string()).await.unwrap().unwrap();
         assert_eq!(fetched.name, "After");
         assert_eq!(fetched.path.as_deref(), Some("/music/after"));
 
         // Delete and ensure gone
-        repo.delete(id.to_string()).await.expect("delete");
-        let absent = repo.get_by_id(id.to_string()).await.expect("get");
+        repo.delete(&id.to_string()).await.expect("delete");
+        let absent = repo.get_by_id(&id.to_string()).await.expect("get");
         assert!(absent.is_none());
     }
 
@@ -2504,7 +2480,7 @@ mod tests {
 
         // Fetch and verify
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -2770,7 +2746,7 @@ mod tests {
         assert!(!updated.monitored);
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -2783,11 +2759,11 @@ mod tests {
 
         // Delete and ensure gone
         album_repo
-            .delete(album_id.to_string())
+            .delete(&album_id.to_string())
             .await
             .expect("delete");
         let absent = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("get");
         assert!(absent.is_none());
@@ -2859,19 +2835,19 @@ mod tests {
 
         // Delete artist (should cascade to albums due to FK constraint)
         artist_repo
-            .delete(artist_id.to_string())
+            .delete(&artist_id.to_string())
             .await
             .expect("delete artist");
 
         // Verify albums are also deleted
         let absent1 = album_repo
-            .get_by_id(album1_id.to_string())
+            .get_by_id(&album1_id.to_string())
             .await
             .expect("get1");
         assert!(absent1.is_none());
 
         let absent2 = album_repo
-            .get_by_id(album2_id.to_string())
+            .get_by_id(&album2_id.to_string())
             .await
             .expect("get2");
         assert!(absent2.is_none());
@@ -2908,7 +2884,7 @@ mod tests {
         assert_eq!(created.track_number, Some(1));
 
         let fetched = track_repo
-            .get_by_id(track.id.to_string())
+            .get_by_id(&track.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3105,7 +3081,7 @@ mod tests {
         assert_eq!(updated.title, "After");
 
         let fetched = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3117,11 +3093,11 @@ mod tests {
 
         // Delete and ensure gone
         track_repo
-            .delete(track_id.to_string())
+            .delete(&track_id.to_string())
             .await
             .expect("delete");
         let absent = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("get");
         assert!(absent.is_none());
@@ -3194,16 +3170,16 @@ mod tests {
         track_repo.create(track).await.expect("create track");
 
         // Verify track exists
-        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        let exists = track_repo.get_by_id(&track_id.to_string()).await.unwrap();
         assert!(exists.is_some());
 
         // Delete album should cascade to tracks
         album_repo
-            .delete(album_id.to_string())
+            .delete(&album_id.to_string())
             .await
             .expect("delete album");
         let track_check = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("query");
         assert!(
@@ -3232,16 +3208,16 @@ mod tests {
         track_repo.create(track).await.expect("create track");
 
         // Verify track exists
-        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        let exists = track_repo.get_by_id(&track_id.to_string()).await.unwrap();
         assert!(exists.is_some());
 
         // Delete artist should cascade to both albums and tracks
         artist_repo
-            .delete(artist_id.to_string())
+            .delete(&artist_id.to_string())
             .await
             .expect("delete artist");
         let track_check = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("query");
         assert!(
@@ -3272,7 +3248,7 @@ mod tests {
         assert!(created.upgrade_allowed);
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3326,7 +3302,7 @@ mod tests {
         assert_eq!(updated.allowed_qualities.len(), 2);
 
         let fetched = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3334,11 +3310,11 @@ mod tests {
 
         // Delete
         profile_repo
-            .delete(profile_id.to_string())
+            .delete(&profile_id.to_string())
             .await
             .expect("delete");
         let absent = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3405,7 +3381,7 @@ mod tests {
         assert_eq!(created.release_statuses.len(), 2);
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3461,7 +3437,7 @@ mod tests {
         assert_eq!(updated.release_statuses.len(), 1);
 
         let fetched = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3469,11 +3445,11 @@ mod tests {
 
         // Delete
         profile_repo
-            .delete(profile_id.to_string())
+            .delete(&profile_id.to_string())
             .await
             .expect("delete");
         let absent = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3509,7 +3485,7 @@ mod tests {
         assert!(created.release_statuses.is_empty());
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3555,7 +3531,7 @@ mod tests {
         repo.update(updated).await.expect("update indexer");
 
         let fetched = repo
-            .get_by_id(indexer_id.to_string())
+            .get_by_id(&indexer_id.to_string())
             .await
             .expect("get_by_id")
             .expect("indexer exists");
@@ -3570,11 +3546,11 @@ mod tests {
             .expect("old name lookup");
         assert!(absent.is_none());
 
-        repo.delete(indexer_id.to_string())
+        repo.delete(&indexer_id.to_string())
             .await
             .expect("delete indexer");
         let deleted = repo
-            .get_by_id(indexer_id.to_string())
+            .get_by_id(&indexer_id.to_string())
             .await
             .expect("get_by_id after delete");
         assert!(deleted.is_none());
@@ -3639,7 +3615,7 @@ mod tests {
         repo.update(updated).await.expect("update client");
 
         let fetched = repo
-            .get_by_id(client_id.to_string())
+            .get_by_id(&client_id.to_string())
             .await
             .expect("get_by_id")
             .expect("client exists");
@@ -3660,11 +3636,11 @@ mod tests {
             .expect("old name lookup");
         assert!(absent.is_none());
 
-        repo.delete(client_id.to_string())
+        repo.delete(&client_id.to_string())
             .await
             .expect("delete client");
         let deleted = repo
-            .get_by_id(client_id.to_string())
+            .get_by_id(&client_id.to_string())
             .await
             .expect("get_by_id after delete");
         assert!(deleted.is_none());
@@ -3738,7 +3714,7 @@ mod tests {
 
         // Get by id
         let fetched = track_file_repo
-            .get_by_id(track_file_id.to_string())
+            .get_by_id(&track_file_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3763,11 +3739,11 @@ mod tests {
 
         // Delete
         track_file_repo
-            .delete(track_file_id.to_string())
+            .delete(&track_file_id.to_string())
             .await
             .expect("delete");
         let absent = track_file_repo
-            .get_by_id(track_file_id.to_string())
+            .get_by_id(&track_file_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3997,7 +3973,7 @@ mod tests {
         repo.create(artist).await.expect("create artist");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -4022,7 +3998,7 @@ mod tests {
         repo.create(artist).await.expect("create");
 
         let mut updated = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4033,7 +4009,7 @@ mod tests {
         repo.update(updated.clone()).await.expect("update");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4064,7 +4040,7 @@ mod tests {
         album_repo.create(album).await.expect("create album");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -4097,7 +4073,7 @@ mod tests {
         album_repo.create(album).await.expect("create");
 
         let mut updated = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4109,7 +4085,7 @@ mod tests {
         album_repo.update(updated.clone()).await.expect("update");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4135,7 +4111,7 @@ mod tests {
         repo.create(artist).await.expect("create artist");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -4154,7 +4130,7 @@ mod tests {
         repo.create(artist).await.expect("create");
 
         let mut updated = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4170,7 +4146,7 @@ mod tests {
         repo.update(updated.clone()).await.expect("update");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4197,7 +4173,7 @@ mod tests {
         album_repo.create(album).await.expect("create album");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -4224,7 +4200,7 @@ mod tests {
         album_repo.create(album).await.expect("create");
 
         let mut updated = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4240,7 +4216,7 @@ mod tests {
         album_repo.update(updated.clone()).await.expect("update");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4274,7 +4250,7 @@ mod tests {
             .expect("create relationship");
 
         let fetched = rel_repo
-            .get_by_id(rel_id.to_string())
+            .get_by_id(&rel_id.to_string())
             .await
             .expect("fetch relationship")
             .expect("relationship exists");

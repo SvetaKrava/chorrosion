@@ -4,7 +4,6 @@ use chorrosion_application::{
     manual_search, AppState, AudioQuality, IndexerConfig, IndexerError, IndexerProtocol,
     ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
 };
-use chorrosion_infrastructure::repositories::Repository;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -125,7 +124,7 @@ pub async fn manual_search_endpoint(
 
     let indexer = match state
         .indexer_definition_repository
-        .get_by_id(request.indexer_id.clone())
+        .get_by_id(&request.indexer_id)
         .await
     {
         Ok(Some(indexer)) => indexer,
