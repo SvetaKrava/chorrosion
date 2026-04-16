@@ -433,12 +433,14 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ## Phase 9: PostgreSQL Support (TBD)
 
-- Related issues: #12
+- Related issues: #12, #381
+- Related PRs: #382, #383, #384
 
 ### 9.1 Database Abstraction
 
-- [ ] Abstract database-specific queries
+- [x] Abstract database-specific queries (Issue #381) ✓
 - [ ] Add PostgreSQL-specific optimizations
+  - [x] Implement PostgreSQL repository adapters for all core entities (PR #383, PR #384) ✓
 - [ ] Migration compatibility
 - [ ] Connection pooling tuning
 
