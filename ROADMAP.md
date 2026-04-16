@@ -439,9 +439,9 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 - [x] Abstract AppState repositories behind trait objects (Issue #381) ✓
 - [x] Implement PostgreSQL repository adapters for all core entities (PR #383, PR #384) ✓
-- [ ] Add PostgreSQL-specific optimizations
-- [ ] Migration compatibility
-- [ ] Connection pooling tuning
+- [x] Add PostgreSQL-specific optimizations ✓
+- [x] Migration compatibility ✓
+- [x] Connection pooling tuning ✓
 
 ### 9.2 Migration Tools
 
@@ -532,4 +532,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-04-16  
 **Current Phase:** Phase 9: PostgreSQL Support  
-**Next Milestone:** Complete Phase 9.1 backlog: PostgreSQL-specific optimizations, migration compatibility, and connection pooling tuning
+**Next Milestone:** Begin Phase 9.2 migration tooling: SQLite to PostgreSQL migration tool, schema comparison tools, and post-migration validation

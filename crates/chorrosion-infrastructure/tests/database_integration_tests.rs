@@ -10,6 +10,8 @@ use chorrosion_domain::{
 use chorrosion_infrastructure::create_postgres_pool;
 use chorrosion_infrastructure::init_database;
 #[cfg(feature = "postgres")]
+use chorrosion_infrastructure::init_postgres_database;
+#[cfg(feature = "postgres")]
 use chorrosion_infrastructure::postgres_adapters::{
     PostgresAlbumRepository, PostgresArtistRelationshipRepository, PostgresArtistRepository,
     PostgresDownloadClientDefinitionRepository, PostgresIndexerDefinitionRepository,
@@ -194,6 +196,32 @@ async fn postgres_pool_connectivity_check() {
         .await
         .expect("postgres connectivity query should succeed");
     assert_eq!(one, 1);
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_init_database_runs_migrations() {
+    let Some(_pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
+        .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
+
+    let mut config = AppConfig::default();
+    config.database.url = postgres_url;
+    config.database.pool_max_size = 2;
+
+    let pool = init_postgres_database(&config)
+        .await
+        .expect("postgres init should run migrations successfully");
+
+    let artists_table: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public.artists')::text")
+            .fetch_one(&pool)
+            .await
+            .expect("postgres should be able to resolve migrated artists table");
+    assert_eq!(artists_table, Some("artists".to_string()));
 }
 
 #[cfg(feature = "postgres")]

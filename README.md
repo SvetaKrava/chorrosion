@@ -71,6 +71,17 @@ Once running:
 - `CHORROSION_HTTP__HOST=127.0.0.1`
 - `CHORROSION_SCHEDULER__MAX_CONCURRENT_JOBS=4`
 
+PostgreSQL-only pool tuning settings:
+
+> These pool tuning env vars currently apply when using the PostgreSQL backend.
+> The default SQLite pool ignores these settings.
+
+- `CHORROSION_DATABASE__POOL_MAX_SIZE=16`
+- `CHORROSION_DATABASE__POOL_MIN_CONNECTIONS=1`
+- `CHORROSION_DATABASE__POOL_ACQUIRE_TIMEOUT_SECS=10`
+- `CHORROSION_DATABASE__POOL_IDLE_TIMEOUT_SECS=600`
+- `CHORROSION_DATABASE__POOL_MAX_LIFETIME_SECS=1800`
+
 SQLite tips:
 
 - Use `?mode=rwc` in URLs if you need create-on-open semantics.

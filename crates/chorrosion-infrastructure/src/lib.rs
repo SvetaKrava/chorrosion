@@ -26,6 +26,8 @@ use sqlx::SqlitePool;
 use std::path::Path;
 #[cfg(feature = "postgres")]
 use std::str::FromStr;
+#[cfg(feature = "postgres")]
+use std::time::Duration;
 use tracing::info;
 
 pub fn http_client() -> Client {
@@ -105,6 +107,12 @@ pub async fn create_postgres_pool(config: &AppConfig) -> Result<PgPool> {
 
     let pool = PgPoolOptions::new()
         .max_connections(config.database.pool_max_size)
+        .min_connections(config.database.pool_min_connections)
+        .acquire_timeout(Duration::from_secs(
+            config.database.pool_acquire_timeout_secs,
+        ))
+        .idle_timeout(Duration::from_secs(config.database.pool_idle_timeout_secs))
+        .max_lifetime(Duration::from_secs(config.database.pool_max_lifetime_secs))
         .connect(&config.database.url)
         .await?;
 
