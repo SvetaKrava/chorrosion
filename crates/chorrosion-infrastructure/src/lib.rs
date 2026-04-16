@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub mod backup_restore;
 pub mod cache;
+pub mod postgres_adapters;
 pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
