@@ -2278,7 +2278,7 @@ mod tests {
         assert_eq!(created.id, id);
 
         let fetched = repo
-            .get_by_id(id.to_string())
+            .get_by_id(&id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -2408,13 +2408,13 @@ mod tests {
         assert_eq!(updated.name, "After");
         assert!(!updated.monitored);
 
-        let fetched = repo.get_by_id(id.to_string()).await.unwrap().unwrap();
+        let fetched = repo.get_by_id(&id.to_string()).await.unwrap().unwrap();
         assert_eq!(fetched.name, "After");
         assert_eq!(fetched.path.as_deref(), Some("/music/after"));
 
         // Delete and ensure gone
-        repo.delete(id.to_string()).await.expect("delete");
-        let absent = repo.get_by_id(id.to_string()).await.expect("get");
+        repo.delete(&id.to_string()).await.expect("delete");
+        let absent = repo.get_by_id(&id.to_string()).await.expect("get");
         assert!(absent.is_none());
     }
 
@@ -2480,7 +2480,7 @@ mod tests {
 
         // Fetch and verify
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -2746,7 +2746,7 @@ mod tests {
         assert!(!updated.monitored);
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -2759,11 +2759,11 @@ mod tests {
 
         // Delete and ensure gone
         album_repo
-            .delete(album_id.to_string())
+            .delete(&album_id.to_string())
             .await
             .expect("delete");
         let absent = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("get");
         assert!(absent.is_none());
@@ -2835,19 +2835,19 @@ mod tests {
 
         // Delete artist (should cascade to albums due to FK constraint)
         artist_repo
-            .delete(artist_id.to_string())
+            .delete(&artist_id.to_string())
             .await
             .expect("delete artist");
 
         // Verify albums are also deleted
         let absent1 = album_repo
-            .get_by_id(album1_id.to_string())
+            .get_by_id(&album1_id.to_string())
             .await
             .expect("get1");
         assert!(absent1.is_none());
 
         let absent2 = album_repo
-            .get_by_id(album2_id.to_string())
+            .get_by_id(&album2_id.to_string())
             .await
             .expect("get2");
         assert!(absent2.is_none());
@@ -2884,7 +2884,7 @@ mod tests {
         assert_eq!(created.track_number, Some(1));
 
         let fetched = track_repo
-            .get_by_id(track.id.to_string())
+            .get_by_id(&track.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3081,7 +3081,7 @@ mod tests {
         assert_eq!(updated.title, "After");
 
         let fetched = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3093,11 +3093,11 @@ mod tests {
 
         // Delete and ensure gone
         track_repo
-            .delete(track_id.to_string())
+            .delete(&track_id.to_string())
             .await
             .expect("delete");
         let absent = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("get");
         assert!(absent.is_none());
@@ -3170,16 +3170,16 @@ mod tests {
         track_repo.create(track).await.expect("create track");
 
         // Verify track exists
-        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        let exists = track_repo.get_by_id(&track_id.to_string()).await.unwrap();
         assert!(exists.is_some());
 
         // Delete album should cascade to tracks
         album_repo
-            .delete(album_id.to_string())
+            .delete(&album_id.to_string())
             .await
             .expect("delete album");
         let track_check = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("query");
         assert!(
@@ -3208,16 +3208,16 @@ mod tests {
         track_repo.create(track).await.expect("create track");
 
         // Verify track exists
-        let exists = track_repo.get_by_id(track_id.to_string()).await.unwrap();
+        let exists = track_repo.get_by_id(&track_id.to_string()).await.unwrap();
         assert!(exists.is_some());
 
         // Delete artist should cascade to both albums and tracks
         artist_repo
-            .delete(artist_id.to_string())
+            .delete(&artist_id.to_string())
             .await
             .expect("delete artist");
         let track_check = track_repo
-            .get_by_id(track_id.to_string())
+            .get_by_id(&track_id.to_string())
             .await
             .expect("query");
         assert!(
@@ -3248,7 +3248,7 @@ mod tests {
         assert!(created.upgrade_allowed);
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3302,7 +3302,7 @@ mod tests {
         assert_eq!(updated.allowed_qualities.len(), 2);
 
         let fetched = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3310,11 +3310,11 @@ mod tests {
 
         // Delete
         profile_repo
-            .delete(profile_id.to_string())
+            .delete(&profile_id.to_string())
             .await
             .expect("delete");
         let absent = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3381,7 +3381,7 @@ mod tests {
         assert_eq!(created.release_statuses.len(), 2);
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3437,7 +3437,7 @@ mod tests {
         assert_eq!(updated.release_statuses.len(), 1);
 
         let fetched = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3445,11 +3445,11 @@ mod tests {
 
         // Delete
         profile_repo
-            .delete(profile_id.to_string())
+            .delete(&profile_id.to_string())
             .await
             .expect("delete");
         let absent = profile_repo
-            .get_by_id(profile_id.to_string())
+            .get_by_id(&profile_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3485,7 +3485,7 @@ mod tests {
         assert!(created.release_statuses.is_empty());
 
         let fetched = profile_repo
-            .get_by_id(profile.id.to_string())
+            .get_by_id(&profile.id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3531,7 +3531,7 @@ mod tests {
         repo.update(updated).await.expect("update indexer");
 
         let fetched = repo
-            .get_by_id(indexer_id.to_string())
+            .get_by_id(&indexer_id.to_string())
             .await
             .expect("get_by_id")
             .expect("indexer exists");
@@ -3546,11 +3546,11 @@ mod tests {
             .expect("old name lookup");
         assert!(absent.is_none());
 
-        repo.delete(indexer_id.to_string())
+        repo.delete(&indexer_id.to_string())
             .await
             .expect("delete indexer");
         let deleted = repo
-            .get_by_id(indexer_id.to_string())
+            .get_by_id(&indexer_id.to_string())
             .await
             .expect("get_by_id after delete");
         assert!(deleted.is_none());
@@ -3615,7 +3615,7 @@ mod tests {
         repo.update(updated).await.expect("update client");
 
         let fetched = repo
-            .get_by_id(client_id.to_string())
+            .get_by_id(&client_id.to_string())
             .await
             .expect("get_by_id")
             .expect("client exists");
@@ -3636,11 +3636,11 @@ mod tests {
             .expect("old name lookup");
         assert!(absent.is_none());
 
-        repo.delete(client_id.to_string())
+        repo.delete(&client_id.to_string())
             .await
             .expect("delete client");
         let deleted = repo
-            .get_by_id(client_id.to_string())
+            .get_by_id(&client_id.to_string())
             .await
             .expect("get_by_id after delete");
         assert!(deleted.is_none());
@@ -3714,7 +3714,7 @@ mod tests {
 
         // Get by id
         let fetched = track_file_repo
-            .get_by_id(track_file_id.to_string())
+            .get_by_id(&track_file_id.to_string())
             .await
             .unwrap()
             .unwrap();
@@ -3739,11 +3739,11 @@ mod tests {
 
         // Delete
         track_file_repo
-            .delete(track_file_id.to_string())
+            .delete(&track_file_id.to_string())
             .await
             .expect("delete");
         let absent = track_file_repo
-            .get_by_id(track_file_id.to_string())
+            .get_by_id(&track_file_id.to_string())
             .await
             .unwrap();
         assert!(absent.is_none());
@@ -3973,7 +3973,7 @@ mod tests {
         repo.create(artist).await.expect("create artist");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -3998,7 +3998,7 @@ mod tests {
         repo.create(artist).await.expect("create");
 
         let mut updated = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4009,7 +4009,7 @@ mod tests {
         repo.update(updated.clone()).await.expect("update");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4040,7 +4040,7 @@ mod tests {
         album_repo.create(album).await.expect("create album");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -4073,7 +4073,7 @@ mod tests {
         album_repo.create(album).await.expect("create");
 
         let mut updated = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4085,7 +4085,7 @@ mod tests {
         album_repo.update(updated.clone()).await.expect("update");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4111,7 +4111,7 @@ mod tests {
         repo.create(artist).await.expect("create artist");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch artist")
             .expect("artist exists");
@@ -4130,7 +4130,7 @@ mod tests {
         repo.create(artist).await.expect("create");
 
         let mut updated = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4146,7 +4146,7 @@ mod tests {
         repo.update(updated.clone()).await.expect("update");
 
         let fetched = repo
-            .get_by_id(artist_id.to_string())
+            .get_by_id(&artist_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4173,7 +4173,7 @@ mod tests {
         album_repo.create(album).await.expect("create album");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch album")
             .expect("album exists");
@@ -4200,7 +4200,7 @@ mod tests {
         album_repo.create(album).await.expect("create");
 
         let mut updated = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4216,7 +4216,7 @@ mod tests {
         album_repo.update(updated.clone()).await.expect("update");
 
         let fetched = album_repo
-            .get_by_id(album_id.to_string())
+            .get_by_id(&album_id.to_string())
             .await
             .expect("fetch")
             .expect("exists");
@@ -4250,7 +4250,7 @@ mod tests {
             .expect("create relationship");
 
         let fetched = rel_repo
-            .get_by_id(rel_id.to_string())
+            .get_by_id(&rel_id.to_string())
             .await
             .expect("fetch relationship")
             .expect("relationship exists");
