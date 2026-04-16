@@ -375,6 +375,10 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
     let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
         .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
     let isolated_schema = format!("it_sqlite_to_postgres_{}", Uuid::new_v4().simple());
+    assert!(
+        is_safe_postgres_schema_name(&isolated_schema),
+        "generated schema name must only contain ascii letters, numbers, and underscores"
+    );
     let escaped_schema = isolated_schema.replace('"', "\"\"");
     sqlx::query(&format!("CREATE SCHEMA \"{escaped_schema}\""))
         .execute(&_pool)
@@ -421,8 +425,20 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
 
 #[cfg(feature = "postgres")]
 fn postgres_url_with_search_path(base_url: &str, schema: &str) -> String {
+    assert!(
+        is_safe_postgres_schema_name(schema),
+        "schema names must only contain ascii letters, numbers, and underscores"
+    );
     let separator = if base_url.contains('?') { '&' } else { '?' };
     format!("{base_url}{separator}options=-csearch_path%3D{schema}")
+}
+
+#[cfg(feature = "postgres")]
+fn is_safe_postgres_schema_name(schema: &str) -> bool {
+    !schema.is_empty()
+        && schema
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 #[cfg(feature = "postgres")]

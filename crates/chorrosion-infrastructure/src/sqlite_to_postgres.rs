@@ -503,11 +503,13 @@ async fn report_postgres_counts_with_sqlite_baseline_in_tx(
 }
 
 async fn count_rows_sqlite(pool: &SqlitePool, table: &str) -> Result<i64> {
+    ensure_migrated_table(table)?;
     let query = format!("SELECT COUNT(*) FROM {table}");
     Ok(sqlx::query_scalar::<_, i64>(&query).fetch_one(pool).await?)
 }
 
 async fn count_rows_postgres(pool: &PgPool, table: &str) -> Result<i64> {
+    ensure_migrated_table(table)?;
     let query = format!("SELECT COUNT(*) FROM {table}");
     Ok(sqlx::query_scalar::<_, i64>(&query).fetch_one(pool).await?)
 }
@@ -516,10 +518,19 @@ async fn count_rows_postgres_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     table: &str,
 ) -> Result<i64> {
+    ensure_migrated_table(table)?;
     let query = format!("SELECT COUNT(*) FROM {table}");
     Ok(sqlx::query_scalar::<_, i64>(&query)
         .fetch_one(&mut **tx)
         .await?)
+}
+
+fn ensure_migrated_table(table: &str) -> Result<()> {
+    if MIGRATED_TABLES.contains(&table) {
+        Ok(())
+    } else {
+        Err(anyhow!("unsupported migration table: {table}"))
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
