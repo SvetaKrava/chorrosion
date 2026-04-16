@@ -21,9 +21,11 @@ pub const DEFAULT_METADATA_REQUEST_TIMEOUT_SECS: u64 = 15;
 pub struct DatabaseConfig {
     pub url: String,
     pub pool_max_size: u32,
-    /// Minimum number of idle DB connections kept warm in the pool.
-    /// Env override: `CHORROSION_DATABASE__POOL_MIN_IDLE`.
-    pub pool_min_idle: u32,
+    /// Minimum number of open DB connections maintained by the pool.
+    /// Maps to SQLx `min_connections` (total open connections, not idle-only).
+    /// Env override: `CHORROSION_DATABASE__POOL_MIN_CONNECTIONS`.
+    #[serde(alias = "pool_min_idle")]
+    pub pool_min_connections: u32,
     /// Maximum time (in seconds) to wait when acquiring a pooled connection.
     /// Env override: `CHORROSION_DATABASE__POOL_ACQUIRE_TIMEOUT_SECS`.
     pub pool_acquire_timeout_secs: u64,
@@ -43,7 +45,7 @@ impl Default for DatabaseConfig {
         Self {
             url: "sqlite://chorrosion.db".to_string(),
             pool_max_size: 16,
-            pool_min_idle: 1,
+            pool_min_connections: 1,
             pool_acquire_timeout_secs: 10,
             pool_idle_timeout_secs: 600,
             pool_max_lifetime_secs: 1800,

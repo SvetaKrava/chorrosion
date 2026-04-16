@@ -8,9 +8,9 @@ use chorrosion_domain::{
 };
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::create_postgres_pool;
+use chorrosion_infrastructure::init_database;
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::init_postgres_database;
-use chorrosion_infrastructure::init_database;
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::postgres_adapters::{
     PostgresAlbumRepository, PostgresArtistRelationshipRepository, PostgresArtistRepository,
@@ -216,11 +216,12 @@ async fn postgres_init_database_runs_migrations() {
         .await
         .expect("postgres init should run migrations successfully");
 
-    let one: i64 = sqlx::query_scalar("SELECT 1")
-        .fetch_one(&pool)
-        .await
-        .expect("postgres connection should remain usable after migration");
-    assert_eq!(one, 1);
+    let artists_table: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public.artists')::text")
+            .fetch_one(&pool)
+            .await
+            .expect("postgres should be able to resolve migrated artists table");
+    assert_eq!(artists_table, Some("artists".to_string()));
 }
 
 #[cfg(feature = "postgres")]

@@ -4,14 +4,17 @@
 CREATE UNIQUE INDEX IF NOT EXISTS ux_artists_musicbrainz_artist_id
 ON artists(musicbrainz_artist_id)
 WHERE musicbrainz_artist_id IS NOT NULL;
+DROP INDEX IF EXISTS idx_artists_musicbrainz_id;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_albums_musicbrainz_release_group_id
 ON albums(musicbrainz_release_group_id)
 WHERE musicbrainz_release_group_id IS NOT NULL;
+DROP INDEX IF EXISTS idx_albums_musicbrainz_release_group_id;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_albums_musicbrainz_release_id
 ON albums(musicbrainz_release_id)
 WHERE musicbrainz_release_id IS NOT NULL;
+DROP INDEX IF EXISTS idx_albums_musicbrainz_release_id;
 
 -- A file path should map to a single tracked file record.
 DROP INDEX IF EXISTS idx_track_files_path;
