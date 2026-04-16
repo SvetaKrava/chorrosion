@@ -157,8 +157,13 @@ impl ArtistRepository for PostgresArtistRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", name, "fetching artist by name (postgres)");
 
-        let row = sqlx::query("SELECT * FROM artists WHERE LOWER(name) = LOWER($1) LIMIT 1")
-            .bind(name)
+        let escaped_name = name
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+
+        let row = sqlx::query("SELECT * FROM artists WHERE name ILIKE $1 ESCAPE '\\' LIMIT 1")
+            .bind(escaped_name)
             .fetch_optional(&self.pool)
             .await?;
 
