@@ -3,19 +3,33 @@
 use chorrosion_config::AppConfig;
 use chorrosion_domain::{Album, Artist, ArtistRelationship, Track, TrackFile};
 #[cfg(feature = "postgres")]
+use chorrosion_domain::{
+    DownloadClientDefinition, IndexerDefinition, MetadataProfile, QualityProfile,
+};
+#[cfg(feature = "postgres")]
 use chorrosion_infrastructure::create_postgres_pool;
 use chorrosion_infrastructure::init_database;
 #[cfg(feature = "postgres")]
-use chorrosion_infrastructure::postgres_adapters::PostgresArtistRepository;
-#[cfg(feature = "postgres")]
-use chorrosion_infrastructure::repositories::ArtistRepository;
+use chorrosion_infrastructure::postgres_adapters::{
+    PostgresAlbumRepository, PostgresArtistRelationshipRepository, PostgresArtistRepository,
+    PostgresDownloadClientDefinitionRepository, PostgresIndexerDefinitionRepository,
+    PostgresMetadataProfileRepository, PostgresQualityProfileRepository,
+    PostgresTrackFileRepository, PostgresTrackRepository,
+};
 use chorrosion_infrastructure::repositories::{
     AlbumRepository, ArtistRelationshipRepository, Repository, TrackFileRepository, TrackRepository,
+};
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::repositories::{
+    ArtistRepository, DownloadClientDefinitionRepository, IndexerDefinitionRepository,
+    MetadataProfileRepository, QualityProfileRepository,
 };
 use chorrosion_infrastructure::sqlite_adapters::{
     SqliteAlbumRepository, SqliteArtistRelationshipRepository, SqliteArtistRepository,
     SqliteTrackFileRepository, SqliteTrackRepository,
 };
+#[cfg(feature = "postgres")]
+use sqlx::Executor;
 #[cfg(feature = "postgres")]
 use sqlx::PgPool;
 use sqlx::SqlitePool;
@@ -281,4 +295,448 @@ async fn postgres_artist_repository_crud_and_filters() {
         .await
         .expect("get artist after delete");
     assert!(gone.is_none());
+}
+
+#[cfg(feature = "postgres")]
+async fn create_postgres_repository_temp_tables(pool: &PgPool) {
+    let statements = [
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS artists (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            foreign_artist_id TEXT,
+            musicbrainz_artist_id TEXT,
+            metadata_profile_id TEXT,
+            quality_profile_id TEXT,
+            status TEXT NOT NULL DEFAULT 'continuing',
+            path TEXT,
+            monitored BOOLEAN NOT NULL DEFAULT TRUE,
+            artist_type TEXT,
+            sort_name TEXT,
+            country TEXT,
+            disambiguation TEXT,
+            genre_tags TEXT,
+            style_tags TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS albums (
+            id TEXT PRIMARY KEY,
+            artist_id TEXT NOT NULL,
+            foreign_album_id TEXT,
+            musicbrainz_release_group_id TEXT,
+            musicbrainz_release_id TEXT,
+            title TEXT NOT NULL,
+            release_date TEXT,
+            album_type TEXT,
+            primary_type TEXT,
+            secondary_types TEXT,
+            first_release_date TEXT,
+            genre_tags TEXT,
+            style_tags TEXT,
+            status TEXT NOT NULL DEFAULT 'wanted',
+            monitored BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS tracks (
+            id TEXT PRIMARY KEY,
+            album_id TEXT NOT NULL,
+            artist_id TEXT NOT NULL,
+            foreign_track_id TEXT,
+            title TEXT NOT NULL,
+            track_number INTEGER,
+            duration_ms INTEGER,
+            has_file BOOLEAN NOT NULL DEFAULT FALSE,
+            monitored BOOLEAN NOT NULL DEFAULT TRUE,
+            musicbrainz_recording_id TEXT,
+            match_confidence DOUBLE PRECISION,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS quality_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            allowed_qualities TEXT NOT NULL,
+            upgrade_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+            cutoff_quality TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS metadata_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            primary_album_types TEXT NOT NULL DEFAULT '[]',
+            secondary_album_types TEXT NOT NULL DEFAULT '[]',
+            release_statuses TEXT NOT NULL DEFAULT '[]',
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS indexer_definitions (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            api_key TEXT,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS download_client_definitions (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            client_type TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            username TEXT,
+            password_encrypted TEXT,
+            category TEXT,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS track_files (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            duration_ms INTEGER,
+            bitrate_kbps INTEGER,
+            channels SMALLINT,
+            codec TEXT,
+            quality TEXT,
+            hash TEXT,
+            fingerprint_hash TEXT,
+            fingerprint_duration INTEGER,
+            fingerprint_computed_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS artist_relationships (
+            id TEXT PRIMARY KEY,
+            source_artist_id TEXT NOT NULL,
+            related_artist_id TEXT NOT NULL,
+            relationship_type TEXT NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+    ];
+
+    for statement in statements {
+        pool.execute(statement)
+            .await
+            .expect("create postgres temp table");
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_remaining_adapters_crud_and_specialized_queries() {
+    let Some(pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    create_postgres_repository_temp_tables(&pool).await;
+
+    let artist_repo = PostgresArtistRepository::new(pool.clone());
+    let album_repo = PostgresAlbumRepository::new(pool.clone());
+    let track_repo = PostgresTrackRepository::new(pool.clone());
+    let quality_profile_repo = PostgresQualityProfileRepository::new(pool.clone());
+    let metadata_profile_repo = PostgresMetadataProfileRepository::new(pool.clone());
+    let indexer_repo = PostgresIndexerDefinitionRepository::new(pool.clone());
+    let download_client_repo = PostgresDownloadClientDefinitionRepository::new(pool.clone());
+    let track_file_repo = PostgresTrackFileRepository::new(pool.clone());
+    let relationship_repo = PostgresArtistRelationshipRepository::new(pool.clone());
+
+    let mut quality_profile = QualityProfile::new(
+        "Postgres Quality Profile",
+        vec!["FLAC".to_string(), "MP3".to_string()],
+    );
+    quality_profile.upgrade_allowed = true;
+    quality_profile.cutoff_quality = Some("FLAC".to_string());
+    let quality_profile_id = quality_profile.id;
+    let quality_profile_id_str = quality_profile_id.to_string();
+    quality_profile_repo
+        .create(quality_profile)
+        .await
+        .expect("create postgres quality profile");
+    assert!(quality_profile_repo
+        .get_by_name("Postgres Quality Profile")
+        .await
+        .expect("get quality profile by name")
+        .is_some());
+
+    let mut quality_profile_updated = quality_profile_repo
+        .get_by_id(&quality_profile_id_str)
+        .await
+        .expect("get quality profile by id")
+        .expect("quality profile exists");
+    quality_profile_updated.name = "Postgres Quality Profile Updated".to_string();
+    quality_profile_repo
+        .update(quality_profile_updated)
+        .await
+        .expect("update quality profile");
+
+    let mut metadata_profile = MetadataProfile::new("Postgres Metadata Profile");
+    metadata_profile.primary_album_types = vec!["Album".to_string()];
+    let metadata_profile_id = metadata_profile.id;
+    let metadata_profile_id_str = metadata_profile_id.to_string();
+    metadata_profile_repo
+        .create(metadata_profile)
+        .await
+        .expect("create postgres metadata profile");
+    assert!(metadata_profile_repo
+        .get_by_name("Postgres Metadata Profile")
+        .await
+        .expect("get metadata profile by name")
+        .is_some());
+
+    let mut metadata_profile_updated = metadata_profile_repo
+        .get_by_id(&metadata_profile_id_str)
+        .await
+        .expect("get metadata profile by id")
+        .expect("metadata profile exists");
+    metadata_profile_updated.name = "Postgres Metadata Profile Updated".to_string();
+    metadata_profile_repo
+        .update(metadata_profile_updated)
+        .await
+        .expect("update metadata profile");
+
+    let mut artist = Artist::new("Postgres Repo Artist");
+    artist.quality_profile_id = Some(quality_profile_id);
+    artist.metadata_profile_id = Some(metadata_profile_id);
+    let artist_id = artist.id;
+    artist_repo
+        .create(artist)
+        .await
+        .expect("create postgres artist for album/track tests");
+
+    let mut album = Album::new(artist_id, "100% Hits");
+    album.foreign_album_id = Some("album-foreign-id".to_string());
+    let album_id = album.id;
+    let album_id_str = album_id.to_string();
+    album_repo
+        .create(album)
+        .await
+        .expect("create postgres album");
+
+    let wildcard_lookup = album_repo
+        .get_by_artist_and_title(artist_id, "100% H_ts")
+        .await
+        .expect("query album by title with wildcard chars");
+    assert!(wildcard_lookup.is_none());
+
+    let exact_lookup = album_repo
+        .get_by_artist_and_title(artist_id, "100% hits")
+        .await
+        .expect("query album by exact case-insensitive title")
+        .expect("album should match exactly");
+    assert_eq!(exact_lookup.id, album_id);
+
+    let mut track = Track::new(album_id, artist_id, "Cutoff Track");
+    track.has_file = false;
+    let track_id = track.id;
+    let track_id_str = track.id.to_string();
+    track_repo
+        .create(track)
+        .await
+        .expect("create postgres track");
+
+    let without_files = track_repo
+        .list_without_files(10, 0)
+        .await
+        .expect("list tracks without files");
+    assert!(without_files.iter().any(|item| item.id == track_id));
+
+    let mut updated_track = track_repo
+        .get_by_id(&track_id_str)
+        .await
+        .expect("get track by id")
+        .expect("track exists");
+    updated_track.title = "Cutoff Track Updated".to_string();
+    track_repo
+        .update(updated_track)
+        .await
+        .expect("update postgres track");
+
+    let mut track_file = TrackFile::new(track_id, "/music/postgres-cutoff.mp3", 1024);
+    track_file.codec = Some("MP3".to_string());
+    track_file.quality = Some("MP3".to_string());
+    track_file.fingerprint_hash = Some("fp-hash-1".to_string());
+    let track_file_id = track_file.id.to_string();
+    track_file_repo
+        .create(track_file)
+        .await
+        .expect("create postgres track file");
+
+    let with_fingerprint = track_file_repo
+        .list_with_fingerprints(10, 0)
+        .await
+        .expect("list track files with fingerprints");
+    assert!(with_fingerprint
+        .iter()
+        .any(|item| item.path == "/music/postgres-cutoff.mp3"));
+
+    let mut updated_track_file = track_file_repo
+        .get_by_id(&track_file_id)
+        .await
+        .expect("get track file by id")
+        .expect("track file exists");
+    updated_track_file.path = "/music/postgres-cutoff-updated.mp3".to_string();
+    track_file_repo
+        .update(updated_track_file)
+        .await
+        .expect("update postgres track file");
+    assert!(track_file_repo
+        .get_by_path("/music/postgres-cutoff-updated.mp3")
+        .await
+        .expect("get track file by path")
+        .is_some());
+
+    let cutoff_unmet = album_repo
+        .list_cutoff_unmet_albums(10, 0)
+        .await
+        .expect("list cutoff-unmet albums");
+    assert!(cutoff_unmet.iter().any(|item| item.id == album_id));
+
+    let mut updated_album = album_repo
+        .get_by_id(&album_id_str)
+        .await
+        .expect("get album by id")
+        .expect("album exists");
+    updated_album.title = "100% Hits Updated".to_string();
+    album_repo
+        .update(updated_album)
+        .await
+        .expect("update postgres album");
+
+    let mut indexer = IndexerDefinition::new("Indexer A", "https://idx.example", "torznab");
+    indexer.api_key = Some("idx-key".to_string());
+    let indexer_id = indexer.id.to_string();
+    indexer_repo
+        .create(indexer)
+        .await
+        .expect("create indexer definition");
+    assert!(indexer_repo
+        .get_by_name("Indexer A")
+        .await
+        .expect("get indexer by name")
+        .is_some());
+
+    let mut updated_indexer = indexer_repo
+        .get_by_id(&indexer_id)
+        .await
+        .expect("get indexer by id")
+        .expect("indexer exists");
+    updated_indexer.enabled = false;
+    indexer_repo
+        .update(updated_indexer)
+        .await
+        .expect("update indexer definition");
+
+    let mut download_client =
+        DownloadClientDefinition::new("Client A", "qbittorrent", "http://localhost:8080");
+    download_client.username = Some("admin".to_string());
+    let download_client_id = download_client.id.to_string();
+    download_client_repo
+        .create(download_client)
+        .await
+        .expect("create download client definition");
+    assert!(download_client_repo
+        .get_by_name("Client A")
+        .await
+        .expect("get download client by name")
+        .is_some());
+
+    let mut updated_download_client = download_client_repo
+        .get_by_id(&download_client_id)
+        .await
+        .expect("get download client by id")
+        .expect("download client exists");
+    updated_download_client.enabled = false;
+    download_client_repo
+        .update(updated_download_client)
+        .await
+        .expect("update download client definition");
+
+    let mut related_artist = Artist::new("Related Artist");
+    related_artist.quality_profile_id = Some(quality_profile_id);
+    related_artist.metadata_profile_id = Some(metadata_profile_id);
+    let related_artist_id = related_artist.id;
+    artist_repo
+        .create(related_artist)
+        .await
+        .expect("create related artist");
+
+    let relationship = ArtistRelationship::new(artist_id, related_artist_id, "collaborator");
+    let relationship_id = relationship.id.to_string();
+    relationship_repo
+        .create(relationship)
+        .await
+        .expect("create artist relationship");
+    assert!(relationship_repo
+        .relationship_exists(artist_id, related_artist_id, "collaborator")
+        .await
+        .expect("relationship exists check"));
+
+    let mut updated_relationship = relationship_repo
+        .get_by_id(&relationship_id)
+        .await
+        .expect("get artist relationship by id")
+        .expect("relationship exists");
+    updated_relationship.description = Some("updated".to_string());
+    relationship_repo
+        .update(updated_relationship)
+        .await
+        .expect("update artist relationship");
+
+    relationship_repo
+        .delete(&relationship_id)
+        .await
+        .expect("delete artist relationship");
+    track_file_repo
+        .delete(&track_file_id)
+        .await
+        .expect("delete track file");
+    track_repo
+        .delete(&track_id_str)
+        .await
+        .expect("delete track");
+    album_repo
+        .delete(&album_id_str)
+        .await
+        .expect("delete album");
+    indexer_repo
+        .delete(&indexer_id)
+        .await
+        .expect("delete indexer");
+    download_client_repo
+        .delete(&download_client_id)
+        .await
+        .expect("delete download client");
+    metadata_profile_repo
+        .delete(&metadata_profile_id_str)
+        .await
+        .expect("delete metadata profile");
+    quality_profile_repo
+        .delete(&quality_profile_id_str)
+        .await
+        .expect("delete quality profile");
 }
