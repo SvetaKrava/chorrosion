@@ -18,8 +18,6 @@ use chorrosion_infrastructure::postgres_adapters::{
     PostgresMetadataProfileRepository, PostgresQualityProfileRepository,
     PostgresTrackFileRepository, PostgresTrackRepository,
 };
-#[cfg(feature = "postgres")]
-use chorrosion_infrastructure::sqlite_to_postgres::migrate_sqlite_to_postgres;
 use chorrosion_infrastructure::repositories::{
     AlbumRepository, ArtistRelationshipRepository, Repository, TrackFileRepository, TrackRepository,
 };
@@ -33,10 +31,16 @@ use chorrosion_infrastructure::sqlite_adapters::{
     SqliteTrackFileRepository, SqliteTrackRepository,
 };
 #[cfg(feature = "postgres")]
+use chorrosion_infrastructure::sqlite_to_postgres::{
+    migrate_sqlite_to_postgres_with_options, MigrationOptions, TargetResetPolicy,
+};
+#[cfg(feature = "postgres")]
 use sqlx::Executor;
 #[cfg(feature = "postgres")]
 use sqlx::PgPool;
 use sqlx::SqlitePool;
+#[cfg(feature = "postgres")]
+use uuid::Uuid;
 
 async fn setup_pool() -> SqlitePool {
     let mut config = AppConfig::default();
@@ -370,17 +374,30 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
 
     let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
         .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
+    let isolated_schema = format!("it_sqlite_to_postgres_{}", Uuid::new_v4().simple());
+    let escaped_schema = isolated_schema.replace('"', "\"\"");
+    sqlx::query(&format!("CREATE SCHEMA \"{escaped_schema}\""))
+        .execute(&_pool)
+        .await
+        .expect("create isolated schema for sqlite->postgres migration test");
 
     let mut postgres_config = AppConfig::default();
-    postgres_config.database.url = postgres_url;
+    postgres_config.database.url = postgres_url_with_search_path(&postgres_url, &isolated_schema);
     postgres_config.database.pool_max_size = 2;
     let postgres_pool = init_postgres_database(&postgres_config)
         .await
         .expect("initialize postgres target pool");
 
-    let report = migrate_sqlite_to_postgres(&sqlite_pool, &postgres_pool)
-        .await
-        .expect("migrate sqlite data into postgres");
+    let report = migrate_sqlite_to_postgres_with_options(
+        &sqlite_pool,
+        &postgres_pool,
+        MigrationOptions {
+            target_reset_policy: TargetResetPolicy::TruncateAll,
+            ..MigrationOptions::default()
+        },
+    )
+    .await
+    .expect("migrate sqlite data into postgres");
     assert!(
         report.mismatched_tables().is_empty(),
         "all migrated tables should have matching row counts"
@@ -393,6 +410,19 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .expect("query migrated artist")
         .expect("artist should exist in postgres after migration");
     assert_eq!(migrated_artist.name, "Migration Artist");
+
+    sqlx::query(&format!(
+        "DROP SCHEMA IF EXISTS \"{escaped_schema}\" CASCADE"
+    ))
+    .execute(&_pool)
+    .await
+    .expect("drop isolated schema for sqlite->postgres migration test");
+}
+
+#[cfg(feature = "postgres")]
+fn postgres_url_with_search_path(base_url: &str, schema: &str) -> String {
+    let separator = if base_url.contains('?') { '&' } else { '?' };
+    format!("{base_url}{separator}options=-csearch_path%3D{schema}")
 }
 
 #[cfg(feature = "postgres")]
