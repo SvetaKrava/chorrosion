@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-11  
-**Current Phase:** Phase 6: User Interface Enhancement  
-**Next Milestone:** Complete remaining download monitoring and client integration backlog items from Phase 4.2 / 4.3
+**Last Updated:** 2026-04-16  
+**Current Phase:** Phase 9: PostgreSQL Support  
+**Next Milestone:** Complete Phase 9.1 backlog: PostgreSQL-specific optimizations, migration compatibility, and connection pooling tuning
