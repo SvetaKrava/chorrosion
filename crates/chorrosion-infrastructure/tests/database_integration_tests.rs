@@ -18,6 +18,8 @@ use chorrosion_infrastructure::postgres_adapters::{
     PostgresMetadataProfileRepository, PostgresQualityProfileRepository,
     PostgresTrackFileRepository, PostgresTrackRepository,
 };
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::sqlite_to_postgres::migrate_sqlite_to_postgres;
 use chorrosion_infrastructure::repositories::{
     AlbumRepository, ArtistRelationshipRepository, Repository, TrackFileRepository, TrackRepository,
 };
@@ -323,6 +325,74 @@ async fn postgres_artist_repository_crud_and_filters() {
         .await
         .expect("get artist after delete");
     assert!(gone.is_none());
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn sqlite_to_postgres_migration_copies_core_rows() {
+    let mut sqlite_config = AppConfig::default();
+    sqlite_config.database.url = "sqlite://:memory:".to_string();
+    sqlite_config.database.pool_max_size = 1;
+    let sqlite_pool = init_database(&sqlite_config)
+        .await
+        .expect("initialize sqlite source pool");
+
+    let artist = Artist::new("Migration Artist");
+    let artist_id = artist.id;
+    SqliteArtistRepository::new(sqlite_pool.clone())
+        .create(artist)
+        .await
+        .expect("create source artist");
+
+    let album = Album::new(artist_id, "Migration Album");
+    let album_id = album.id;
+    SqliteAlbumRepository::new(sqlite_pool.clone())
+        .create(album)
+        .await
+        .expect("create source album");
+
+    let track = Track::new(album_id, artist_id, "Migration Track");
+    let track_id = track.id;
+    SqliteTrackRepository::new(sqlite_pool.clone())
+        .create(track)
+        .await
+        .expect("create source track");
+
+    let file = TrackFile::new(track_id, "/music/migration-track.flac", 42_000);
+    SqliteTrackFileRepository::new(sqlite_pool.clone())
+        .create(file)
+        .await
+        .expect("create source track file");
+
+    let Some(_pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
+        .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
+
+    let mut postgres_config = AppConfig::default();
+    postgres_config.database.url = postgres_url;
+    postgres_config.database.pool_max_size = 2;
+    let postgres_pool = init_postgres_database(&postgres_config)
+        .await
+        .expect("initialize postgres target pool");
+
+    let report = migrate_sqlite_to_postgres(&sqlite_pool, &postgres_pool)
+        .await
+        .expect("migrate sqlite data into postgres");
+    assert!(
+        report.mismatched_tables().is_empty(),
+        "all migrated tables should have matching row counts"
+    );
+
+    let pg_artist_repo = PostgresArtistRepository::new(postgres_pool.clone());
+    let migrated_artist = pg_artist_repo
+        .get_by_id(&artist_id.to_string())
+        .await
+        .expect("query migrated artist")
+        .expect("artist should exist in postgres after migration");
+    assert_eq!(migrated_artist.name, "Migration Artist");
 }
 
 #[cfg(feature = "postgres")]
