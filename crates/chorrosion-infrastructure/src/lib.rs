@@ -15,7 +15,11 @@ pub use transaction::run_in_transaction;
 use anyhow::Result;
 use chorrosion_config::AppConfig;
 use reqwest::Client;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
+#[cfg(feature = "postgres")]
+use sqlx::PgPool;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::info;
@@ -87,6 +91,31 @@ pub async fn init_database(config: &AppConfig) -> Result<SqlitePool> {
     sqlx::migrate!("../../migrations").run(&pool).await?;
 
     info!(target: "infrastructure", "database initialized successfully");
+    Ok(pool)
+}
+
+#[cfg(feature = "postgres")]
+pub async fn create_postgres_pool(config: &AppConfig) -> Result<PgPool> {
+    info!(target: "infrastructure", db_url = %config.database.url, "connecting to postgres database");
+
+    let pool = PgPoolOptions::new()
+        .max_connections(config.database.pool_max_size)
+        .connect(&config.database.url)
+        .await?;
+
+    Ok(pool)
+}
+
+#[cfg(feature = "postgres")]
+pub async fn init_postgres_database(config: &AppConfig) -> Result<PgPool> {
+    info!(target: "infrastructure", "initializing postgres database");
+
+    let pool = create_postgres_pool(config).await?;
+
+    info!(target: "infrastructure", db_url = %config.database.url, "running migrations");
+    sqlx::migrate!("../../migrations").run(&pool).await?;
+
+    info!(target: "infrastructure", "postgres database initialized successfully");
     Ok(pool)
 }
 
