@@ -2,7 +2,13 @@
 
 use chorrosion_config::AppConfig;
 use chorrosion_domain::{Album, Artist, ArtistRelationship, Track, TrackFile};
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::create_postgres_pool;
 use chorrosion_infrastructure::init_database;
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::postgres_adapters::PostgresArtistRepository;
+#[cfg(feature = "postgres")]
+use chorrosion_infrastructure::repositories::ArtistRepository;
 use chorrosion_infrastructure::repositories::{
     AlbumRepository, ArtistRelationshipRepository, Repository, TrackFileRepository, TrackRepository,
 };
@@ -10,6 +16,8 @@ use chorrosion_infrastructure::sqlite_adapters::{
     SqliteAlbumRepository, SqliteArtistRelationshipRepository, SqliteArtistRepository,
     SqliteTrackFileRepository, SqliteTrackRepository,
 };
+#[cfg(feature = "postgres")]
+use sqlx::PgPool;
 use sqlx::SqlitePool;
 
 async fn setup_pool() -> SqlitePool {
@@ -143,4 +151,134 @@ async fn wanted_without_tracks_relationship_and_track_transition_workflow() {
         .await
         .expect("relationship existence check");
     assert!(exists);
+}
+
+#[cfg(feature = "postgres")]
+async fn setup_postgres_pool_from_env() -> Option<PgPool> {
+    let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL").ok()?;
+
+    let mut config = AppConfig::default();
+    config.database.url = postgres_url;
+    config.database.pool_max_size = 1;
+
+    Some(
+        create_postgres_pool(&config)
+            .await
+            .expect("create postgres pool"),
+    )
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_pool_connectivity_check() {
+    let Some(pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    let one: i64 = sqlx::query_scalar("SELECT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("postgres connectivity query should succeed");
+    assert_eq!(one, 1);
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_artist_repository_crud_and_filters() {
+    let Some(pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    sqlx::query(
+        r#"
+        CREATE TEMP TABLE IF NOT EXISTS artists (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            foreign_artist_id TEXT,
+            musicbrainz_artist_id TEXT,
+            metadata_profile_id TEXT,
+            quality_profile_id TEXT,
+            status TEXT NOT NULL DEFAULT 'continuing',
+            path TEXT,
+            monitored BOOLEAN NOT NULL DEFAULT TRUE,
+            artist_type TEXT,
+            sort_name TEXT,
+            country TEXT,
+            disambiguation TEXT,
+            genre_tags TEXT,
+            style_tags TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("create temporary artists table for postgres test");
+
+    let repo = PostgresArtistRepository::new(pool.clone());
+
+    let mut artist = Artist::new("Postgres Artist");
+    artist.foreign_artist_id = Some("foreign-artist-1".to_string());
+    artist.monitored = true;
+    artist.genre_tags = Some("rock|alt".to_string());
+
+    let artist_id = artist.id.to_string();
+    repo.create(artist).await.expect("create postgres artist");
+
+    let by_id = repo
+        .get_by_id(&artist_id)
+        .await
+        .expect("get artist by id")
+        .expect("artist should exist");
+    assert_eq!(by_id.name, "Postgres Artist");
+
+    let by_name = repo
+        .get_by_name("postgres artist")
+        .await
+        .expect("get artist by name")
+        .expect("artist should be found case-insensitively");
+    assert_eq!(by_name.id.to_string(), artist_id);
+
+    let by_foreign_id = repo
+        .get_by_foreign_id("foreign-artist-1")
+        .await
+        .expect("get artist by foreign id")
+        .expect("artist should be found by foreign id");
+    assert_eq!(by_foreign_id.id.to_string(), artist_id);
+
+    let monitored = repo
+        .list_monitored(10, 0)
+        .await
+        .expect("list monitored artists");
+    assert_eq!(monitored.len(), 1);
+
+    let mut updated = by_id.clone();
+    updated.status = chorrosion_domain::ArtistStatus::Ended;
+    updated.monitored = false;
+    updated.name = "Postgres Artist Updated".to_string();
+    repo.update(updated).await.expect("update postgres artist");
+
+    let ended = repo
+        .get_by_status(chorrosion_domain::ArtistStatus::Ended, 10, 0)
+        .await
+        .expect("list artists by status");
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].name, "Postgres Artist Updated");
+
+    let monitored_after_update = repo
+        .list_monitored(10, 0)
+        .await
+        .expect("list monitored artists after update");
+    assert!(monitored_after_update.is_empty());
+
+    repo.delete(&artist_id)
+        .await
+        .expect("delete postgres artist");
+
+    let gone = repo
+        .get_by_id(&artist_id)
+        .await
+        .expect("get artist after delete");
+    assert!(gone.is_none());
 }

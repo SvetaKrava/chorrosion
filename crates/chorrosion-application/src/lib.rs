@@ -9,6 +9,7 @@ use chorrosion_infrastructure::{
     ResponseCache,
 };
 use moka::sync::Cache;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -220,7 +221,7 @@ impl ActivityHistoryStore {
     pub fn snapshot(&self) -> Vec<CachedActivityItem> {
         let records = self.inner.lock().expect("activity history store lock");
         let mut sorted: Vec<_> = records.values().cloned().collect();
-        sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        sorted.sort_by_key(|record| Reverse(record.last_seen));
         sorted.into_iter().map(|record| record.item).collect()
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub mod backup_restore;
 pub mod cache;
+pub mod postgres_adapters;
 pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
@@ -14,9 +15,17 @@ pub use transaction::run_in_transaction;
 use anyhow::Result;
 use chorrosion_config::AppConfig;
 use reqwest::Client;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgConnectOptions;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
+#[cfg(feature = "postgres")]
+use sqlx::PgPool;
 use sqlx::SqlitePool;
 use std::path::Path;
+#[cfg(feature = "postgres")]
+use std::str::FromStr;
 use tracing::info;
 
 pub fn http_client() -> Client {
@@ -87,6 +96,66 @@ pub async fn init_database(config: &AppConfig) -> Result<SqlitePool> {
 
     info!(target: "infrastructure", "database initialized successfully");
     Ok(pool)
+}
+
+#[cfg(feature = "postgres")]
+pub async fn create_postgres_pool(config: &AppConfig) -> Result<PgPool> {
+    let redacted_db_url = redact_postgres_url(&config.database.url);
+    info!(target: "infrastructure", db_url = %redacted_db_url, "connecting to postgres database");
+
+    let pool = PgPoolOptions::new()
+        .max_connections(config.database.pool_max_size)
+        .connect(&config.database.url)
+        .await?;
+
+    Ok(pool)
+}
+
+#[cfg(feature = "postgres")]
+pub async fn init_postgres_database(config: &AppConfig) -> Result<PgPool> {
+    info!(target: "infrastructure", "initializing postgres database");
+
+    let pool = create_postgres_pool(config).await?;
+
+    let redacted_db_url = redact_postgres_url(&config.database.url);
+    info!(target: "infrastructure", db_url = %redacted_db_url, "running postgres migrations");
+    run_postgres_migrations(&pool).await?;
+
+    info!(target: "infrastructure", "postgres database initialized successfully");
+    Ok(pool)
+}
+
+#[cfg(feature = "postgres")]
+fn redact_postgres_url(db_url: &str) -> String {
+    match PgConnectOptions::from_str(db_url) {
+        Ok(options) => {
+            let db_name = options.get_database().unwrap_or("<none>");
+            format!(
+                "postgres://{}:{}/{}",
+                options.get_host(),
+                options.get_port(),
+                db_name
+            )
+        }
+        Err(_) => "postgres://<redacted>".to_string(),
+    }
+}
+
+#[cfg(feature = "postgres")]
+async fn run_postgres_migrations(pool: &PgPool) -> Result<()> {
+    let migrations_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations/postgres");
+
+    if !migrations_path.exists() {
+        return Err(anyhow::anyhow!(
+            "postgres migrations directory not found at {}; use a Postgres-specific migration set instead of the shared SQLite migrations",
+            migrations_path.display()
+        ));
+    }
+
+    let migrator = sqlx::migrate::Migrator::new(migrations_path).await?;
+    migrator.run(pool).await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
