@@ -16,12 +16,16 @@ use anyhow::Result;
 use chorrosion_config::AppConfig;
 use reqwest::Client;
 #[cfg(feature = "postgres")]
+use sqlx::postgres::PgConnectOptions;
+#[cfg(feature = "postgres")]
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
 #[cfg(feature = "postgres")]
 use sqlx::PgPool;
 use sqlx::SqlitePool;
 use std::path::Path;
+#[cfg(feature = "postgres")]
+use std::str::FromStr;
 use tracing::info;
 
 pub fn http_client() -> Client {
@@ -123,19 +127,17 @@ pub async fn init_postgres_database(config: &AppConfig) -> Result<PgPool> {
 
 #[cfg(feature = "postgres")]
 fn redact_postgres_url(db_url: &str) -> String {
-    let trimmed = db_url
-        .strip_prefix("postgres://")
-        .or_else(|| db_url.strip_prefix("postgresql://"));
-
-    if let Some(rest) = trimmed {
-        let without_credentials = rest.rsplit('@').next().unwrap_or(rest);
-        let without_query = without_credentials
-            .split('?')
-            .next()
-            .unwrap_or(without_credentials);
-        format!("postgres://{}", without_query)
-    } else {
-        "postgres://<redacted>".to_string()
+    match PgConnectOptions::from_str(db_url) {
+        Ok(options) => {
+            let db_name = options.get_database().unwrap_or("<none>");
+            format!(
+                "postgres://{}:{}/{}",
+                options.get_host(),
+                options.get_port(),
+                db_name
+            )
+        }
+        Err(_) => "postgres://<redacted>".to_string(),
     }
 }
 

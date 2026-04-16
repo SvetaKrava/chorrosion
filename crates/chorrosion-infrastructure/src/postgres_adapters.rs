@@ -157,6 +157,7 @@ impl ArtistRepository for PostgresArtistRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Artist>> {
         debug!(target: "repository", name, "fetching artist by name (postgres)");
 
+        // Escape '\' first so literal '%' and '_' remain literal under ILIKE ... ESCAPE '\'.
         let escaped_name = name
             .replace('\\', "\\\\")
             .replace('%', "\\%")
