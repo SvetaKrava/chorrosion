@@ -625,7 +625,10 @@ impl Job for RssSyncJob {
         info!(target: "jobs", job_id = %ctx.job_id, "executing RSS sync job");
 
         let indexers = match self.indexer_repository.list(5000, 0).await {
-            Ok(indexers) => indexers.into_iter().filter(|i| i.enabled).collect::<Vec<_>>(),
+            Ok(indexers) => indexers
+                .into_iter()
+                .filter(|i| i.enabled)
+                .collect::<Vec<_>>(),
             Err(error) => {
                 return Ok(JobResult::Failure {
                     error: format!("failed to list configured indexers: {error}"),
@@ -639,23 +642,26 @@ impl Job for RssSyncJob {
             return Ok(JobResult::Success);
         }
 
-        let wanted_titles = match collect_wanted_album_titles(&self.album_repository, self.scan_limit).await {
-            Ok(titles) => titles,
-            Err(error) => {
-                return Ok(JobResult::Failure {
-                    error: format!("failed to load wanted albums for RSS matching: {error}"),
-                    retry: true,
-                });
-            }
-        };
+        let wanted_titles =
+            match collect_wanted_album_titles(&self.album_repository, self.scan_limit).await {
+                Ok(titles) => titles,
+                Err(error) => {
+                    return Ok(JobResult::Failure {
+                        error: format!("failed to load wanted albums for RSS matching: {error}"),
+                        retry: true,
+                    });
+                }
+            };
 
         if wanted_titles.is_empty() {
             info!(target: "jobs", job_id = %ctx.job_id, "no wanted albums to match; skipping RSS sync");
             return Ok(JobResult::Success);
         }
 
+        let enabled_indexers = indexers.len();
         let mut indexers_polled: usize = 0;
         let mut poll_failures: usize = 0;
+        let mut config_failures: usize = 0;
         let mut rss_items_seen: usize = 0;
         let mut rss_items_matched: usize = 0;
 
@@ -663,14 +669,14 @@ impl Job for RssSyncJob {
             let protocol = match definition.protocol.parse::<IndexerProtocol>() {
                 Ok(protocol) => protocol,
                 Err(error) => {
-                    poll_failures += 1;
+                    config_failures += 1;
                     warn!(
                         target: "jobs",
                         job_id = %ctx.job_id,
                         indexer = %definition.name,
                         protocol = %definition.protocol,
                         error = %error,
-                        "skipping indexer with unsupported protocol"
+                        "skipping indexer with invalid protocol"
                     );
                     continue;
                 }
@@ -684,24 +690,25 @@ impl Job for RssSyncJob {
                 enabled: definition.enabled,
             };
 
-            indexers_polled += 1;
             let fetch_result = match protocol {
                 IndexerProtocol::Newznab => {
+                    indexers_polled += 1;
                     let client = NewznabClient::new(config);
                     client.fetch_rss_feed().await
                 }
                 IndexerProtocol::Torznab => {
+                    indexers_polled += 1;
                     let client = TorznabClient::new(config);
                     client.fetch_rss_feed().await
                 }
                 other => {
-                    poll_failures += 1;
+                    config_failures += 1;
                     warn!(
                         target: "jobs",
                         job_id = %ctx.job_id,
                         indexer = %definition.name,
                         protocol = %other.as_str(),
-                        "RSS sync currently supports only newznab/torznab indexers"
+                        "skipping indexer: unsupported RSS sync protocol (supported: newznab, torznab)"
                     );
                     continue;
                 }
@@ -737,13 +744,24 @@ impl Job for RssSyncJob {
         info!(
             target: "jobs",
             job_id = %ctx.job_id,
+            enabled_indexers,
             indexers_polled,
             poll_failures,
+            config_failures,
             rss_items_seen,
             rss_items_matched,
             wanted_album_count = wanted_titles.len(),
             "RSS sync completed"
         );
+
+        if indexers_polled == 0 && config_failures > 0 {
+            return Ok(JobResult::Failure {
+                error:
+                    "no enabled indexers use a supported RSS protocol (supported: newznab, torznab)"
+                        .to_string(),
+                retry: false,
+            });
+        }
 
         if indexers_polled > 0 && poll_failures == indexers_polled {
             return Ok(JobResult::Failure {
@@ -770,37 +788,61 @@ async fn collect_wanted_album_titles(
 ) -> Result<HashSet<String>> {
     let mut titles = HashSet::new();
 
-    let mut offset: i64 = 0;
-    loop {
-        let batch = album_repository
-            .list_wanted_without_tracks(scan_limit, offset)
-            .await?;
-        let batch_len = batch.len();
-        for album in batch {
-            titles.insert(normalize_match_key(&album.title));
-        }
-        if batch_len < scan_limit as usize {
-            break;
-        }
-        offset += scan_limit;
-    }
-
-    let mut offset: i64 = 0;
-    loop {
-        let batch = album_repository
-            .list_cutoff_unmet_albums(scan_limit, offset)
-            .await?;
-        let batch_len = batch.len();
-        for album in batch {
-            titles.insert(normalize_match_key(&album.title));
-        }
-        if batch_len < scan_limit as usize {
-            break;
-        }
-        offset += scan_limit;
-    }
+    collect_titles_by_source(
+        album_repository,
+        scan_limit,
+        &mut titles,
+        WantedAlbumTitleSource::WantedWithoutTracks,
+    )
+    .await?;
+    collect_titles_by_source(
+        album_repository,
+        scan_limit,
+        &mut titles,
+        WantedAlbumTitleSource::CutoffUnmet,
+    )
+    .await?;
 
     Ok(titles)
+}
+
+enum WantedAlbumTitleSource {
+    WantedWithoutTracks,
+    CutoffUnmet,
+}
+
+async fn collect_titles_by_source(
+    album_repository: &SqliteAlbumRepository,
+    scan_limit: i64,
+    titles: &mut HashSet<String>,
+    source: WantedAlbumTitleSource,
+) -> Result<()> {
+    let mut offset: i64 = 0;
+    loop {
+        let batch = match source {
+            WantedAlbumTitleSource::WantedWithoutTracks => {
+                album_repository
+                    .list_wanted_without_tracks(scan_limit, offset)
+                    .await?
+            }
+            WantedAlbumTitleSource::CutoffUnmet => {
+                album_repository
+                    .list_cutoff_unmet_albums(scan_limit, offset)
+                    .await?
+            }
+        };
+
+        let batch_len = batch.len();
+        for album in batch {
+            titles.insert(normalize_match_key(&album.title));
+        }
+        if batch_len < scan_limit as usize {
+            break;
+        }
+        offset += scan_limit;
+    }
+
+    Ok(())
 }
 
 fn count_rss_matches(
@@ -1784,5 +1826,64 @@ mod tests {
 
         let result = job.execute(ctx).await.expect("execute should not Err");
         assert!(matches!(result, JobResult::Success));
+    }
+
+    #[tokio::test]
+    async fn test_rss_sync_job_returns_non_retriable_failure_for_unsupported_protocols() {
+        let pool = make_migrated_pool().await;
+
+        let artist_id = Uuid::new_v4().to_string();
+        let album_id = Uuid::new_v4().to_string();
+        let indexer_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO artists (id, name, status, monitored) VALUES (?, ?, ?, ?)")
+            .bind(&artist_id)
+            .bind("Radiohead")
+            .bind("continuing")
+            .bind(true)
+            .execute(&pool)
+            .await
+            .expect("insert artist failed");
+
+        sqlx::query(
+            "INSERT INTO albums (id, artist_id, title, status, monitored) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&album_id)
+        .bind(&artist_id)
+        .bind("OK Computer")
+        .bind("wanted")
+        .bind(true)
+        .execute(&pool)
+        .await
+        .expect("insert wanted album failed");
+
+        sqlx::query(
+            "INSERT INTO indexer_definitions (id, name, base_url, protocol, enabled) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&indexer_id)
+        .bind("Unsupported Indexer")
+        .bind("https://example.com")
+        .bind("gazelle")
+        .bind(true)
+        .execute(&pool)
+        .await
+        .expect("insert indexer failed");
+
+        let album_repo = Arc::new(SqliteAlbumRepository::new(pool.clone()));
+        let indexer_repo = Arc::new(SqliteIndexerDefinitionRepository::new(pool));
+        let job = RssSyncJob::new(album_repo, indexer_repo);
+        let ctx = JobContext::new("test-rss-unsupported-protocols");
+
+        let result = job.execute(ctx).await.expect("execute should not Err");
+        match result {
+            JobResult::Failure { retry, error } => {
+                assert!(!retry, "unsupported protocols should not be retriable");
+                assert!(
+                    error.contains("supported RSS protocol"),
+                    "unexpected error: {error}"
+                );
+            }
+            other => panic!("expected non-retriable Failure, got {other:?}"),
+        }
     }
 }
