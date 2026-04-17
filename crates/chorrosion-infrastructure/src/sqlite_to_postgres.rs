@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveDateTime};
 use sqlx::{FromRow, PgPool, SqlitePool};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 const MIGRATED_TABLES: [&str; 9] = [
     "quality_profiles",
@@ -18,6 +18,7 @@ const MIGRATED_TABLES: [&str; 9] = [
     "download_client_definitions",
 ];
 const DEFAULT_BATCH_SIZE: i64 = 1_000;
+const MAX_ID_SAMPLES_PER_TABLE: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableMigrationSummary {
@@ -61,6 +62,35 @@ impl SchemaComparisonReport {
 pub struct TableColumnDifference {
     pub table: &'static str,
     pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DataValidationReport {
+    pub table_id_differences: Vec<TableIdDifference>,
+    pub referential_integrity: Vec<ReferentialIntegrityCheck>,
+}
+
+impl DataValidationReport {
+    pub fn has_issues(&self) -> bool {
+        !self.table_id_differences.is_empty()
+            || self
+                .referential_integrity
+                .iter()
+                .any(|check| check.orphan_count > 0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableIdDifference {
+    pub table: &'static str,
+    pub missing_ids_in_postgres: Vec<String>,
+    pub unexpected_ids_in_postgres: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferentialIntegrityCheck {
+    pub name: &'static str,
+    pub orphan_count: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -168,6 +198,69 @@ pub async fn compare_sqlite_postgres_schema(
     report
         .missing_columns_in_sqlite
         .sort_by(|a, b| a.table.cmp(b.table));
+
+    Ok(report)
+}
+
+pub async fn validate_sqlite_postgres_data(
+    sqlite_pool: &SqlitePool,
+    postgres_pool: &PgPool,
+) -> Result<DataValidationReport> {
+    let mut report = DataValidationReport::default();
+
+    for table in MIGRATED_TABLES {
+        let (missing_ids_in_postgres, unexpected_ids_in_postgres) =
+            id_difference_samples_for_table(sqlite_pool, postgres_pool, table).await?;
+
+        if !missing_ids_in_postgres.is_empty() || !unexpected_ids_in_postgres.is_empty() {
+            report.table_id_differences.push(TableIdDifference {
+                table,
+                missing_ids_in_postgres,
+                unexpected_ids_in_postgres,
+            });
+        }
+    }
+
+    let fk_checks: [(&str, &str); 6] = [
+        (
+            "albums_artist_fk",
+            "SELECT COUNT(*) FROM albums a LEFT JOIN artists ar ON ar.id = a.artist_id WHERE ar.id IS NULL",
+        ),
+        (
+            "tracks_album_fk",
+            "SELECT COUNT(*) FROM tracks t LEFT JOIN albums a ON a.id = t.album_id WHERE a.id IS NULL",
+        ),
+        (
+            "tracks_artist_fk",
+            "SELECT COUNT(*) FROM tracks t LEFT JOIN artists a ON a.id = t.artist_id WHERE a.id IS NULL",
+        ),
+        (
+            "track_files_track_fk",
+            "SELECT COUNT(*) FROM track_files tf LEFT JOIN tracks t ON t.id = tf.track_id WHERE t.id IS NULL",
+        ),
+        (
+            "artist_relationships_source_fk",
+            "SELECT COUNT(*) FROM artist_relationships r LEFT JOIN artists a ON a.id = r.source_artist_id WHERE a.id IS NULL",
+        ),
+        (
+            "artist_relationships_related_fk",
+            "SELECT COUNT(*) FROM artist_relationships r LEFT JOIN artists a ON a.id = r.related_artist_id WHERE a.id IS NULL",
+        ),
+    ];
+
+    for (name, query) in fk_checks {
+        let orphan_count: i64 = sqlx::query_scalar(query).fetch_one(postgres_pool).await?;
+        report
+            .referential_integrity
+            .push(ReferentialIntegrityCheck { name, orphan_count });
+    }
+
+    report
+        .table_id_differences
+        .sort_by(|a, b| a.table.cmp(b.table));
+    report
+        .referential_integrity
+        .sort_by(|a, b| a.name.cmp(b.name));
 
     Ok(report)
 }
@@ -642,6 +735,136 @@ async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
     Ok(exists.is_some())
 }
 
+#[derive(Debug, Default)]
+struct IdBatchCursor {
+    rows: VecDeque<String>,
+    last_seen: Option<String>,
+    exhausted: bool,
+}
+
+fn push_id_sample(samples: &mut Vec<String>, id: &str) {
+    if samples.len() < MAX_ID_SAMPLES_PER_TABLE {
+        samples.push(id.to_string());
+    }
+}
+
+async fn id_difference_samples_for_table(
+    sqlite_pool: &SqlitePool,
+    postgres_pool: &PgPool,
+    table: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
+    ensure_migrated_table(table)?;
+
+    let mut sqlite_cursor = IdBatchCursor::default();
+    let mut postgres_cursor = IdBatchCursor::default();
+    let mut missing_ids_in_postgres = Vec::new();
+    let mut unexpected_ids_in_postgres = Vec::new();
+
+    let mut sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+    let mut postgres_id = next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+
+    while sqlite_id.is_some() || postgres_id.is_some() {
+        match (&sqlite_id, &postgres_id) {
+            (Some(sqlite), Some(postgres)) => match sqlite.cmp(postgres) {
+                std::cmp::Ordering::Less => {
+                    push_id_sample(&mut missing_ids_in_postgres, sqlite);
+                    sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+                }
+                std::cmp::Ordering::Equal => {
+                    sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+                    postgres_id =
+                        next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+                }
+                std::cmp::Ordering::Greater => {
+                    push_id_sample(&mut unexpected_ids_in_postgres, postgres);
+                    postgres_id =
+                        next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+                }
+            },
+            (Some(sqlite), None) => {
+                push_id_sample(&mut missing_ids_in_postgres, sqlite);
+                sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+            }
+            (None, Some(postgres)) => {
+                push_id_sample(&mut unexpected_ids_in_postgres, postgres);
+                postgres_id = next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+            }
+            (None, None) => break,
+        }
+    }
+
+    Ok((missing_ids_in_postgres, unexpected_ids_in_postgres))
+}
+
+async fn next_sqlite_id(
+    pool: &SqlitePool,
+    table: &str,
+    cursor: &mut IdBatchCursor,
+) -> Result<Option<String>> {
+    loop {
+        if let Some(id) = cursor.rows.pop_front() {
+            return Ok(Some(id));
+        }
+
+        if cursor.exhausted {
+            return Ok(None);
+        }
+
+        let rows = sqlite_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
+
+        if let Some(last_id) = rows.last() {
+            cursor.last_seen = Some(last_id.clone());
+            cursor.rows = VecDeque::from(rows);
+        } else {
+            cursor.exhausted = true;
+        }
+    }
+}
+
+async fn next_postgres_id(
+    pool: &PgPool,
+    table: &str,
+    cursor: &mut IdBatchCursor,
+) -> Result<Option<String>> {
+    loop {
+        if let Some(id) = cursor.rows.pop_front() {
+            return Ok(Some(id));
+        }
+
+        if cursor.exhausted {
+            return Ok(None);
+        }
+
+        let rows = postgres_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
+
+        if let Some(last_id) = rows.last() {
+            cursor.last_seen = Some(last_id.clone());
+            cursor.rows = VecDeque::from(rows);
+        } else {
+            cursor.exhausted = true;
+        }
+    }
+}
+
+async fn sqlite_id_batch(
+    pool: &SqlitePool,
+    table: &str,
+    after_id: Option<&str>,
+) -> Result<Vec<String>> {
+    let query = sqlite_id_batch_query(table, after_id.is_some())?;
+    match after_id {
+        Some(last_id) => Ok(sqlx::query_scalar(query)
+            .bind(last_id)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+        None => Ok(sqlx::query_scalar(query)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+    }
+}
+
 async fn postgres_current_schema(pool: &PgPool) -> Result<String> {
     Ok(sqlx::query_scalar("SELECT current_schema()")
         .fetch_one(pool)
@@ -658,6 +881,101 @@ async fn postgres_table_exists(pool: &PgPool, schema: &str, table: &str) -> Resu
     .fetch_optional(pool)
     .await?;
     Ok(exists.is_some())
+}
+
+async fn postgres_id_batch(
+    pool: &PgPool,
+    table: &str,
+    after_id: Option<&str>,
+) -> Result<Vec<String>> {
+    let query = postgres_id_batch_query(table, after_id.is_some())?;
+    match after_id {
+        Some(last_id) => Ok(sqlx::query_scalar(query)
+            .bind(last_id)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+        None => Ok(sqlx::query_scalar(query)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+    }
+}
+
+fn sqlite_id_batch_query(table: &str, with_after_id: bool) -> Result<&'static str> {
+    Ok(match (table, with_after_id) {
+        ("quality_profiles", true) => {
+            "SELECT id FROM quality_profiles WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("metadata_profiles", true) => {
+            "SELECT id FROM metadata_profiles WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("artists", true) => "SELECT id FROM artists WHERE id > ? ORDER BY id LIMIT ?",
+        ("albums", true) => "SELECT id FROM albums WHERE id > ? ORDER BY id LIMIT ?",
+        ("tracks", true) => "SELECT id FROM tracks WHERE id > ? ORDER BY id LIMIT ?",
+        ("track_files", true) => "SELECT id FROM track_files WHERE id > ? ORDER BY id LIMIT ?",
+        ("artist_relationships", true) => {
+            "SELECT id FROM artist_relationships WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("indexer_definitions", true) => {
+            "SELECT id FROM indexer_definitions WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("download_client_definitions", true) => {
+            "SELECT id FROM download_client_definitions WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("quality_profiles", false) => "SELECT id FROM quality_profiles ORDER BY id LIMIT ?",
+        ("metadata_profiles", false) => "SELECT id FROM metadata_profiles ORDER BY id LIMIT ?",
+        ("artists", false) => "SELECT id FROM artists ORDER BY id LIMIT ?",
+        ("albums", false) => "SELECT id FROM albums ORDER BY id LIMIT ?",
+        ("tracks", false) => "SELECT id FROM tracks ORDER BY id LIMIT ?",
+        ("track_files", false) => "SELECT id FROM track_files ORDER BY id LIMIT ?",
+        ("artist_relationships", false) => {
+            "SELECT id FROM artist_relationships ORDER BY id LIMIT ?"
+        }
+        ("indexer_definitions", false) => "SELECT id FROM indexer_definitions ORDER BY id LIMIT ?",
+        ("download_client_definitions", false) => {
+            "SELECT id FROM download_client_definitions ORDER BY id LIMIT ?"
+        }
+        _ => return Err(anyhow!("unsupported migration table: {table}")),
+    })
+}
+
+fn postgres_id_batch_query(table: &str, with_after_id: bool) -> Result<&'static str> {
+    Ok(match (table, with_after_id) {
+        ("quality_profiles", true) => {
+            "SELECT id FROM quality_profiles WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("metadata_profiles", true) => {
+            "SELECT id FROM metadata_profiles WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("artists", true) => "SELECT id FROM artists WHERE id > $1 ORDER BY id LIMIT $2",
+        ("albums", true) => "SELECT id FROM albums WHERE id > $1 ORDER BY id LIMIT $2",
+        ("tracks", true) => "SELECT id FROM tracks WHERE id > $1 ORDER BY id LIMIT $2",
+        ("track_files", true) => "SELECT id FROM track_files WHERE id > $1 ORDER BY id LIMIT $2",
+        ("artist_relationships", true) => {
+            "SELECT id FROM artist_relationships WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("indexer_definitions", true) => {
+            "SELECT id FROM indexer_definitions WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("download_client_definitions", true) => {
+            "SELECT id FROM download_client_definitions WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("quality_profiles", false) => "SELECT id FROM quality_profiles ORDER BY id LIMIT $1",
+        ("metadata_profiles", false) => "SELECT id FROM metadata_profiles ORDER BY id LIMIT $1",
+        ("artists", false) => "SELECT id FROM artists ORDER BY id LIMIT $1",
+        ("albums", false) => "SELECT id FROM albums ORDER BY id LIMIT $1",
+        ("tracks", false) => "SELECT id FROM tracks ORDER BY id LIMIT $1",
+        ("track_files", false) => "SELECT id FROM track_files ORDER BY id LIMIT $1",
+        ("artist_relationships", false) => {
+            "SELECT id FROM artist_relationships ORDER BY id LIMIT $1"
+        }
+        ("indexer_definitions", false) => "SELECT id FROM indexer_definitions ORDER BY id LIMIT $1",
+        ("download_client_definitions", false) => {
+            "SELECT id FROM download_client_definitions ORDER BY id LIMIT $1"
+        }
+        _ => return Err(anyhow!("unsupported migration table: {table}")),
+    })
 }
 
 async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
@@ -856,5 +1174,30 @@ mod tests {
             ..SchemaComparisonReport::default()
         };
         assert!(report.has_differences());
+    }
+
+    #[test]
+    fn data_validation_report_has_issues_detects_failures() {
+        let clean = DataValidationReport::default();
+        assert!(!clean.has_issues());
+
+        let with_id_diff = DataValidationReport {
+            table_id_differences: vec![TableIdDifference {
+                table: "artists",
+                missing_ids_in_postgres: vec!["a-1".to_string()],
+                unexpected_ids_in_postgres: Vec::new(),
+            }],
+            ..DataValidationReport::default()
+        };
+        assert!(with_id_diff.has_issues());
+
+        let with_orphans = DataValidationReport {
+            referential_integrity: vec![ReferentialIntegrityCheck {
+                name: "tracks_album_fk",
+                orphan_count: 1,
+            }],
+            ..DataValidationReport::default()
+        };
+        assert!(with_orphans.has_issues());
     }
 }

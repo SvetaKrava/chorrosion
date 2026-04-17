@@ -447,7 +447,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 - [x] SQLite to PostgreSQL migration tool ✓
 - [x] Schema comparison tools ✓
-- [ ] Data validation after migration
+- [x] Data validation after migration ✓
 
 ---
 
@@ -532,4 +532,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-04-16  
 **Current Phase:** Phase 9: PostgreSQL Support  
-**Next Milestone:** Complete remaining Phase 9.2 tooling: post-migration data validation
+**Next Milestone:** Phase 9 complete; move to next prioritized backlog item

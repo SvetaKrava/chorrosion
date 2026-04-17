@@ -33,7 +33,7 @@ use chorrosion_infrastructure::sqlite_adapters::{
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::sqlite_to_postgres::{
     compare_sqlite_postgres_schema, migrate_sqlite_to_postgres_with_options, MigrationOptions,
-    TargetResetPolicy,
+    TargetResetPolicy, validate_sqlite_postgres_data,
 };
 #[cfg(feature = "postgres")]
 use sqlx::Executor;
@@ -417,6 +417,14 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .expect("query migrated artist")
         .expect("artist should exist in postgres after migration");
     assert_eq!(migrated_artist.name, "Migration Artist");
+
+    let validation = validate_sqlite_postgres_data(&sqlite_pool, &postgres_pool)
+        .await
+        .expect("validate migrated sqlite and postgres data");
+    assert!(
+        !validation.has_issues(),
+        "post-migration validation should report no ID parity or FK integrity issues; got: {validation:?}"
+    );
 }
 
 #[cfg(feature = "postgres")]
