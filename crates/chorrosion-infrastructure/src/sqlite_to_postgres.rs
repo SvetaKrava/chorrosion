@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveDateTime};
-use std::collections::HashSet;
 use sqlx::{FromRow, PgPool, SqlitePool};
+use std::collections::HashSet;
 
 const MIGRATED_TABLES: [&str; 9] = [
     "quality_profiles",
@@ -107,10 +107,11 @@ pub async fn compare_sqlite_postgres_schema(
     postgres_pool: &PgPool,
 ) -> Result<SchemaComparisonReport> {
     let mut report = SchemaComparisonReport::default();
+    let postgres_schema = postgres_current_schema(postgres_pool).await?;
 
     for table in MIGRATED_TABLES {
         let sqlite_exists = sqlite_table_exists(sqlite_pool, table).await?;
-        let postgres_exists = postgres_table_exists(postgres_pool, table).await?;
+        let postgres_exists = postgres_table_exists(postgres_pool, &postgres_schema, table).await?;
 
         if sqlite_exists && !postgres_exists {
             report.missing_tables_in_postgres.push(table);
@@ -129,7 +130,8 @@ pub async fn compare_sqlite_postgres_schema(
         }
 
         let sqlite_columns = sqlite_columns_for_table(sqlite_pool, table).await?;
-        let postgres_columns = postgres_columns_for_table(postgres_pool, table).await?;
+        let postgres_columns =
+            postgres_columns_for_table(postgres_pool, &postgres_schema, table).await?;
 
         let missing_in_postgres = sqlite_columns
             .difference(&postgres_columns)
@@ -632,20 +634,22 @@ fn sorted_columns(mut columns: Vec<String>) -> Vec<String> {
 
 async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
     ensure_migrated_table(table)?;
-    let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
-    )
-    .bind(table)
-    .fetch_optional(pool)
-    .await?;
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
+            .bind(table)
+            .fetch_optional(pool)
+            .await?;
     Ok(exists.is_some())
 }
 
-async fn postgres_table_exists(pool: &PgPool, table: &str) -> Result<bool> {
-    ensure_migrated_table(table)?;
-    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+async fn postgres_current_schema(pool: &PgPool) -> Result<String> {
+    Ok(sqlx::query_scalar("SELECT current_schema()")
         .fetch_one(pool)
-        .await?;
+        .await?)
+}
+
+async fn postgres_table_exists(pool: &PgPool, schema: &str, table: &str) -> Result<bool> {
+    ensure_migrated_table(table)?;
     let exists: Option<i64> = sqlx::query_scalar(
         "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1",
     )
@@ -663,11 +667,12 @@ async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<Hash
     Ok(rows.into_iter().collect())
 }
 
-async fn postgres_columns_for_table(pool: &PgPool, table: &str) -> Result<HashSet<String>> {
+async fn postgres_columns_for_table(
+    pool: &PgPool,
+    schema: &str,
+    table: &str,
+) -> Result<HashSet<String>> {
     ensure_migrated_table(table)?;
-    let schema: String = sqlx::query_scalar("SELECT current_schema()")
-        .fetch_one(pool)
-        .await?;
     let rows: Vec<String> = sqlx::query_scalar(
         "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
     )

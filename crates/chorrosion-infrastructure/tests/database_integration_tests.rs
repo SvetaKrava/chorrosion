@@ -369,7 +369,7 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .await
         .expect("create source track file");
 
-    let Some(_pool) = setup_postgres_pool_from_env().await else {
+    let Some(base_postgres_pool) = setup_postgres_pool_from_env().await else {
         return;
     };
 
@@ -382,9 +382,11 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
     );
     let escaped_schema = isolated_schema.replace('"', "\"\"");
     sqlx::query(&format!("CREATE SCHEMA \"{escaped_schema}\""))
-        .execute(&_pool)
+        .execute(&base_postgres_pool)
         .await
         .expect("create isolated schema for sqlite->postgres migration test");
+    let _schema_guard =
+        PostgresSchemaGuard::new(base_postgres_pool.clone(), escaped_schema.clone());
 
     let mut postgres_config = AppConfig::default();
     postgres_config.database.url = postgres_url_with_search_path(&postgres_url, &isolated_schema);
@@ -415,13 +417,6 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .expect("query migrated artist")
         .expect("artist should exist in postgres after migration");
     assert_eq!(migrated_artist.name, "Migration Artist");
-
-    sqlx::query(&format!(
-        "DROP SCHEMA IF EXISTS \"{escaped_schema}\" CASCADE"
-    ))
-    .execute(&_pool)
-    .await
-    .expect("drop isolated schema for sqlite->postgres migration test");
 }
 
 #[cfg(feature = "postgres")]
@@ -450,6 +445,8 @@ async fn sqlite_to_postgres_schema_comparison_reports_no_differences_after_init(
         .execute(&base_postgres_pool)
         .await
         .expect("create isolated schema for schema comparison test");
+    let _schema_guard =
+        PostgresSchemaGuard::new(base_postgres_pool.clone(), escaped_schema.clone());
 
     let mut postgres_config = AppConfig::default();
     postgres_config.database.url = postgres_url_with_search_path(&postgres_url, &isolated_schema);
@@ -465,13 +462,6 @@ async fn sqlite_to_postgres_schema_comparison_reports_no_differences_after_init(
         !report.has_differences(),
         "schema comparison should report no missing tables or columns; got: {report:?}"
     );
-
-    sqlx::query(&format!(
-        "DROP SCHEMA IF EXISTS \"{escaped_schema}\" CASCADE"
-    ))
-    .execute(&base_postgres_pool)
-    .await
-    .expect("drop isolated schema for schema comparison test");
 }
 
 #[cfg(feature = "postgres")]
@@ -490,6 +480,36 @@ fn is_safe_postgres_schema_name(schema: &str) -> bool {
         && schema
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(feature = "postgres")]
+struct PostgresSchemaGuard {
+    pool: PgPool,
+    escaped_schema: String,
+}
+
+#[cfg(feature = "postgres")]
+impl PostgresSchemaGuard {
+    fn new(pool: PgPool, escaped_schema: String) -> Self {
+        Self {
+            pool,
+            escaped_schema,
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl Drop for PostgresSchemaGuard {
+    fn drop(&mut self) {
+        let pool = self.pool.clone();
+        let query = format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
+            self.escaped_schema.replace('"', "\"\"")
+        );
+        tokio::spawn(async move {
+            let _ = sqlx::query(&query).execute(&pool).await;
+        });
+    }
 }
 
 #[cfg(feature = "postgres")]
