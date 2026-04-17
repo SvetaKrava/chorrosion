@@ -32,7 +32,8 @@ use chorrosion_infrastructure::sqlite_adapters::{
 };
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::sqlite_to_postgres::{
-    migrate_sqlite_to_postgres_with_options, MigrationOptions, TargetResetPolicy,
+    compare_sqlite_postgres_schema, migrate_sqlite_to_postgres_with_options, MigrationOptions,
+    TargetResetPolicy,
 };
 #[cfg(feature = "postgres")]
 use sqlx::Executor;
@@ -368,7 +369,7 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .await
         .expect("create source track file");
 
-    let Some(_pool) = setup_postgres_pool_from_env().await else {
+    let Some(base_postgres_pool) = setup_postgres_pool_from_env().await else {
         return;
     };
 
@@ -381,9 +382,11 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
     );
     let escaped_schema = isolated_schema.replace('"', "\"\"");
     sqlx::query(&format!("CREATE SCHEMA \"{escaped_schema}\""))
-        .execute(&_pool)
+        .execute(&base_postgres_pool)
         .await
         .expect("create isolated schema for sqlite->postgres migration test");
+    let _schema_guard =
+        PostgresSchemaGuard::new(base_postgres_pool.clone(), escaped_schema.clone());
 
     let mut postgres_config = AppConfig::default();
     postgres_config.database.url = postgres_url_with_search_path(&postgres_url, &isolated_schema);
@@ -414,13 +417,51 @@ async fn sqlite_to_postgres_migration_copies_core_rows() {
         .expect("query migrated artist")
         .expect("artist should exist in postgres after migration");
     assert_eq!(migrated_artist.name, "Migration Artist");
+}
 
-    sqlx::query(&format!(
-        "DROP SCHEMA IF EXISTS \"{escaped_schema}\" CASCADE"
-    ))
-    .execute(&_pool)
-    .await
-    .expect("drop isolated schema for sqlite->postgres migration test");
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn sqlite_to_postgres_schema_comparison_reports_no_differences_after_init() {
+    let mut sqlite_config = AppConfig::default();
+    sqlite_config.database.url = "sqlite://:memory:".to_string();
+    sqlite_config.database.pool_max_size = 1;
+    let sqlite_pool = init_database(&sqlite_config)
+        .await
+        .expect("initialize sqlite source pool");
+
+    let Some(base_postgres_pool) = setup_postgres_pool_from_env().await else {
+        return;
+    };
+
+    let postgres_url = std::env::var("CHORROSION_TEST_POSTGRES_URL")
+        .expect("CHORROSION_TEST_POSTGRES_URL should be set when running this test");
+    let isolated_schema = format!("it_schema_compare_{}", Uuid::new_v4().simple());
+    assert!(
+        is_safe_postgres_schema_name(&isolated_schema),
+        "generated schema name must only contain ascii letters, numbers, and underscores"
+    );
+    let escaped_schema = isolated_schema.replace('"', "\"\"");
+    sqlx::query(&format!("CREATE SCHEMA \"{escaped_schema}\""))
+        .execute(&base_postgres_pool)
+        .await
+        .expect("create isolated schema for schema comparison test");
+    let _schema_guard =
+        PostgresSchemaGuard::new(base_postgres_pool.clone(), escaped_schema.clone());
+
+    let mut postgres_config = AppConfig::default();
+    postgres_config.database.url = postgres_url_with_search_path(&postgres_url, &isolated_schema);
+    postgres_config.database.pool_max_size = 2;
+    let postgres_pool = init_postgres_database(&postgres_config)
+        .await
+        .expect("initialize postgres target pool");
+
+    let report = compare_sqlite_postgres_schema(&sqlite_pool, &postgres_pool)
+        .await
+        .expect("compare sqlite and postgres schema");
+    assert!(
+        !report.has_differences(),
+        "schema comparison should report no missing tables or columns; got: {report:?}"
+    );
 }
 
 #[cfg(feature = "postgres")]
@@ -439,6 +480,46 @@ fn is_safe_postgres_schema_name(schema: &str) -> bool {
         && schema
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(feature = "postgres")]
+struct PostgresSchemaGuard {
+    pool: PgPool,
+    escaped_schema: String,
+}
+
+#[cfg(feature = "postgres")]
+impl PostgresSchemaGuard {
+    fn new(pool: PgPool, escaped_schema: String) -> Self {
+        Self {
+            pool,
+            escaped_schema,
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl Drop for PostgresSchemaGuard {
+    fn drop(&mut self) {
+        let pool = self.pool.clone();
+        let query = format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", self.escaped_schema);
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            tokio::task::block_in_place(|| {
+                let _ = handle.block_on(async move { sqlx::query(&query).execute(&pool).await });
+            });
+            return;
+        }
+
+        if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            let _ = runtime.block_on(async move { sqlx::query(&query).execute(&pool).await });
+        } else {
+            eprintln!("failed to create runtime for postgres schema cleanup: {query}");
+        }
+    }
 }
 
 #[cfg(feature = "postgres")]
