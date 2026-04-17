@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveDateTime};
 use sqlx::{FromRow, PgPool, SqlitePool};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 const MIGRATED_TABLES: [&str; 9] = [
     "quality_profiles",
@@ -737,8 +737,7 @@ async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
 
 #[derive(Debug, Default)]
 struct IdBatchCursor {
-    rows: Vec<String>,
-    index: usize,
+    rows: VecDeque<String>,
     last_seen: Option<String>,
     exhausted: bool,
 }
@@ -803,9 +802,7 @@ async fn next_sqlite_id(
     cursor: &mut IdBatchCursor,
 ) -> Result<Option<String>> {
     loop {
-        if cursor.index < cursor.rows.len() {
-            let id = cursor.rows[cursor.index].clone();
-            cursor.index += 1;
+        if let Some(id) = cursor.rows.pop_front() {
             return Ok(Some(id));
         }
 
@@ -813,11 +810,11 @@ async fn next_sqlite_id(
             return Ok(None);
         }
 
-        cursor.rows = sqlite_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
-        cursor.index = 0;
+        let rows = sqlite_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
 
-        if let Some(last_id) = cursor.rows.last() {
+        if let Some(last_id) = rows.last() {
             cursor.last_seen = Some(last_id.clone());
+            cursor.rows = VecDeque::from(rows);
         } else {
             cursor.exhausted = true;
         }
@@ -830,9 +827,7 @@ async fn next_postgres_id(
     cursor: &mut IdBatchCursor,
 ) -> Result<Option<String>> {
     loop {
-        if cursor.index < cursor.rows.len() {
-            let id = cursor.rows[cursor.index].clone();
-            cursor.index += 1;
+        if let Some(id) = cursor.rows.pop_front() {
             return Ok(Some(id));
         }
 
@@ -840,11 +835,11 @@ async fn next_postgres_id(
             return Ok(None);
         }
 
-        cursor.rows = postgres_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
-        cursor.index = 0;
+        let rows = postgres_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
 
-        if let Some(last_id) = cursor.rows.last() {
+        if let Some(last_id) = rows.last() {
             cursor.last_seen = Some(last_id.clone());
+            cursor.rows = VecDeque::from(rows);
         } else {
             cursor.exhausted = true;
         }
@@ -856,23 +851,17 @@ async fn sqlite_id_batch(
     table: &str,
     after_id: Option<&str>,
 ) -> Result<Vec<String>> {
-    ensure_migrated_table(table)?;
+    let query = sqlite_id_batch_query(table, after_id.is_some())?;
     match after_id {
-        Some(last_id) => {
-            let query = format!("SELECT id FROM {table} WHERE id > ? ORDER BY id LIMIT ?");
-            Ok(sqlx::query_scalar(&query)
-                .bind(last_id)
-                .bind(DEFAULT_BATCH_SIZE)
-                .fetch_all(pool)
-                .await?)
-        }
-        None => {
-            let query = format!("SELECT id FROM {table} ORDER BY id LIMIT ?");
-            Ok(sqlx::query_scalar(&query)
-                .bind(DEFAULT_BATCH_SIZE)
-                .fetch_all(pool)
-                .await?)
-        }
+        Some(last_id) => Ok(sqlx::query_scalar(query)
+            .bind(last_id)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+        None => Ok(sqlx::query_scalar(query)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
     }
 }
 
@@ -899,24 +888,94 @@ async fn postgres_id_batch(
     table: &str,
     after_id: Option<&str>,
 ) -> Result<Vec<String>> {
-    ensure_migrated_table(table)?;
+    let query = postgres_id_batch_query(table, after_id.is_some())?;
     match after_id {
-        Some(last_id) => {
-            let query = format!("SELECT id FROM {table} WHERE id > $1 ORDER BY id LIMIT $2");
-            Ok(sqlx::query_scalar(&query)
-                .bind(last_id)
-                .bind(DEFAULT_BATCH_SIZE)
-                .fetch_all(pool)
-                .await?)
-        }
-        None => {
-            let query = format!("SELECT id FROM {table} ORDER BY id LIMIT $1");
-            Ok(sqlx::query_scalar(&query)
-                .bind(DEFAULT_BATCH_SIZE)
-                .fetch_all(pool)
-                .await?)
-        }
+        Some(last_id) => Ok(sqlx::query_scalar(query)
+            .bind(last_id)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
+        None => Ok(sqlx::query_scalar(query)
+            .bind(DEFAULT_BATCH_SIZE)
+            .fetch_all(pool)
+            .await?),
     }
+}
+
+fn sqlite_id_batch_query(table: &str, with_after_id: bool) -> Result<&'static str> {
+    Ok(match (table, with_after_id) {
+        ("quality_profiles", true) => {
+            "SELECT id FROM quality_profiles WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("metadata_profiles", true) => {
+            "SELECT id FROM metadata_profiles WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("artists", true) => "SELECT id FROM artists WHERE id > ? ORDER BY id LIMIT ?",
+        ("albums", true) => "SELECT id FROM albums WHERE id > ? ORDER BY id LIMIT ?",
+        ("tracks", true) => "SELECT id FROM tracks WHERE id > ? ORDER BY id LIMIT ?",
+        ("track_files", true) => "SELECT id FROM track_files WHERE id > ? ORDER BY id LIMIT ?",
+        ("artist_relationships", true) => {
+            "SELECT id FROM artist_relationships WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("indexer_definitions", true) => {
+            "SELECT id FROM indexer_definitions WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("download_client_definitions", true) => {
+            "SELECT id FROM download_client_definitions WHERE id > ? ORDER BY id LIMIT ?"
+        }
+        ("quality_profiles", false) => "SELECT id FROM quality_profiles ORDER BY id LIMIT ?",
+        ("metadata_profiles", false) => "SELECT id FROM metadata_profiles ORDER BY id LIMIT ?",
+        ("artists", false) => "SELECT id FROM artists ORDER BY id LIMIT ?",
+        ("albums", false) => "SELECT id FROM albums ORDER BY id LIMIT ?",
+        ("tracks", false) => "SELECT id FROM tracks ORDER BY id LIMIT ?",
+        ("track_files", false) => "SELECT id FROM track_files ORDER BY id LIMIT ?",
+        ("artist_relationships", false) => {
+            "SELECT id FROM artist_relationships ORDER BY id LIMIT ?"
+        }
+        ("indexer_definitions", false) => "SELECT id FROM indexer_definitions ORDER BY id LIMIT ?",
+        ("download_client_definitions", false) => {
+            "SELECT id FROM download_client_definitions ORDER BY id LIMIT ?"
+        }
+        _ => return Err(anyhow!("unsupported migration table: {table}")),
+    })
+}
+
+fn postgres_id_batch_query(table: &str, with_after_id: bool) -> Result<&'static str> {
+    Ok(match (table, with_after_id) {
+        ("quality_profiles", true) => {
+            "SELECT id FROM quality_profiles WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("metadata_profiles", true) => {
+            "SELECT id FROM metadata_profiles WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("artists", true) => "SELECT id FROM artists WHERE id > $1 ORDER BY id LIMIT $2",
+        ("albums", true) => "SELECT id FROM albums WHERE id > $1 ORDER BY id LIMIT $2",
+        ("tracks", true) => "SELECT id FROM tracks WHERE id > $1 ORDER BY id LIMIT $2",
+        ("track_files", true) => "SELECT id FROM track_files WHERE id > $1 ORDER BY id LIMIT $2",
+        ("artist_relationships", true) => {
+            "SELECT id FROM artist_relationships WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("indexer_definitions", true) => {
+            "SELECT id FROM indexer_definitions WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("download_client_definitions", true) => {
+            "SELECT id FROM download_client_definitions WHERE id > $1 ORDER BY id LIMIT $2"
+        }
+        ("quality_profiles", false) => "SELECT id FROM quality_profiles ORDER BY id LIMIT $1",
+        ("metadata_profiles", false) => "SELECT id FROM metadata_profiles ORDER BY id LIMIT $1",
+        ("artists", false) => "SELECT id FROM artists ORDER BY id LIMIT $1",
+        ("albums", false) => "SELECT id FROM albums ORDER BY id LIMIT $1",
+        ("tracks", false) => "SELECT id FROM tracks ORDER BY id LIMIT $1",
+        ("track_files", false) => "SELECT id FROM track_files ORDER BY id LIMIT $1",
+        ("artist_relationships", false) => {
+            "SELECT id FROM artist_relationships ORDER BY id LIMIT $1"
+        }
+        ("indexer_definitions", false) => "SELECT id FROM indexer_definitions ORDER BY id LIMIT $1",
+        ("download_client_definitions", false) => {
+            "SELECT id FROM download_client_definitions ORDER BY id LIMIT $1"
+        }
+        _ => return Err(anyhow!("unsupported migration table: {table}")),
+    })
 }
 
 async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
