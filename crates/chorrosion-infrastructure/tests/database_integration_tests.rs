@@ -502,13 +502,23 @@ impl PostgresSchemaGuard {
 impl Drop for PostgresSchemaGuard {
     fn drop(&mut self) {
         let pool = self.pool.clone();
-        let query = format!(
-            "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
-            self.escaped_schema.replace('"', "\"\"")
-        );
-        tokio::spawn(async move {
-            let _ = sqlx::query(&query).execute(&pool).await;
-        });
+        let query = format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", self.escaped_schema);
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            tokio::task::block_in_place(|| {
+                let _ = handle.block_on(async move { sqlx::query(&query).execute(&pool).await });
+            });
+            return;
+        }
+
+        if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            let _ = runtime.block_on(async move { sqlx::query(&query).execute(&pool).await });
+        } else {
+            eprintln!("failed to create runtime for postgres schema cleanup: {query}");
+        }
     }
 }
 
