@@ -209,21 +209,8 @@ pub async fn validate_sqlite_postgres_data(
     let mut report = DataValidationReport::default();
 
     for table in MIGRATED_TABLES {
-        let sqlite_ids = sqlite_ids_for_table(sqlite_pool, table).await?;
-        let postgres_ids = postgres_ids_for_table(postgres_pool, table).await?;
-
-        let missing_ids_in_postgres = sorted_id_samples(
-            sqlite_ids
-                .difference(&postgres_ids)
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-        let unexpected_ids_in_postgres = sorted_id_samples(
-            postgres_ids
-                .difference(&sqlite_ids)
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        let (missing_ids_in_postgres, unexpected_ids_in_postgres) =
+            id_difference_samples_for_table(sqlite_pool, postgres_pool, table).await?;
 
         if !missing_ids_in_postgres.is_empty() || !unexpected_ids_in_postgres.is_empty() {
             report.table_id_differences.push(TableIdDifference {
@@ -263,10 +250,9 @@ pub async fn validate_sqlite_postgres_data(
 
     for (name, query) in fk_checks {
         let orphan_count: i64 = sqlx::query_scalar(query).fetch_one(postgres_pool).await?;
-        report.referential_integrity.push(ReferentialIntegrityCheck {
-            name,
-            orphan_count,
-        });
+        report
+            .referential_integrity
+            .push(ReferentialIntegrityCheck { name, orphan_count });
     }
 
     report
@@ -739,14 +725,6 @@ fn sorted_columns(mut columns: Vec<String>) -> Vec<String> {
     columns
 }
 
-fn sorted_id_samples(mut ids: Vec<String>) -> Vec<String> {
-    ids.sort_unstable();
-    if ids.len() > MAX_ID_SAMPLES_PER_TABLE {
-        ids.truncate(MAX_ID_SAMPLES_PER_TABLE);
-    }
-    ids
-}
-
 async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
     ensure_migrated_table(table)?;
     let exists: Option<i64> =
@@ -757,11 +735,145 @@ async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
     Ok(exists.is_some())
 }
 
-async fn sqlite_ids_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
+#[derive(Debug, Default)]
+struct IdBatchCursor {
+    rows: Vec<String>,
+    index: usize,
+    last_seen: Option<String>,
+    exhausted: bool,
+}
+
+fn push_id_sample(samples: &mut Vec<String>, id: &str) {
+    if samples.len() < MAX_ID_SAMPLES_PER_TABLE {
+        samples.push(id.to_string());
+    }
+}
+
+async fn id_difference_samples_for_table(
+    sqlite_pool: &SqlitePool,
+    postgres_pool: &PgPool,
+    table: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
     ensure_migrated_table(table)?;
-    let query = format!("SELECT id FROM {table}");
-    let rows: Vec<String> = sqlx::query_scalar(&query).fetch_all(pool).await?;
-    Ok(rows.into_iter().collect())
+
+    let mut sqlite_cursor = IdBatchCursor::default();
+    let mut postgres_cursor = IdBatchCursor::default();
+    let mut missing_ids_in_postgres = Vec::new();
+    let mut unexpected_ids_in_postgres = Vec::new();
+
+    let mut sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+    let mut postgres_id = next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+
+    while sqlite_id.is_some() || postgres_id.is_some() {
+        match (&sqlite_id, &postgres_id) {
+            (Some(sqlite), Some(postgres)) => match sqlite.cmp(postgres) {
+                std::cmp::Ordering::Less => {
+                    push_id_sample(&mut missing_ids_in_postgres, sqlite);
+                    sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+                }
+                std::cmp::Ordering::Equal => {
+                    sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+                    postgres_id =
+                        next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+                }
+                std::cmp::Ordering::Greater => {
+                    push_id_sample(&mut unexpected_ids_in_postgres, postgres);
+                    postgres_id =
+                        next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+                }
+            },
+            (Some(sqlite), None) => {
+                push_id_sample(&mut missing_ids_in_postgres, sqlite);
+                sqlite_id = next_sqlite_id(sqlite_pool, table, &mut sqlite_cursor).await?;
+            }
+            (None, Some(postgres)) => {
+                push_id_sample(&mut unexpected_ids_in_postgres, postgres);
+                postgres_id = next_postgres_id(postgres_pool, table, &mut postgres_cursor).await?;
+            }
+            (None, None) => break,
+        }
+    }
+
+    Ok((missing_ids_in_postgres, unexpected_ids_in_postgres))
+}
+
+async fn next_sqlite_id(
+    pool: &SqlitePool,
+    table: &str,
+    cursor: &mut IdBatchCursor,
+) -> Result<Option<String>> {
+    loop {
+        if cursor.index < cursor.rows.len() {
+            let id = cursor.rows[cursor.index].clone();
+            cursor.index += 1;
+            return Ok(Some(id));
+        }
+
+        if cursor.exhausted {
+            return Ok(None);
+        }
+
+        cursor.rows = sqlite_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
+        cursor.index = 0;
+
+        if let Some(last_id) = cursor.rows.last() {
+            cursor.last_seen = Some(last_id.clone());
+        } else {
+            cursor.exhausted = true;
+        }
+    }
+}
+
+async fn next_postgres_id(
+    pool: &PgPool,
+    table: &str,
+    cursor: &mut IdBatchCursor,
+) -> Result<Option<String>> {
+    loop {
+        if cursor.index < cursor.rows.len() {
+            let id = cursor.rows[cursor.index].clone();
+            cursor.index += 1;
+            return Ok(Some(id));
+        }
+
+        if cursor.exhausted {
+            return Ok(None);
+        }
+
+        cursor.rows = postgres_id_batch(pool, table, cursor.last_seen.as_deref()).await?;
+        cursor.index = 0;
+
+        if let Some(last_id) = cursor.rows.last() {
+            cursor.last_seen = Some(last_id.clone());
+        } else {
+            cursor.exhausted = true;
+        }
+    }
+}
+
+async fn sqlite_id_batch(
+    pool: &SqlitePool,
+    table: &str,
+    after_id: Option<&str>,
+) -> Result<Vec<String>> {
+    ensure_migrated_table(table)?;
+    match after_id {
+        Some(last_id) => {
+            let query = format!("SELECT id FROM {table} WHERE id > ? ORDER BY id LIMIT ?");
+            Ok(sqlx::query_scalar(&query)
+                .bind(last_id)
+                .bind(DEFAULT_BATCH_SIZE)
+                .fetch_all(pool)
+                .await?)
+        }
+        None => {
+            let query = format!("SELECT id FROM {table} ORDER BY id LIMIT ?");
+            Ok(sqlx::query_scalar(&query)
+                .bind(DEFAULT_BATCH_SIZE)
+                .fetch_all(pool)
+                .await?)
+        }
+    }
 }
 
 async fn postgres_current_schema(pool: &PgPool) -> Result<String> {
@@ -782,11 +894,29 @@ async fn postgres_table_exists(pool: &PgPool, schema: &str, table: &str) -> Resu
     Ok(exists.is_some())
 }
 
-async fn postgres_ids_for_table(pool: &PgPool, table: &str) -> Result<HashSet<String>> {
+async fn postgres_id_batch(
+    pool: &PgPool,
+    table: &str,
+    after_id: Option<&str>,
+) -> Result<Vec<String>> {
     ensure_migrated_table(table)?;
-    let query = format!("SELECT id FROM {table}");
-    let rows: Vec<String> = sqlx::query_scalar(&query).fetch_all(pool).await?;
-    Ok(rows.into_iter().collect())
+    match after_id {
+        Some(last_id) => {
+            let query = format!("SELECT id FROM {table} WHERE id > $1 ORDER BY id LIMIT $2");
+            Ok(sqlx::query_scalar(&query)
+                .bind(last_id)
+                .bind(DEFAULT_BATCH_SIZE)
+                .fetch_all(pool)
+                .await?)
+        }
+        None => {
+            let query = format!("SELECT id FROM {table} ORDER BY id LIMIT $1");
+            Ok(sqlx::query_scalar(&query)
+                .bind(DEFAULT_BATCH_SIZE)
+                .fetch_all(pool)
+                .await?)
+        }
+    }
 }
 
 async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
