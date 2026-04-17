@@ -598,6 +598,8 @@ pub struct RssSyncJob {
     scan_limit: i64,
 }
 
+const SUPPORTED_RSS_PROTOCOLS: &str = "newznab, torznab";
+
 impl RssSyncJob {
     pub fn new(
         album_repository: Arc<SqliteAlbumRepository>,
@@ -676,7 +678,7 @@ impl Job for RssSyncJob {
                         indexer = %definition.name,
                         protocol = %definition.protocol,
                         error = %error,
-                        "skipping indexer with invalid protocol"
+                        "skipping indexer: unrecognized protocol"
                     );
                     continue;
                 }
@@ -708,7 +710,8 @@ impl Job for RssSyncJob {
                         job_id = %ctx.job_id,
                         indexer = %definition.name,
                         protocol = %other.as_str(),
-                        "skipping indexer: unsupported RSS sync protocol (supported: newznab, torznab)"
+                        supported_protocols = %SUPPORTED_RSS_PROTOCOLS,
+                        "skipping indexer: unsupported RSS sync protocol"
                     );
                     continue;
                 }
@@ -756,9 +759,10 @@ impl Job for RssSyncJob {
 
         if indexers_polled == 0 && config_failures > 0 {
             return Ok(JobResult::Failure {
-                error:
-                    "no enabled indexers use a supported RSS protocol (supported: newznab, torznab)"
-                        .to_string(),
+                error: format!(
+                    "no enabled indexers use a supported RSS protocol (supported: {})",
+                    SUPPORTED_RSS_PROTOCOLS
+                ),
                 retry: false,
             });
         }
@@ -806,11 +810,13 @@ async fn collect_wanted_album_titles(
     Ok(titles)
 }
 
+/// Source query used to collect candidate album titles for RSS matching.
 enum WantedAlbumTitleSource {
     WantedWithoutTracks,
     CutoffUnmet,
 }
 
+/// Collect wanted album titles from a paginated repository query and append them to `titles`.
 async fn collect_titles_by_source(
     album_repository: &SqliteAlbumRepository,
     scan_limit: i64,
