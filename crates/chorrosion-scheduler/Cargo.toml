@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 chorrosion-config = { path = "../chorrosion-config" }
+chorrosion-application = { path = "../chorrosion-application" }
 chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chorrosion-metadata = { path = "../chorrosion-metadata" }
 sqlx = { workspace = true }
