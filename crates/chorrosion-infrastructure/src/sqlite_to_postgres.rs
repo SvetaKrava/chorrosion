@@ -3,6 +3,7 @@
 
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveDateTime};
+use std::collections::HashSet;
 use sqlx::{FromRow, PgPool, SqlitePool};
 
 const MIGRATED_TABLES: [&str; 9] = [
@@ -37,6 +38,29 @@ impl MigrationReport {
             .filter(|summary| summary.sqlite_rows != summary.postgres_rows)
             .collect()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SchemaComparisonReport {
+    pub missing_tables_in_postgres: Vec<&'static str>,
+    pub missing_tables_in_sqlite: Vec<&'static str>,
+    pub missing_columns_in_postgres: Vec<TableColumnDifference>,
+    pub missing_columns_in_sqlite: Vec<TableColumnDifference>,
+}
+
+impl SchemaComparisonReport {
+    pub fn has_differences(&self) -> bool {
+        !self.missing_tables_in_postgres.is_empty()
+            || !self.missing_tables_in_sqlite.is_empty()
+            || !self.missing_columns_in_postgres.is_empty()
+            || !self.missing_columns_in_sqlite.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableColumnDifference {
+    pub table: &'static str,
+    pub columns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -74,6 +98,74 @@ pub async fn plan_sqlite_to_postgres_migration(
             postgres_rows: count_rows_postgres(postgres_pool, table).await?,
         });
     }
+
+    Ok(report)
+}
+
+pub async fn compare_sqlite_postgres_schema(
+    sqlite_pool: &SqlitePool,
+    postgres_pool: &PgPool,
+) -> Result<SchemaComparisonReport> {
+    let mut report = SchemaComparisonReport::default();
+
+    for table in MIGRATED_TABLES {
+        let sqlite_exists = sqlite_table_exists(sqlite_pool, table).await?;
+        let postgres_exists = postgres_table_exists(postgres_pool, table).await?;
+
+        if sqlite_exists && !postgres_exists {
+            report.missing_tables_in_postgres.push(table);
+            continue;
+        }
+
+        if !sqlite_exists && postgres_exists {
+            report.missing_tables_in_sqlite.push(table);
+            continue;
+        }
+
+        if !sqlite_exists && !postgres_exists {
+            report.missing_tables_in_postgres.push(table);
+            report.missing_tables_in_sqlite.push(table);
+            continue;
+        }
+
+        let sqlite_columns = sqlite_columns_for_table(sqlite_pool, table).await?;
+        let postgres_columns = postgres_columns_for_table(postgres_pool, table).await?;
+
+        let missing_in_postgres = sqlite_columns
+            .difference(&postgres_columns)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing_in_postgres.is_empty() {
+            report
+                .missing_columns_in_postgres
+                .push(TableColumnDifference {
+                    table,
+                    columns: sorted_columns(missing_in_postgres),
+                });
+        }
+
+        let missing_in_sqlite = postgres_columns
+            .difference(&sqlite_columns)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing_in_sqlite.is_empty() {
+            report
+                .missing_columns_in_sqlite
+                .push(TableColumnDifference {
+                    table,
+                    columns: sorted_columns(missing_in_sqlite),
+                });
+        }
+    }
+
+    report.missing_tables_in_postgres.sort_unstable();
+    report.missing_tables_in_sqlite.sort_unstable();
+    report
+        .missing_columns_in_postgres
+        .sort_by(|a, b| a.table.cmp(b.table));
+    report
+        .missing_columns_in_sqlite
+        .sort_by(|a, b| a.table.cmp(b.table));
 
     Ok(report)
 }
@@ -533,6 +625,59 @@ fn ensure_migrated_table(table: &str) -> Result<()> {
     }
 }
 
+fn sorted_columns(mut columns: Vec<String>) -> Vec<String> {
+    columns.sort_unstable();
+    columns
+}
+
+async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
+    ensure_migrated_table(table)?;
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .bind(table)
+    .fetch_optional(pool)
+    .await?;
+    Ok(exists.is_some())
+}
+
+async fn postgres_table_exists(pool: &PgPool, table: &str) -> Result<bool> {
+    ensure_migrated_table(table)?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(pool)
+        .await?;
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_optional(pool)
+    .await?;
+    Ok(exists.is_some())
+}
+
+async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
+    ensure_migrated_table(table)?;
+    let pragma = format!("SELECT name FROM pragma_table_info('{table}')");
+    let rows: Vec<String> = sqlx::query_scalar(&pragma).fetch_all(pool).await?;
+    Ok(rows.into_iter().collect())
+}
+
+async fn postgres_columns_for_table(pool: &PgPool, table: &str) -> Result<HashSet<String>> {
+    ensure_migrated_table(table)?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(pool)
+        .await?;
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct QualityProfileRow {
     id: String,
@@ -694,5 +839,17 @@ mod tests {
         let mismatches = report.mismatched_tables();
         assert_eq!(mismatches.len(), 1);
         assert_eq!(mismatches[0].table, "albums");
+    }
+
+    #[test]
+    fn schema_report_has_differences_detects_presence() {
+        let report = SchemaComparisonReport::default();
+        assert!(!report.has_differences());
+
+        let report = SchemaComparisonReport {
+            missing_tables_in_postgres: vec!["artists"],
+            ..SchemaComparisonReport::default()
+        };
+        assert!(report.has_differences());
     }
 }
