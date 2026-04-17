@@ -5,6 +5,8 @@ pub mod postgres_adapters;
 pub mod profiler;
 pub mod repositories;
 pub mod sqlite_adapters;
+#[cfg(feature = "postgres")]
+pub mod sqlite_to_postgres;
 pub mod transaction;
 
 pub use backup_restore::{create_sqlite_backup, restore_sqlite_backup};
