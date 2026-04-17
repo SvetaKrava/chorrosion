@@ -18,6 +18,7 @@ const MIGRATED_TABLES: [&str; 9] = [
     "download_client_definitions",
 ];
 const DEFAULT_BATCH_SIZE: i64 = 1_000;
+const MAX_ID_SAMPLES_PER_TABLE: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableMigrationSummary {
@@ -61,6 +62,35 @@ impl SchemaComparisonReport {
 pub struct TableColumnDifference {
     pub table: &'static str,
     pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DataValidationReport {
+    pub table_id_differences: Vec<TableIdDifference>,
+    pub referential_integrity: Vec<ReferentialIntegrityCheck>,
+}
+
+impl DataValidationReport {
+    pub fn has_issues(&self) -> bool {
+        !self.table_id_differences.is_empty()
+            || self
+                .referential_integrity
+                .iter()
+                .any(|check| check.orphan_count > 0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableIdDifference {
+    pub table: &'static str,
+    pub missing_ids_in_postgres: Vec<String>,
+    pub unexpected_ids_in_postgres: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferentialIntegrityCheck {
+    pub name: &'static str,
+    pub orphan_count: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -168,6 +198,83 @@ pub async fn compare_sqlite_postgres_schema(
     report
         .missing_columns_in_sqlite
         .sort_by(|a, b| a.table.cmp(b.table));
+
+    Ok(report)
+}
+
+pub async fn validate_sqlite_postgres_data(
+    sqlite_pool: &SqlitePool,
+    postgres_pool: &PgPool,
+) -> Result<DataValidationReport> {
+    let mut report = DataValidationReport::default();
+
+    for table in MIGRATED_TABLES {
+        let sqlite_ids = sqlite_ids_for_table(sqlite_pool, table).await?;
+        let postgres_ids = postgres_ids_for_table(postgres_pool, table).await?;
+
+        let missing_ids_in_postgres = sorted_id_samples(
+            sqlite_ids
+                .difference(&postgres_ids)
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        let unexpected_ids_in_postgres = sorted_id_samples(
+            postgres_ids
+                .difference(&sqlite_ids)
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+
+        if !missing_ids_in_postgres.is_empty() || !unexpected_ids_in_postgres.is_empty() {
+            report.table_id_differences.push(TableIdDifference {
+                table,
+                missing_ids_in_postgres,
+                unexpected_ids_in_postgres,
+            });
+        }
+    }
+
+    let fk_checks: [(&str, &str); 6] = [
+        (
+            "albums_artist_fk",
+            "SELECT COUNT(*) FROM albums a LEFT JOIN artists ar ON ar.id = a.artist_id WHERE ar.id IS NULL",
+        ),
+        (
+            "tracks_album_fk",
+            "SELECT COUNT(*) FROM tracks t LEFT JOIN albums a ON a.id = t.album_id WHERE a.id IS NULL",
+        ),
+        (
+            "tracks_artist_fk",
+            "SELECT COUNT(*) FROM tracks t LEFT JOIN artists a ON a.id = t.artist_id WHERE a.id IS NULL",
+        ),
+        (
+            "track_files_track_fk",
+            "SELECT COUNT(*) FROM track_files tf LEFT JOIN tracks t ON t.id = tf.track_id WHERE t.id IS NULL",
+        ),
+        (
+            "artist_relationships_source_fk",
+            "SELECT COUNT(*) FROM artist_relationships r LEFT JOIN artists a ON a.id = r.source_artist_id WHERE a.id IS NULL",
+        ),
+        (
+            "artist_relationships_related_fk",
+            "SELECT COUNT(*) FROM artist_relationships r LEFT JOIN artists a ON a.id = r.related_artist_id WHERE a.id IS NULL",
+        ),
+    ];
+
+    for (name, query) in fk_checks {
+        let orphan_count: i64 = sqlx::query_scalar(query).fetch_one(postgres_pool).await?;
+        report.referential_integrity.push(ReferentialIntegrityCheck {
+            name,
+            orphan_count,
+        });
+    }
+
+    report
+        .table_id_differences
+        .sort_by(|a, b| a.table.cmp(b.table));
+    report
+        .referential_integrity
+        .sort_by(|a, b| a.name.cmp(b.name));
 
     Ok(report)
 }
@@ -632,6 +739,14 @@ fn sorted_columns(mut columns: Vec<String>) -> Vec<String> {
     columns
 }
 
+fn sorted_id_samples(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort_unstable();
+    if ids.len() > MAX_ID_SAMPLES_PER_TABLE {
+        ids.truncate(MAX_ID_SAMPLES_PER_TABLE);
+    }
+    ids
+}
+
 async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
     ensure_migrated_table(table)?;
     let exists: Option<i64> =
@@ -640,6 +755,13 @@ async fn sqlite_table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
             .fetch_optional(pool)
             .await?;
     Ok(exists.is_some())
+}
+
+async fn sqlite_ids_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
+    ensure_migrated_table(table)?;
+    let query = format!("SELECT id FROM {table}");
+    let rows: Vec<String> = sqlx::query_scalar(&query).fetch_all(pool).await?;
+    Ok(rows.into_iter().collect())
 }
 
 async fn postgres_current_schema(pool: &PgPool) -> Result<String> {
@@ -658,6 +780,13 @@ async fn postgres_table_exists(pool: &PgPool, schema: &str, table: &str) -> Resu
     .fetch_optional(pool)
     .await?;
     Ok(exists.is_some())
+}
+
+async fn postgres_ids_for_table(pool: &PgPool, table: &str) -> Result<HashSet<String>> {
+    ensure_migrated_table(table)?;
+    let query = format!("SELECT id FROM {table}");
+    let rows: Vec<String> = sqlx::query_scalar(&query).fetch_all(pool).await?;
+    Ok(rows.into_iter().collect())
 }
 
 async fn sqlite_columns_for_table(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
@@ -856,5 +985,30 @@ mod tests {
             ..SchemaComparisonReport::default()
         };
         assert!(report.has_differences());
+    }
+
+    #[test]
+    fn data_validation_report_has_issues_detects_failures() {
+        let clean = DataValidationReport::default();
+        assert!(!clean.has_issues());
+
+        let with_id_diff = DataValidationReport {
+            table_id_differences: vec![TableIdDifference {
+                table: "artists",
+                missing_ids_in_postgres: vec!["a-1".to_string()],
+                unexpected_ids_in_postgres: Vec::new(),
+            }],
+            ..DataValidationReport::default()
+        };
+        assert!(with_id_diff.has_issues());
+
+        let with_orphans = DataValidationReport {
+            referential_integrity: vec![ReferentialIntegrityCheck {
+                name: "tracks_album_fk",
+                orphan_count: 1,
+            }],
+            ..DataValidationReport::default()
+        };
+        assert!(with_orphans.has_issues());
     }
 }
