@@ -696,12 +696,14 @@ impl Job for RssSyncJob {
                 IndexerProtocol::Newznab => {
                     indexers_polled += 1;
                     let client = NewznabClient::new(config);
-                    client.fetch_rss_feed().await
+                    let rss_items = client.fetch_rss_feed().await;
+                    rss_items
                 }
                 IndexerProtocol::Torznab => {
                     indexers_polled += 1;
                     let client = TorznabClient::new(config);
-                    client.fetch_rss_feed().await
+                    let rss_items = client.fetch_rss_feed().await;
+                    rss_items
                 }
                 other => {
                     config_failures += 1;
