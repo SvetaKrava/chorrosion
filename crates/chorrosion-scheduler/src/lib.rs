@@ -5,7 +5,9 @@ pub mod registry;
 
 use anyhow::Result;
 use chorrosion_config::AppConfig;
-use chorrosion_infrastructure::sqlite_adapters::SqliteAlbumRepository;
+use chorrosion_infrastructure::sqlite_adapters::{
+    SqliteAlbumRepository, SqliteIndexerDefinitionRepository,
+};
 use registry::JobRegistry;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -39,8 +41,19 @@ impl Scheduler {
         info!(target: "scheduler", "registering background jobs");
 
         // RSS sync every 15 minutes
+        let rss_album_repository = Arc::new(SqliteAlbumRepository::new_with_threshold(
+            self.pool.clone(),
+            self.config.database.slow_query_threshold_ms,
+        ));
+        let rss_indexer_repository = Arc::new(SqliteIndexerDefinitionRepository::new(
+            self.pool.clone(),
+        ));
         self.registry
-            .register("rss-sync", RssSyncJob::new(), Schedule::Interval(15 * 60))
+            .register(
+                "rss-sync",
+                RssSyncJob::new(rss_album_repository, rss_indexer_repository),
+                Schedule::Interval(15 * 60),
+            )
             .await;
 
         // Backlog search every hour, reusing the caller-provided database pool

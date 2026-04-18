@@ -186,8 +186,8 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Search triggering logic ✓
   - [x] Best release selection algorithm ✓
 - [ ] RSS sync enhancement
-  - [ ] Parse RSS feeds from indexers
-  - [ ] Match releases to wanted albums
+  - [x] Parse RSS feeds from indexers ✓
+  - [x] Match releases to wanted albums ✓
   - [ ] Automatic grab logic
 
 ### 4.2 Download Client Integration
