@@ -3,8 +3,8 @@ use crate::job::{Job, JobContext, JobResult};
 use anyhow::Result;
 use chorrosion_application::{
     parse_release_title, AddTorrentRequest, DelugeClient, DownloadClient, IndexerClient,
-    IndexerConfig, IndexerProtocol, NewznabClient, NzbgetClient, QBittorrentClient,
-    SabnzbdClient, TorznabClient, TransmissionClient,
+    IndexerConfig, IndexerProtocol, NewznabClient, NzbgetClient, QBittorrentClient, SabnzbdClient,
+    TorznabClient, TransmissionClient,
 };
 use chorrosion_config::{
     CacheConfig, DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig,
@@ -668,16 +668,33 @@ impl Job for RssSyncJob {
             return Ok(JobResult::Success);
         }
 
-        let (active_download_client_name, active_download_client_category, mut active_download_client) =
-            match load_active_download_client(&self.download_client_repository).await {
-                Ok(client) => client,
-                Err(error) => {
-                    return Ok(JobResult::Failure {
-                        error: format!("failed to load download client for automatic RSS grabs: {error}"),
-                        retry: true,
-                    });
-                }
-            };
+        let (
+            active_download_client_name,
+            active_download_client_category,
+            mut active_download_client,
+        ) = match load_active_download_client(&self.download_client_repository).await {
+            Ok(client) => client,
+            Err(error) => {
+                return Ok(JobResult::Failure {
+                    error: format!(
+                        "failed to load download client for automatic RSS grabs: {error}"
+                    ),
+                    retry: true,
+                });
+            }
+        };
+
+        if let Some(client) = active_download_client.as_mut() {
+            if let Err(error) = client.test_connection().await {
+                return Ok(JobResult::Failure {
+                    error: format!(
+                        "failed to connect to active download client '{}' for automatic RSS grabs: {error}",
+                        active_download_client_name
+                    ),
+                    retry: true,
+                });
+            }
+        }
 
         let enabled_indexers = indexers.len();
         let mut indexers_polled: usize = 0;
@@ -688,7 +705,7 @@ impl Job for RssSyncJob {
         let mut grab_attempted: usize = 0;
         let mut grab_succeeded: usize = 0;
         let mut grab_failed: usize = 0;
-        let mut skipped_no_download_url: usize = 0;
+        let mut skipped_no_download_client: usize = 0;
         let mut skipped_duplicate_url: usize = 0;
         let mut seen_grab_urls: HashSet<String> = HashSet::new();
 
@@ -752,7 +769,7 @@ impl Job for RssSyncJob {
                     rss_items_matched += matched;
 
                     for candidate in candidates {
-                        if !seen_grab_urls.insert(candidate.download_url.clone()) {
+                        if !should_attempt_grab_url(&candidate.download_url, &mut seen_grab_urls) {
                             skipped_duplicate_url += 1;
                             continue;
                         }
@@ -799,7 +816,7 @@ impl Job for RssSyncJob {
                     }
 
                     if matched > 0 && active_download_client.is_none() {
-                        skipped_no_download_url += matched;
+                        skipped_no_download_client += matched;
                         warn!(
                             target: "jobs",
                             job_id = %ctx.job_id,
@@ -842,36 +859,21 @@ impl Job for RssSyncJob {
             grab_attempted,
             grab_succeeded,
             grab_failed,
-            skipped_no_download_url,
+            skipped_no_download_client,
             skipped_duplicate_url,
             wanted_album_count = wanted_titles.len(),
             download_client = %active_download_client_name,
             "RSS sync completed"
         );
 
-        if indexers_polled == 0 && config_failures > 0 {
-            return Ok(JobResult::Failure {
-                error: format!(
-                    "no enabled indexers use a supported RSS protocol (supported: {})",
-                    SUPPORTED_RSS_PROTOCOLS
-                ),
-                retry: false,
-            });
-        }
-
-        if indexers_polled > 0 && poll_failures == indexers_polled {
-            return Ok(JobResult::Failure {
-                error: "failed to fetch RSS feeds from all polled indexers".to_string(),
-                retry: true,
-            });
-        }
-
-        if grab_attempted > 0 && grab_failed == grab_attempted {
-            return Ok(JobResult::Failure {
-                error: "automatic RSS grab submission failed for all matched releases"
-                    .to_string(),
-                retry: true,
-            });
+        if let Some(failure) = rss_sync_terminal_failure(
+            indexers_polled,
+            config_failures,
+            poll_failures,
+            grab_attempted,
+            grab_failed,
+        ) {
+            return Ok(failure);
         }
 
         Ok(JobResult::Success)
@@ -971,7 +973,11 @@ fn collect_rss_grab_candidates(
                 return None;
             }
 
-            let download_url = item.link.as_deref()?.trim();
+            let download_url = item
+                .download_url
+                .as_deref()
+                .or(item.link.as_deref())?
+                .trim();
             if download_url.is_empty() {
                 return None;
             }
@@ -989,57 +995,98 @@ fn normalize_match_key(value: &str) -> String {
     value.trim().to_lowercase()
 }
 
+fn should_attempt_grab_url(download_url: &str, seen_grab_urls: &mut HashSet<String>) -> bool {
+    seen_grab_urls.insert(download_url.to_string())
+}
+
+fn rss_sync_terminal_failure(
+    indexers_polled: usize,
+    config_failures: usize,
+    poll_failures: usize,
+    grab_attempted: usize,
+    grab_failed: usize,
+) -> Option<JobResult> {
+    if indexers_polled == 0 && config_failures > 0 {
+        return Some(JobResult::Failure {
+            error: format!(
+                "no enabled indexers use a supported RSS protocol (supported: {})",
+                SUPPORTED_RSS_PROTOCOLS
+            ),
+            retry: false,
+        });
+    }
+
+    if indexers_polled > 0 && poll_failures == indexers_polled {
+        return Some(JobResult::Failure {
+            error: "failed to fetch RSS feeds from all polled indexers".to_string(),
+            retry: true,
+        });
+    }
+
+    if grab_attempted > 0 && grab_failed == grab_attempted {
+        return Some(JobResult::Failure {
+            error: "automatic RSS grab submission failed for all matched releases".to_string(),
+            retry: true,
+        });
+    }
+
+    None
+}
+
 async fn load_active_download_client(
     download_client_repository: &SqliteDownloadClientDefinitionRepository,
 ) -> Result<(String, Option<String>, Option<Box<dyn DownloadClient>>)> {
     let definitions = download_client_repository.list(5000, 0).await?;
-    let active = definitions.into_iter().find(|definition| definition.enabled);
+    for definition in definitions
+        .into_iter()
+        .filter(|definition| definition.enabled)
+    {
+        let name = definition.name.clone();
+        let category = definition.category.clone();
+        let client_type = definition.client_type.trim().to_lowercase();
 
-    let Some(definition) = active else {
-        return Ok(("<none>".to_string(), None, None));
-    };
+        let client: Option<Box<dyn DownloadClient>> = match client_type.as_str() {
+            "qbittorrent" => Some(Box::new(QBittorrentClient::new(
+                definition.base_url.clone(),
+                definition.username.clone(),
+                definition.password_encrypted.clone(),
+            ))),
+            "transmission" => Some(Box::new(TransmissionClient::new(
+                definition.base_url.clone(),
+                definition.username.clone(),
+                definition.password_encrypted.clone(),
+            ))),
+            "deluge" => Some(Box::new(DelugeClient::new(
+                definition.base_url.clone(),
+                definition.password_encrypted.clone(),
+            ))),
+            "sabnzbd" => Some(Box::new(SabnzbdClient::new(
+                definition.base_url.clone(),
+                definition.password_encrypted.clone(),
+            ))),
+            "nzbget" => Some(Box::new(NzbgetClient::new(
+                definition.base_url.clone(),
+                definition.username.clone(),
+                definition.password_encrypted.clone(),
+            ))),
+            other => {
+                warn!(
+                    target: "jobs",
+                    download_client = %name,
+                    client_type = %other,
+                    supported_client_types = %SUPPORTED_GRAB_CLIENTS,
+                    "configured download client type is not supported for automatic RSS grabs"
+                );
+                None
+            }
+        };
 
-    let name = definition.name.clone();
-    let category = definition.category.clone();
-    let client_type = definition.client_type.trim().to_lowercase();
-
-    let client: Option<Box<dyn DownloadClient>> = match client_type.as_str() {
-        "qbittorrent" => Some(Box::new(QBittorrentClient::new(
-            definition.base_url.clone(),
-            definition.username.clone(),
-            definition.password_encrypted.clone(),
-        ))),
-        "transmission" => Some(Box::new(TransmissionClient::new(
-            definition.base_url.clone(),
-            definition.username.clone(),
-            definition.password_encrypted.clone(),
-        ))),
-        "deluge" => Some(Box::new(DelugeClient::new(
-            definition.base_url.clone(),
-            definition.password_encrypted.clone(),
-        ))),
-        "sabnzbd" => Some(Box::new(SabnzbdClient::new(
-            definition.base_url.clone(),
-            definition.password_encrypted.clone(),
-        ))),
-        "nzbget" => Some(Box::new(NzbgetClient::new(
-            definition.base_url.clone(),
-            definition.username.clone(),
-            definition.password_encrypted.clone(),
-        ))),
-        other => {
-            warn!(
-                target: "jobs",
-                download_client = %name,
-                client_type = %other,
-                supported_client_types = %SUPPORTED_GRAB_CLIENTS,
-                "configured download client type is not supported for automatic RSS grabs"
-            );
-            None
+        if client.is_some() {
+            return Ok((name, category, client));
         }
-    };
+    }
 
-    Ok((name, category, client))
+    Ok(("<none>".to_string(), None, None))
 }
 
 /// Backlog search job - searches indexers for missing albums
@@ -1971,6 +2018,7 @@ mod tests {
                 title: "Radiohead - OK Computer FLAC".to_string(),
                 guid: None,
                 link: Some("magnet:?xt=urn:btih:okc".to_string()),
+                download_url: Some("magnet:?xt=urn:btih:okc".to_string()),
                 published_at: None,
                 description: None,
             },
@@ -1978,6 +2026,7 @@ mod tests {
                 title: "Somebody - Unrelated Album MP3 320".to_string(),
                 guid: None,
                 link: Some("magnet:?xt=urn:btih:other".to_string()),
+                download_url: Some("magnet:?xt=urn:btih:other".to_string()),
                 published_at: None,
                 description: None,
             },
@@ -1985,6 +2034,7 @@ mod tests {
                 title: "Radiohead - In Rainbows [2007]".to_string(),
                 guid: None,
                 link: Some("https://example.test/download/nzb123".to_string()),
+                download_url: Some("https://example.test/download/nzb123".to_string()),
                 published_at: None,
                 description: None,
             },
@@ -1992,6 +2042,7 @@ mod tests {
                 title: "Radiohead - In Rainbows [Alt]".to_string(),
                 guid: None,
                 link: None,
+                download_url: None,
                 published_at: None,
                 description: None,
             },
@@ -2001,6 +2052,127 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].album_title, "OK Computer");
         assert_eq!(candidates[1].album_title, "In Rainbows");
+    }
+
+    #[test]
+    fn test_collect_rss_grab_candidates_prefers_download_url_over_link() {
+        let wanted = ["OK Computer"]
+            .into_iter()
+            .map(normalize_match_key)
+            .collect::<HashSet<_>>();
+
+        let items = vec![chorrosion_application::IndexerRssItem {
+            title: "Radiohead - OK Computer FLAC".to_string(),
+            guid: None,
+            link: Some("https://example.test/details/ok-computer".to_string()),
+            download_url: Some("magnet:?xt=urn:btih:okc".to_string()),
+            published_at: None,
+            description: None,
+        }];
+
+        let candidates = collect_rss_grab_candidates(&items, &wanted);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].download_url, "magnet:?xt=urn:btih:okc");
+    }
+
+    #[test]
+    fn test_should_attempt_grab_url_deduplicates() {
+        let mut seen = HashSet::new();
+        assert!(should_attempt_grab_url(
+            "magnet:?xt=urn:btih:one",
+            &mut seen
+        ));
+        assert!(!should_attempt_grab_url(
+            "magnet:?xt=urn:btih:one",
+            &mut seen
+        ));
+        assert!(should_attempt_grab_url(
+            "magnet:?xt=urn:btih:two",
+            &mut seen
+        ));
+    }
+
+    #[test]
+    fn test_rss_sync_terminal_failure_all_grabs_failed_is_retriable() {
+        let outcome = rss_sync_terminal_failure(1, 0, 0, 2, 2);
+        match outcome {
+            Some(JobResult::Failure { retry, error }) => {
+                assert!(retry, "all failed submissions should be retriable");
+                assert!(
+                    error.contains("automatic RSS grab submission failed"),
+                    "unexpected error: {error}"
+                );
+            }
+            other => panic!("expected retriable failure, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_load_active_download_client_returns_none_when_no_enabled_clients() {
+        let pool = make_migrated_pool().await;
+        let repository = SqliteDownloadClientDefinitionRepository::new(pool.clone());
+        let definition_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO download_client_definitions (id, name, client_type, base_url, enabled) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&definition_id)
+        .bind("Disabled qBittorrent")
+        .bind("qbittorrent")
+        .bind("http://localhost:8080")
+        .bind(false)
+        .execute(&pool)
+        .await
+        .expect("insert disabled download client failed");
+
+        let (name, category, client) = load_active_download_client(&repository)
+            .await
+            .expect("load active download client should succeed");
+
+        assert_eq!(name, "<none>");
+        assert_eq!(category, None);
+        assert!(client.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_load_active_download_client_skips_unsupported_enabled_client_type() {
+        let pool = make_migrated_pool().await;
+        let repository = SqliteDownloadClientDefinitionRepository::new(pool.clone());
+        let unsupported_id = Uuid::new_v4().to_string();
+        let supported_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO download_client_definitions (id, name, client_type, base_url, enabled) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&unsupported_id)
+        .bind("A Unsupported")
+        .bind("unknown-client")
+        .bind("http://localhost:9999")
+        .bind(true)
+        .execute(&pool)
+        .await
+        .expect("insert unsupported download client failed");
+
+        sqlx::query(
+            "INSERT INTO download_client_definitions (id, name, client_type, base_url, enabled, category) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&supported_id)
+        .bind("B qBittorrent")
+        .bind("qbittorrent")
+        .bind("http://localhost:8080")
+        .bind(true)
+        .bind("music")
+        .execute(&pool)
+        .await
+        .expect("insert supported download client failed");
+
+        let (name, category, client) = load_active_download_client(&repository)
+            .await
+            .expect("load active download client should succeed");
+
+        assert_eq!(name, "B qBittorrent");
+        assert_eq!(category.as_deref(), Some("music"));
+        assert!(client.is_some());
     }
 
     #[tokio::test]
