@@ -327,11 +327,11 @@ impl IndexerClient for GazelleClient {
     async fn detect_capabilities(&self) -> Result<IndexerCapabilities, IndexerError> {
         execute_gazelle_request(&self.client, &self.config, "index", None).await?;
         Ok(IndexerCapabilities {
-            supports_search: true,
+            supports_search: false,
             supports_rss: false,
             supports_capabilities_detection: true,
-            supports_categories: true,
-            supported_categories: vec!["music".to_string(), "torrent".to_string()],
+            supports_categories: false,
+            supported_categories: Vec::new(),
         })
     }
 
@@ -964,7 +964,7 @@ mod tests {
 
         assert!(result.success);
         let capabilities = result.capabilities.expect("capabilities should be present");
-        assert!(capabilities.supports_search);
+        assert!(!capabilities.supports_search);
         assert!(!capabilities.supports_rss);
     }
 
