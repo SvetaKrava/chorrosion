@@ -90,6 +90,7 @@ pub struct IndexerRssItem {
     pub title: String,
     pub guid: Option<String>,
     pub link: Option<String>,
+    pub download_url: Option<String>,
     pub published_at: Option<String>,
     pub description: Option<String>,
 }
@@ -525,12 +526,21 @@ pub fn parse_rss_feed(xml: &str) -> Result<Vec<IndexerRssItem>, IndexerError> {
         .channel
         .items
         .into_iter()
-        .map(|item| IndexerRssItem {
-            title: item.title,
-            guid: item.guid,
-            link: item.link,
-            published_at: parse_pub_date(item.pub_date),
-            description: item.description,
+        .map(|item| {
+            let download_url = item
+                .enclosure
+                .as_ref()
+                .and_then(|enclosure| enclosure.url.clone())
+                .or_else(|| item.link.clone());
+
+            IndexerRssItem {
+                download_url,
+                title: item.title,
+                guid: item.guid,
+                link: item.link,
+                published_at: parse_pub_date(item.pub_date),
+                description: item.description,
+            }
         })
         .collect())
 }
@@ -565,6 +575,7 @@ struct RssRawItem {
     title: String,
     guid: Option<String>,
     link: Option<String>,
+    enclosure: Option<SearchEnclosure>,
     #[serde(rename = "pubDate")]
     pub_date: Option<String>,
     description: Option<String>,
@@ -604,8 +615,35 @@ mod tests {
             Some("https://example.org/download/abc")
         );
         assert_eq!(
+            items[0].download_url.as_deref(),
+            Some("https://example.org/download/abc")
+        );
+        assert_eq!(
             items[0].published_at.as_deref(),
             Some("2026-02-25T10:00:00+00:00")
+        );
+    }
+
+    #[test]
+    fn parses_rss_items_preferring_enclosure_download_url() {
+        let xml = r#"
+            <rss>
+                <channel>
+                    <item>
+                        <title>Artist - Album FLAC</title>
+                        <guid>abc-123</guid>
+                        <link>https://example.org/details/abc</link>
+                        <enclosure url="magnet:?xt=urn:btih:rss123" length="123456789" type="application/x-bittorrent" />
+                    </item>
+                </channel>
+            </rss>
+        "#;
+
+        let items = parse_rss_feed(xml).expect("rss should parse");
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].download_url.as_deref(),
+            Some("magnet:?xt=urn:btih:rss123")
         );
     }
 

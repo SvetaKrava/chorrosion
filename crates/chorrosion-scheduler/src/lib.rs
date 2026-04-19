@@ -6,7 +6,8 @@ pub mod registry;
 use anyhow::Result;
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::sqlite_adapters::{
-    SqliteAlbumRepository, SqliteIndexerDefinitionRepository,
+    SqliteAlbumRepository, SqliteDownloadClientDefinitionRepository,
+    SqliteIndexerDefinitionRepository,
 };
 use registry::JobRegistry;
 use sqlx::SqlitePool;
@@ -48,10 +49,17 @@ impl Scheduler {
         let rss_indexer_repository = Arc::new(SqliteIndexerDefinitionRepository::new(
             self.pool.clone(),
         ));
+        let rss_download_client_repository = Arc::new(
+            SqliteDownloadClientDefinitionRepository::new(self.pool.clone()),
+        );
         self.registry
             .register(
                 "rss-sync",
-                RssSyncJob::new(rss_album_repository, rss_indexer_repository),
+                RssSyncJob::new(
+                    rss_album_repository,
+                    rss_indexer_repository,
+                    rss_download_client_repository,
+                ),
                 Schedule::Interval(15 * 60),
             )
             .await;
