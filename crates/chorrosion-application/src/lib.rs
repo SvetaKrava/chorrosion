@@ -62,9 +62,9 @@ pub use import_matching::{
     ParsedTrackMetadata, RawTrackMetadata, ScannedAudioFile,
 };
 pub use indexers::{
-    parse_rss_feed, parse_search_results, IndexerCapabilities, IndexerClient, IndexerConfig,
-    IndexerError, IndexerProtocol, IndexerRssItem, IndexerSearchQuery, IndexerSearchResult,
-    IndexerTestResult, NewznabClient, TorznabClient,
+    parse_rss_feed, parse_search_results, GazelleClient, IndexerCapabilities, IndexerClient,
+    IndexerConfig, IndexerError, IndexerProtocol, IndexerRssItem, IndexerSearchQuery,
+    IndexerSearchResult, IndexerTestResult, NewznabClient, TorznabClient,
 };
 pub use lists::{
     auto_add_from_list_entries, dedupe_list_entries, ExternalListEntry, LastFmListProvider,
