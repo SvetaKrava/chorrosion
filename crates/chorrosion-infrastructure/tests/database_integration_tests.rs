@@ -32,8 +32,8 @@ use chorrosion_infrastructure::sqlite_adapters::{
 };
 #[cfg(feature = "postgres")]
 use chorrosion_infrastructure::sqlite_to_postgres::{
-    compare_sqlite_postgres_schema, migrate_sqlite_to_postgres_with_options, MigrationOptions,
-    TargetResetPolicy, validate_sqlite_postgres_data,
+    compare_sqlite_postgres_schema, migrate_sqlite_to_postgres_with_options,
+    validate_sqlite_postgres_data, MigrationOptions, TargetResetPolicy,
 };
 #[cfg(feature = "postgres")]
 use sqlx::Executor;

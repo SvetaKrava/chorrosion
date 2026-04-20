@@ -31,6 +31,7 @@ pub mod notifications;
 pub mod permission;
 pub mod quality_upgrade;
 pub mod release_parsing;
+pub mod release_restrictions;
 pub mod scan_cache;
 pub mod search_automation;
 pub mod tag_embedding;
@@ -87,6 +88,7 @@ pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
     AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
 };
+pub use release_restrictions::{ReleaseRestrictionSet, RestrictionRule};
 pub use scan_cache::{cached_scan_audio_files, DirScanCache};
 pub use search_automation::{
     automatic_search_missing_albums, detect_missing_albums, manual_search, AlbumSearchTarget,
