@@ -179,6 +179,11 @@ pub struct TorznabClient {
     client: Client,
 }
 
+pub struct GazelleClient {
+    config: IndexerConfig,
+    client: Client,
+}
+
 impl TorznabClient {
     /// Creates a new `TorznabClient` with default concurrency settings.
     pub fn new(config: IndexerConfig) -> Self {
@@ -216,6 +221,14 @@ impl TorznabClient {
             "Initializing TorznabClient with concurrency limits and custom base URL"
         );
         Self::new(config)
+    }
+}
+
+impl GazelleClient {
+    pub fn new(config: IndexerConfig) -> Self {
+        let client = build_indexer_http_client();
+        debug!(target: "indexers", base_url = %config.base_url, "Initialized GazelleClient");
+        Self { config, client }
     }
 }
 
@@ -293,6 +306,48 @@ impl IndexerClient for TorznabClient {
         )
         .await?;
         parse_rss_feed(&xml)
+    }
+
+    async fn test_connection(&self) -> Result<IndexerTestResult, IndexerError> {
+        let capabilities = self.detect_capabilities().await?;
+        Ok(IndexerTestResult {
+            success: true,
+            message: format!("Indexer '{}' connection successful", self.config.name),
+            capabilities: Some(capabilities),
+        })
+    }
+}
+
+#[async_trait]
+impl IndexerClient for GazelleClient {
+    fn config(&self) -> &IndexerConfig {
+        &self.config
+    }
+
+    async fn detect_capabilities(&self) -> Result<IndexerCapabilities, IndexerError> {
+        execute_gazelle_request(&self.client, &self.config, "index", None).await?;
+        Ok(IndexerCapabilities {
+            supports_search: false,
+            supports_rss: false,
+            supports_capabilities_detection: true,
+            supports_categories: false,
+            supported_categories: Vec::new(),
+        })
+    }
+
+    async fn search(
+        &self,
+        _query: &IndexerSearchQuery,
+    ) -> Result<Vec<IndexerSearchResult>, IndexerError> {
+        Err(IndexerError::Unsupported(
+            "gazelle music-specific search is not implemented yet".to_string(),
+        ))
+    }
+
+    async fn fetch_rss_feed(&self) -> Result<Vec<IndexerRssItem>, IndexerError> {
+        Err(IndexerError::Unsupported(
+            "gazelle RSS is not supported".to_string(),
+        ))
     }
 
     async fn test_connection(&self) -> Result<IndexerTestResult, IndexerError> {
@@ -418,6 +473,69 @@ async fn execute_api_request(
 
     let response = client
         .get(url)
+        .send()
+        .await
+        .map_err(|error| IndexerError::Request(error.to_string()))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| IndexerError::Request(error.to_string()))?;
+
+    if !status.is_success() {
+        return Err(IndexerError::Request(format!(
+            "status {}: {}",
+            status.as_u16(),
+            body
+        )));
+    }
+
+    Ok(body)
+}
+
+async fn execute_gazelle_request(
+    client: &Client,
+    config: &IndexerConfig,
+    action: &str,
+    extra_params: Option<Vec<(&str, String)>>,
+) -> Result<String, IndexerError> {
+    let api_key = config
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            IndexerError::Request("gazelle API authentication requires an api_key".to_string())
+        })?;
+
+    let mut url = Url::parse(&config.base_url)
+        .map_err(|error| IndexerError::Request(format!("invalid base url: {error}")))?;
+    let normalized_path = url.path().trim_end_matches('/').to_string();
+    if !normalized_path.ends_with("/ajax.php") {
+        if normalized_path.is_empty() {
+            url.set_path("/ajax.php");
+        } else {
+            url.set_path(&format!("{normalized_path}/ajax.php"));
+        }
+    }
+
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("action", action);
+        if let Some(extra) = extra_params {
+            for (key, value) in extra {
+                pairs.append_pair(key, &value);
+            }
+        }
+    }
+
+    debug!(target: "indexers", base_url = %config.base_url, action, "requesting gazelle endpoint");
+
+    let response = client
+        .get(url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("X-API-Key", api_key)
         .send()
         .await
         .map_err(|error| IndexerError::Request(error.to_string()))?;
@@ -584,10 +702,10 @@ struct RssRawItem {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_rss_feed, parse_search_results, IndexerClient, IndexerConfig, IndexerProtocol,
-        IndexerSearchQuery, NewznabClient, TorznabClient,
+        parse_rss_feed, parse_search_results, GazelleClient, IndexerClient, IndexerConfig,
+        IndexerProtocol, IndexerSearchQuery, NewznabClient, TorznabClient,
     };
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -814,5 +932,58 @@ mod tests {
 
         assert_eq!(rss_items.len(), 1);
         assert_eq!(rss_items[0].title, "Weekly Release");
+    }
+
+    #[tokio::test]
+    async fn gazelle_test_connection_sends_auth_headers() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/ajax.php"))
+            .and(query_param("action", "index"))
+            .and(header("authorization", "Bearer gazelle-secret"))
+            .and(header("x-api-key", "gazelle-secret"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(r#"{"status":"success","response":{}}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("gazelle-secret".to_string()),
+            enabled: true,
+        });
+
+        let result = client
+            .test_connection()
+            .await
+            .expect("gazelle connection should succeed");
+
+        assert!(result.success);
+        let capabilities = result.capabilities.expect("capabilities should be present");
+        assert!(!capabilities.supports_search);
+        assert!(!capabilities.supports_rss);
+    }
+
+    #[tokio::test]
+    async fn gazelle_test_connection_requires_api_key() {
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: "https://gazelle.example".to_string(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: None,
+            enabled: true,
+        });
+
+        let error = client
+            .test_connection()
+            .await
+            .expect_err("missing api key should fail");
+
+        assert!(matches!(error, super::IndexerError::Request(_)));
+        assert!(error.to_string().contains("requires an api_key"));
     }
 }
