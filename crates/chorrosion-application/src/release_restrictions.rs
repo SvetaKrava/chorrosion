@@ -18,9 +18,9 @@
 //! # Evaluation
 //!
 //! A release is restricted if it matches any rule in the restriction set.
-//! Use [`ReleaseRestrictionEvaluator::is_restricted()`] to test a release.
+//! Use [`ReleaseRestrictionSet::is_restricted()`] to test a release.
 
-use crate::release_parsing::ParsedReleaseTitle;
+use crate::release_parsing::{AudioQuality, ParsedReleaseTitle};
 use serde::{Deserialize, Serialize};
 
 /// A single restriction rule that can exclude a release from consideration.
@@ -38,7 +38,7 @@ pub enum RestrictionRule {
     /// Exclude releases matching a specific format and bitrate.
     /// Example: { "type": "FormatCombination", "quality": "mp3", "bitrate_kbps": 128 }
     FormatCombination {
-        quality: String,
+        quality: AudioQuality,
         bitrate_kbps: Option<u32>,
     },
 
@@ -73,15 +73,12 @@ impl RestrictionRule {
             RestrictionRule::Country { code } => {
                 country.is_some_and(|c| c.eq_ignore_ascii_case(code))
             }
-            RestrictionRule::Label { name } => {
-                label.is_some_and(|l| l.eq_ignore_ascii_case(name))
-            }
+            RestrictionRule::Label { name } => label.is_some_and(|l| l.eq_ignore_ascii_case(name)),
             RestrictionRule::FormatCombination {
                 quality,
                 bitrate_kbps,
             } => {
-                let quality_matches = release.quality.as_str().eq_ignore_ascii_case(quality);
-                if !quality_matches {
+                if release.quality != *quality {
                     return false;
                 }
                 match bitrate_kbps {
@@ -94,11 +91,22 @@ impl RestrictionRule {
                 .as_deref()
                 .is_some_and(|g| g.eq_ignore_ascii_case(name)),
             RestrictionRule::Keyword { keyword } => {
-                let title_lower = release.original_title.to_lowercase();
-                title_lower.contains(&keyword.to_lowercase())
+                contains_ignore_ascii_case(&release.original_title, keyword)
             }
         }
     }
+}
+
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return true;
+    }
+
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|window| window.eq_ignore_ascii_case(needle_bytes))
 }
 
 /// A set of release restriction rules.
@@ -157,7 +165,7 @@ impl ReleaseRestrictionSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::release_parsing::{AudioQuality, ParsedReleaseTitle};
+    use crate::release_parsing::ParsedReleaseTitle;
 
     fn make_release(
         title: &str,
@@ -255,7 +263,7 @@ mod tests {
     #[test]
     fn format_combination_rule_with_bitrate() {
         let rule = RestrictionRule::FormatCombination {
-            quality: "mp3".to_string(),
+            quality: AudioQuality::Mp3,
             bitrate_kbps: Some(128),
         };
 
@@ -292,7 +300,7 @@ mod tests {
     #[test]
     fn format_combination_rule_without_bitrate() {
         let rule = RestrictionRule::FormatCombination {
-            quality: "mp3".to_string(),
+            quality: AudioQuality::Mp3,
             bitrate_kbps: None,
         };
 
@@ -480,7 +488,7 @@ mod tests {
                 name: "Sony".to_string(),
             },
             RestrictionRule::FormatCombination {
-                quality: "mp3".to_string(),
+                quality: AudioQuality::Mp3,
                 bitrate_kbps: Some(128),
             },
         ];
