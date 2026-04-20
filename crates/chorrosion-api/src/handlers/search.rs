@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chorrosion_application::{
-    manual_search, AppState, AudioQuality, IndexerConfig, IndexerError, IndexerProtocol,
-    ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
+    manual_search, AppState, AudioQuality, CustomFormatRule, IndexerConfig, IndexerError,
+    IndexerProtocol, ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+const MAX_CUSTOM_FORMAT_SCORE_BONUS: i32 = 10_000;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ManualSearchApiRequest {
@@ -20,6 +22,16 @@ pub struct ManualSearchApiRequest {
     pub preferred_release_groups: Vec<String>,
     #[serde(default)]
     pub preferred_words: Vec<String>,
+    #[serde(default)]
+    pub custom_format_rules: Vec<ManualSearchCustomFormatRule>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ManualSearchCustomFormatRule {
+    pub name: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    pub score_bonus: i32,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -111,12 +123,19 @@ pub async fn manual_search_endpoint(
             return (StatusCode::BAD_REQUEST, Json(SearchErrorResponse { error })).into_response();
         }
     };
+    let custom_format_rules = match parse_custom_format_rules(request.custom_format_rules) {
+        Ok(values) => values,
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, Json(SearchErrorResponse { error })).into_response();
+        }
+    };
 
     let options = ReleaseFilterOptions {
         preferred_qualities,
         min_bitrate_kbps: request.min_bitrate_kbps,
         preferred_release_groups: request.preferred_release_groups,
         preferred_words: request.preferred_words,
+        custom_format_rules,
     };
 
     let manual_request = ManualSearchRequest {
@@ -258,6 +277,48 @@ fn parse_preferred_qualities(values: &[String]) -> Result<Vec<AudioQuality>, Str
         .collect()
 }
 
+fn parse_custom_format_rules(
+    rules: Vec<ManualSearchCustomFormatRule>,
+) -> Result<Vec<CustomFormatRule>, String> {
+    rules
+        .into_iter()
+        .enumerate()
+        .map(|(index, rule)| {
+            if rule.name.trim().is_empty() {
+                return Err(format!(
+                    "custom_format_rules[{index}].name must not be empty"
+                ));
+            }
+
+            let keywords: Vec<String> = rule
+                .keywords
+                .into_iter()
+                .map(|keyword| keyword.trim().to_string())
+                .filter(|keyword| !keyword.is_empty())
+                .collect();
+            if keywords.is_empty() {
+                return Err(format!(
+                    "custom_format_rules[{index}].keywords must include at least one non-empty value"
+                ));
+            }
+
+            if !(-MAX_CUSTOM_FORMAT_SCORE_BONUS..=MAX_CUSTOM_FORMAT_SCORE_BONUS)
+                .contains(&rule.score_bonus)
+            {
+                return Err(format!(
+                    "custom_format_rules[{index}].score_bonus must be between -{MAX_CUSTOM_FORMAT_SCORE_BONUS} and {MAX_CUSTOM_FORMAT_SCORE_BONUS}"
+                ));
+            }
+
+            Ok(CustomFormatRule {
+                name: rule.name.trim().to_string(),
+                keywords,
+                score_bonus: rule.score_bonus,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,6 +363,57 @@ mod tests {
         assert!(err.contains("unsupported quality"));
     }
 
+    #[test]
+    fn parse_custom_format_rules_maps_valid_rule() {
+        let rules = vec![ManualSearchCustomFormatRule {
+            name: "MQA".to_string(),
+            keywords: vec!["  mqa  ".to_string(), "master quality".to_string()],
+            score_bonus: 120,
+        }];
+
+        let parsed = parse_custom_format_rules(rules).expect("valid rules");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "MQA");
+        assert_eq!(parsed[0].keywords, vec!["mqa", "master quality"]);
+        assert_eq!(parsed[0].score_bonus, 120);
+    }
+
+    #[test]
+    fn parse_custom_format_rules_rejects_empty_name() {
+        let rules = vec![ManualSearchCustomFormatRule {
+            name: "   ".to_string(),
+            keywords: vec!["mqa".to_string()],
+            score_bonus: 10,
+        }];
+
+        let err = parse_custom_format_rules(rules).expect_err("invalid name");
+        assert!(err.contains("name must not be empty"));
+    }
+
+    #[test]
+    fn parse_custom_format_rules_rejects_empty_keywords() {
+        let rules = vec![ManualSearchCustomFormatRule {
+            name: "MQA".to_string(),
+            keywords: vec![" ".to_string()],
+            score_bonus: 10,
+        }];
+
+        let err = parse_custom_format_rules(rules).expect_err("invalid keywords");
+        assert!(err.contains("keywords must include at least one non-empty value"));
+    }
+
+    #[test]
+    fn parse_custom_format_rules_rejects_out_of_range_score_bonus() {
+        let rules = vec![ManualSearchCustomFormatRule {
+            name: "MQA".to_string(),
+            keywords: vec!["mqa".to_string()],
+            score_bonus: MAX_CUSTOM_FORMAT_SCORE_BONUS + 1,
+        }];
+
+        let err = parse_custom_format_rules(rules).expect_err("invalid score bonus");
+        assert!(err.contains("score_bonus must be between"));
+    }
+
     #[tokio::test]
     async fn manual_search_endpoint_returns_404_for_unknown_indexer() {
         let state = make_test_state().await;
@@ -317,6 +429,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -348,6 +461,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -372,6 +486,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -395,6 +510,35 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn manual_search_endpoint_rejects_invalid_custom_format_rules() {
+        let state = make_test_state().await;
+
+        let response = manual_search_endpoint(
+            State(state),
+            Json(ManualSearchApiRequest {
+                indexer_id: "00000000-0000-0000-0000-000000000000".to_string(),
+                artist: None,
+                album: None,
+                query: Some("discovery".to_string()),
+                preferred_qualities: vec![],
+                min_bitrate_kbps: None,
+                preferred_release_groups: vec![],
+                preferred_words: vec![],
+                custom_format_rules: vec![ManualSearchCustomFormatRule {
+                    name: "   ".to_string(),
+                    keywords: vec!["mqa".to_string()],
+                    score_bonus: 10,
+                }],
             }),
         )
         .await

@@ -30,7 +30,24 @@ pub struct ReleaseFilterOptions {
     pub min_bitrate_kbps: Option<u32>,
     pub preferred_release_groups: Vec<String>,
     pub preferred_words: Vec<String>,
+    pub custom_format_rules: Vec<CustomFormatRule>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomFormatRule {
+    pub name: String,
+    pub keywords: Vec<String>,
+    pub score_bonus: i32,
+}
+
+#[derive(Debug, Clone)]
+struct NormalizedCustomFormatRule {
+    keywords: Vec<String>,
+    score_bonus: i64,
+}
+
+const SCORE_MIN: i64 = i32::MIN as i64;
+const SCORE_MAX: i64 = i32::MAX as i64;
 
 pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
     let normalized = normalize_whitespace(title);
@@ -84,11 +101,13 @@ pub fn rank_releases(
     options: &ReleaseFilterOptions,
 ) -> Vec<ParsedReleaseTitle> {
     let normalized_preferred_words = normalize_preferred_words(&options.preferred_words);
+    let normalized_custom_rules = normalize_custom_format_rules(&options.custom_format_rules);
     releases.sort_by_cached_key(|release| {
         std::cmp::Reverse(score_release_with_words(
             release,
             options,
             &normalized_preferred_words,
+            &normalized_custom_rules,
         ))
     });
     releases
@@ -98,15 +117,25 @@ pub fn deduplicate_releases(releases: &[ParsedReleaseTitle]) -> Vec<ParsedReleas
     let mut best_by_key: HashMap<String, ParsedReleaseTitle> = HashMap::new();
     let default_options = ReleaseFilterOptions::default();
     let normalized_default_words = normalize_preferred_words(&default_options.preferred_words);
+    let normalized_default_custom_rules =
+        normalize_custom_format_rules(&default_options.custom_format_rules);
 
     for release in releases {
         let key = duplicate_key(release);
         match best_by_key.get(&key) {
             Some(existing) => {
-                let existing_score =
-                    score_release_with_words(existing, &default_options, &normalized_default_words);
-                let candidate_score =
-                    score_release_with_words(release, &default_options, &normalized_default_words);
+                let existing_score = score_release_with_words(
+                    existing,
+                    &default_options,
+                    &normalized_default_words,
+                    &normalized_default_custom_rules,
+                );
+                let candidate_score = score_release_with_words(
+                    release,
+                    &default_options,
+                    &normalized_default_words,
+                    &normalized_default_custom_rules,
+                );
                 if candidate_score > existing_score {
                     best_by_key.insert(key, release.clone());
                 }
@@ -160,17 +189,18 @@ fn score_release_with_words(
     release: &ParsedReleaseTitle,
     options: &ReleaseFilterOptions,
     normalized_preferred_words: &HashSet<String>,
+    normalized_custom_rules: &[NormalizedCustomFormatRule],
 ) -> i32 {
     let quality_score = match release.quality {
         AudioQuality::Flac | AudioQuality::Alac => 200,
         AudioQuality::Mp3 => 120,
         AudioQuality::Aac => 100,
         AudioQuality::Unknown => 20,
-    };
+    } as i64;
 
     let bitrate_score = release
         .bitrate_kbps
-        .map(|value| (value / 10) as i32)
+        .map(|value| (value / 10) as i64)
         .unwrap_or(0);
 
     let group_score = release
@@ -183,23 +213,55 @@ fn score_release_with_words(
                 .any(|preferred| preferred.eq_ignore_ascii_case(group))
                 .then_some(75)
         })
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let preferred_word_score =
-        (preferred_word_matches(release, normalized_preferred_words) as i32) * 30;
+    let normalized_title =
+        if normalized_preferred_words.is_empty() && normalized_custom_rules.is_empty() {
+            None
+        } else {
+            Some(normalize_whitespace(&release.original_title).to_lowercase())
+        };
 
-    quality_score + bitrate_score + group_score + preferred_word_score
+    let preferred_word_score = normalized_title.as_deref().map_or(0, |title| {
+        (preferred_word_matches(release, title, normalized_preferred_words) as i64) * 30
+    });
+
+    let custom_format_score = normalized_title.as_deref().map_or(0, |title| {
+        custom_format_bonus(title, normalized_custom_rules)
+    });
+
+    (quality_score + bitrate_score + group_score + preferred_word_score + custom_format_score)
+        .clamp(SCORE_MIN, SCORE_MAX) as i32
+}
+
+fn custom_format_bonus(
+    normalized_title: &str,
+    normalized_custom_rules: &[NormalizedCustomFormatRule],
+) -> i64 {
+    if normalized_custom_rules.is_empty() {
+        return 0;
+    }
+
+    normalized_custom_rules
+        .iter()
+        .filter(|rule| {
+            rule.keywords
+                .iter()
+                .any(|keyword| normalized_title.contains(keyword.as_str()))
+        })
+        .map(|rule| rule.score_bonus)
+        .sum()
 }
 
 fn preferred_word_matches(
     release: &ParsedReleaseTitle,
+    normalized_title: &str,
     normalized_preferred_words: &HashSet<String>,
 ) -> usize {
     if normalized_preferred_words.is_empty() {
         return 0;
     }
 
-    let original_title = normalize_whitespace(&release.original_title).to_lowercase();
     let artist = release.artist.as_ref().map(|value| value.to_lowercase());
     let album = release.album.as_ref().map(|value| value.to_lowercase());
     let group = release
@@ -211,7 +273,7 @@ fn preferred_word_matches(
         .iter()
         .filter(|word| {
             let word = word.as_str();
-            original_title.contains(word)
+            normalized_title.contains(word)
                 || artist.as_ref().is_some_and(|value| value.contains(word))
                 || album.as_ref().is_some_and(|value| value.contains(word))
                 || group.as_ref().is_some_and(|value| value.contains(word))
@@ -222,8 +284,31 @@ fn preferred_word_matches(
 fn normalize_preferred_words(preferred_words: &[String]) -> HashSet<String> {
     preferred_words
         .iter()
-        .map(|word| word.trim().to_lowercase())
+        .map(|word| normalize_whitespace(word).to_lowercase())
         .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn normalize_custom_format_rules(rules: &[CustomFormatRule]) -> Vec<NormalizedCustomFormatRule> {
+    rules
+        .iter()
+        .filter_map(|rule| {
+            let keywords = rule
+                .keywords
+                .iter()
+                .map(|word| normalize_whitespace(word).to_lowercase())
+                .filter(|word| !word.is_empty())
+                .collect::<Vec<_>>();
+
+            if keywords.is_empty() {
+                return None;
+            }
+
+            Some(NormalizedCustomFormatRule {
+                keywords,
+                score_bonus: i64::from(rule.score_bonus),
+            })
+        })
         .collect()
 }
 
@@ -359,7 +444,7 @@ impl ParsedReleaseTitle {
 mod tests {
     use super::{
         deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title,
-        rank_releases, AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
+        rank_releases, AudioQuality, CustomFormatRule, ParsedReleaseTitle, ReleaseFilterOptions,
     };
 
     #[test]
@@ -397,6 +482,7 @@ mod tests {
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
             preferred_words: vec![],
+            custom_format_rules: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -417,6 +503,7 @@ mod tests {
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
             preferred_words: vec![],
+            custom_format_rules: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -445,6 +532,7 @@ mod tests {
             min_bitrate_kbps: None,
             preferred_release_groups: vec!["Preferred".to_string()],
             preferred_words: vec![],
+            custom_format_rules: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -488,6 +576,7 @@ mod tests {
             min_bitrate_kbps: None,
             preferred_release_groups: vec![],
             preferred_words: vec!["DELUXE".to_string()],
+            custom_format_rules: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -506,6 +595,7 @@ mod tests {
             min_bitrate_kbps: None,
             preferred_release_groups: vec![],
             preferred_words: vec!["sceneprime".to_string()],
+            custom_format_rules: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -524,6 +614,7 @@ mod tests {
             min_bitrate_kbps: None,
             preferred_release_groups: vec![],
             preferred_words: vec!["daft punk".to_string()],
+            custom_format_rules: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -565,5 +656,84 @@ mod tests {
                 .count()
                 == 1
         );
+    }
+
+    #[test]
+    fn ranks_custom_format_rule_higher_when_quality_same() {
+        let releases = vec![
+            parse_release_title("Artist - Album 320kbps MP3 [MQA]-GroupA"),
+            parse_release_title("Artist - Album 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec![],
+            custom_format_rules: vec![CustomFormatRule {
+                name: "MQA".to_string(),
+                keywords: vec!["mqa".to_string()],
+                score_bonus: 60,
+            }],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.to_lowercase().contains("mqa"));
+    }
+
+    #[test]
+    fn custom_format_keyword_matches_with_irregular_whitespace() {
+        let releases = vec![
+            parse_release_title("Artist - Album MQA Deluxe Edition 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album Standard Edition 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec![],
+            custom_format_rules: vec![CustomFormatRule {
+                name: "MQA Deluxe".to_string(),
+                keywords: vec!["mqa   deluxe".to_string()],
+                score_bonus: 80,
+            }],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0]
+            .original_title
+            .to_lowercase()
+            .contains("mqa deluxe"));
+    }
+
+    #[test]
+    fn custom_format_score_uses_saturating_total() {
+        let releases = vec![
+            parse_release_title("Artist - Album MQA 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec![],
+            custom_format_rules: vec![
+                CustomFormatRule {
+                    name: "Rule 1".to_string(),
+                    keywords: vec!["mqa".to_string()],
+                    score_bonus: i32::MAX,
+                },
+                CustomFormatRule {
+                    name: "Rule 2".to_string(),
+                    keywords: vec!["mqa".to_string()],
+                    score_bonus: i32::MAX,
+                },
+            ],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.to_lowercase().contains("mqa"));
     }
 }
