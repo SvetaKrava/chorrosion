@@ -721,6 +721,12 @@ async fn execute_gazelle_search(
     config: &IndexerConfig,
     query: &IndexerSearchQuery,
 ) -> Result<Vec<IndexerSearchResult>, IndexerError> {
+    if query.offset.is_some() {
+        return Err(IndexerError::Unsupported(
+            "gazelle browse does not support offset-based pagination".to_string(),
+        ));
+    }
+
     let mut params: Vec<(&str, String)> = Vec::new();
 
     if !query.query.trim().is_empty() {
@@ -731,7 +737,7 @@ async fn execute_gazelle_search(
         params.push(("results", limit.to_string()));
     }
 
-    // Map category to Gazelle encoding filter
+    // Map category to Gazelle format filter
     if let Some(category) = query.category.as_deref() {
         let normalized = category.trim().to_lowercase();
         if normalized.contains("flac") || normalized == "audio/flac" {
@@ -744,7 +750,7 @@ async fn execute_gazelle_search(
     let body = execute_gazelle_request(client, config, "browse", Some(params)).await?;
 
     let parsed: GazelleResponse<GazelleBrowseResponse> = serde_json::from_str(&body)
-        .map_err(|error| IndexerError::RssParse(format!("gazelle JSON parse error: {error}")))?;
+        .map_err(|error| IndexerError::Request(format!("gazelle JSON parse error: {error}")))?;
 
     if parsed.status != "success" {
         return Err(IndexerError::Request(format!(
@@ -755,29 +761,35 @@ async fn execute_gazelle_search(
 
     let groups = parsed.response.map(|r| r.results).unwrap_or_default();
 
-    let base_url = config.base_url.trim_end_matches('/').to_string();
+    let base_url = gazelle_site_root_url(&config.base_url)?;
     let mut results = Vec::new();
 
     for group in groups {
         let artist = group.artist.as_deref().unwrap_or("");
         let album = group.group_name.as_deref().unwrap_or("");
         let year = group.group_year.unwrap_or(0);
-        let had_torrents = !group.torrents.is_empty();
+        let group_id = group.group_id;
+        let mut emitted_torrent_result = false;
 
         for torrent in group.torrents {
+            let Some(torrent_id) = torrent.torrent_id else {
+                continue;
+            };
+
             let format = torrent.format.as_deref().unwrap_or("");
             let encoding = torrent.encoding.as_deref().unwrap_or("");
             let media = torrent.media.as_deref().unwrap_or("");
 
             let title = build_gazelle_title(artist, album, year, format, encoding, media);
 
-            let download_url = torrent
-                .torrent_id
-                .map(|id| format!("{base_url}/torrents.php?action=download&id={id}"));
+            let download_url = Some(format!(
+                "{base_url}/torrents.php?action=download&id={torrent_id}"
+            ));
 
-            let guid = torrent
-                .torrent_id
-                .map(|id| format!("{}-{}", group.group_id.unwrap_or(0), id));
+            let guid = Some(match group_id {
+                Some(group_id) => format!("{group_id}-{torrent_id}"),
+                None => torrent_id.to_string(),
+            });
 
             results.push(IndexerSearchResult {
                 title,
@@ -788,18 +800,19 @@ async fn execute_gazelle_search(
                 seeders: torrent.seeders,
                 leechers: torrent.leechers,
             });
+            emitted_torrent_result = true;
         }
 
-        // If the group has no torrent entries, emit one row for the group itself
-        if !had_torrents {
+        // If no valid torrent rows were emitted, emit one row for the group itself.
+        if !emitted_torrent_result {
+            let Some(group_id) = group_id else {
+                continue;
+            };
             let title = build_gazelle_title(artist, album, year, "", "", "");
-            let guid = group.group_id.map(|id| id.to_string());
             results.push(IndexerSearchResult {
                 title,
-                guid,
-                download_url: group
-                    .group_id
-                    .map(|id| format!("{base_url}/torrents.php?id={id}")),
+                guid: Some(group_id.to_string()),
+                download_url: Some(format!("{base_url}/torrents.php?id={group_id}")),
                 published_at: None,
                 size_bytes: None,
                 seeders: None,
@@ -841,6 +854,24 @@ fn build_gazelle_title(
         title = format!("{title} [{}]", tags.join(" / "));
     }
     title
+}
+
+fn gazelle_site_root_url(base_url: &str) -> Result<String, IndexerError> {
+    let mut url = Url::parse(base_url)
+        .map_err(|error| IndexerError::Request(format!("invalid base url: {error}")))?;
+    let normalized_path = url.path().trim_end_matches('/').to_string();
+    let root_path = normalized_path
+        .strip_suffix("/ajax.php")
+        .unwrap_or(normalized_path.as_str())
+        .to_string();
+    if root_path.is_empty() {
+        url.set_path("/");
+    } else {
+        url.set_path(&root_path);
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string().trim_end_matches('/').to_string())
 }
 
 // ── XML / RSS helpers ─────────────────────────────────────────────────────────
@@ -1285,5 +1316,156 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("torrents.php?id=50"));
+    }
+
+    #[tokio::test]
+    async fn gazelle_search_rejects_offset_queries() {
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: "https://gazelle.example".to_string(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("secret".to_string()),
+            enabled: true,
+        });
+
+        let error = client
+            .search(&IndexerSearchQuery {
+                query: "radiohead".to_string(),
+                category: None,
+                limit: None,
+                offset: Some(10),
+            })
+            .await
+            .expect_err("offset should be rejected");
+
+        assert!(matches!(error, super::IndexerError::Unsupported(_)));
+        assert!(error.to_string().contains("offset-based pagination"));
+    }
+
+    #[tokio::test]
+    async fn gazelle_search_builds_download_urls_from_site_root() {
+        let server = MockServer::start().await;
+
+        let response_body = r#"
+        {
+            "status": "success",
+            "response": {
+                "results": [
+                    {
+                        "groupId": 100,
+                        "groupName": "OK Computer",
+                        "artist": "Radiohead",
+                        "groupYear": 1997,
+                        "torrents": [
+                            {
+                                "torrentId": 200
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/ajax.php"))
+            .and(query_param("action", "browse"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(response_body))
+            .mount(&server)
+            .await;
+
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: format!("{}/ajax.php", server.uri()),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("secret".to_string()),
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "radiohead".to_string(),
+                category: None,
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("gazelle search should succeed");
+
+        assert_eq!(results.len(), 1);
+        let expected_download = format!("{}/torrents.php?action=download&id=200", server.uri());
+        assert_eq!(
+            results[0].download_url.as_deref(),
+            Some(expected_download.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn gazelle_search_skips_rows_without_required_ids() {
+        let server = MockServer::start().await;
+
+        let response_body = r#"
+        {
+            "status": "success",
+            "response": {
+                "results": [
+                    {
+                        "groupId": 100,
+                        "groupName": "OK Computer",
+                        "artist": "Radiohead",
+                        "groupYear": 1997,
+                        "torrents": [
+                            {
+                                "format": "FLAC"
+                            },
+                            {
+                                "torrentId": 200,
+                                "format": "FLAC"
+                            }
+                        ]
+                    },
+                    {
+                        "groupName": "Unknown Group",
+                        "artist": "Unknown",
+                        "groupYear": 2000,
+                        "torrents": []
+                    }
+                ]
+            }
+        }
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/ajax.php"))
+            .and(query_param("action", "browse"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(response_body))
+            .mount(&server)
+            .await;
+
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("secret".to_string()),
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "radiohead".to_string(),
+                category: None,
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("gazelle search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].guid.as_deref(), Some("100-200"));
+        let expected_download = format!("{}/torrents.php?action=download&id=200", server.uri());
+        assert_eq!(
+            results[0].download_url.as_deref(),
+            Some(expected_download.as_str())
+        );
     }
 }
