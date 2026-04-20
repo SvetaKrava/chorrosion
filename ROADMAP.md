@@ -157,7 +157,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
 - [x] Torznab protocol client (Issue #30, PR #136) ✓ COMPLETE
   - [x] Torrent-specific handling ✓
   - [x] Magnet link support ✓
-- [ ] Gazelle protocol client (optional)
+- [x] Gazelle protocol client (optional) ✓ COMPLETE
   - [x] API authentication ✓
   - [x] Music-specific search ✓
 
@@ -185,7 +185,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Missing album detection ✓
   - [x] Search triggering logic ✓
   - [x] Best release selection algorithm ✓
-- [ ] RSS sync enhancement
+- [x] RSS sync enhancement ✓ COMPLETE
   - [x] Parse RSS feeds from indexers ✓
   - [x] Match releases to wanted albums ✓
   - [x] Automatic grab logic ✓
@@ -455,12 +455,12 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 10.1 Advanced Features
 
-- [ ] Custom formats support
-- [ ] Preferred word handling
-- [ ] Release restrictions
-- [ ] Tag-based organization
-- [ ] Smart playlists
-- [ ] Duplicate detection and management
+- [ ] Custom formats support (Issue #397)
+- [ ] Preferred word handling (Issue #398)
+- [ ] Release restrictions (Issue #399)
+- [ ] Tag-based organization (Issue #400)
+- [ ] Smart playlists (Issue #401)
+- [ ] Advanced duplicate detection and management (Issue #402)
 
 ### 10.2 Community Features
 
