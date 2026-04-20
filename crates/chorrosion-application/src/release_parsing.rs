@@ -2,7 +2,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +29,7 @@ pub struct ReleaseFilterOptions {
     pub preferred_qualities: Vec<AudioQuality>,
     pub min_bitrate_kbps: Option<u32>,
     pub preferred_release_groups: Vec<String>,
+    pub preferred_words: Vec<String>,
 }
 
 pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
@@ -169,7 +170,38 @@ fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -
         })
         .unwrap_or(0);
 
-    quality_score + bitrate_score + group_score
+    let preferred_word_score =
+        (preferred_word_matches(release, &options.preferred_words) as i32) * 30;
+
+    quality_score + bitrate_score + group_score + preferred_word_score
+}
+
+fn preferred_word_matches(release: &ParsedReleaseTitle, preferred_words: &[String]) -> usize {
+    if preferred_words.is_empty() {
+        return 0;
+    }
+
+    let mut haystacks = vec![release.original_title.to_lowercase()];
+    if let Some(artist) = &release.artist {
+        haystacks.push(artist.to_lowercase());
+    }
+    if let Some(album) = &release.album {
+        haystacks.push(album.to_lowercase());
+    }
+    if let Some(group) = &release.release_group {
+        haystacks.push(group.to_lowercase());
+    }
+
+    let normalized_words: HashSet<String> = preferred_words
+        .iter()
+        .map(|word| word.trim().to_lowercase())
+        .filter(|word| !word.is_empty())
+        .collect();
+
+    normalized_words
+        .iter()
+        .filter(|word| haystacks.iter().any(|field| field.contains(word.as_str())))
+        .count()
 }
 
 fn normalize_whitespace(input: &str) -> String {
@@ -341,6 +373,7 @@ mod tests {
             preferred_qualities: vec![AudioQuality::Mp3],
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
+            preferred_words: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -360,6 +393,7 @@ mod tests {
             preferred_qualities: vec![],
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
+            preferred_words: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -387,6 +421,7 @@ mod tests {
             preferred_qualities: vec![],
             min_bitrate_kbps: None,
             preferred_release_groups: vec!["Preferred".to_string()],
+            preferred_words: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -416,6 +451,42 @@ mod tests {
 
         let ranked = rank_releases(releases, &ReleaseFilterOptions::default());
         assert_eq!(ranked[0].quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn ranks_preferred_word_higher_when_quality_same() {
+        let releases = vec![
+            parse_release_title("Artist - Album Deluxe Edition 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album Standard Edition 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec!["DELUXE".to_string()],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.to_lowercase().contains("deluxe"));
+    }
+
+    #[test]
+    fn preferred_word_can_match_release_group() {
+        let releases = vec![
+            parse_release_title("Artist - Album 320kbps MP3-ScenePrime"),
+            parse_release_title("Artist - Album 320kbps MP3-OtherGroup"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec!["sceneprime".to_string()],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert_eq!(ranked[0].release_group.as_deref(), Some("ScenePrime"));
     }
 
     #[test]
