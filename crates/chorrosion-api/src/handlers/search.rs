@@ -284,8 +284,7 @@ fn parse_custom_format_rules(
         .into_iter()
         .enumerate()
         .map(|(index, rule)| {
-            let name = rule.name.trim();
-            if name.is_empty() {
+            if rule.name.trim().is_empty() {
                 return Err(format!(
                     "custom_format_rules[{index}].name must not be empty"
                 ));
@@ -312,7 +311,7 @@ fn parse_custom_format_rules(
             }
 
             Ok(CustomFormatRule {
-                name: name.to_string(),
+                name: rule.name.trim().to_string(),
                 keywords,
                 score_bonus: rule.score_bonus,
             })

@@ -46,6 +46,9 @@ struct NormalizedCustomFormatRule {
     score_bonus: i64,
 }
 
+const SCORE_MIN: i64 = i32::MIN as i64;
+const SCORE_MAX: i64 = i32::MAX as i64;
+
 pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
     let normalized = normalize_whitespace(title);
     let quality = detect_quality(&normalized);
@@ -212,16 +215,23 @@ fn score_release_with_words(
         })
         .unwrap_or(0) as i64;
 
-    let normalized_title = normalize_whitespace(&release.original_title).to_lowercase();
+    let normalized_title =
+        if normalized_preferred_words.is_empty() && normalized_custom_rules.is_empty() {
+            None
+        } else {
+            Some(normalize_whitespace(&release.original_title).to_lowercase())
+        };
 
-    let preferred_word_score =
-        (preferred_word_matches(release, &normalized_title, normalized_preferred_words) as i64)
-            * 30;
+    let preferred_word_score = normalized_title.as_deref().map_or(0, |title| {
+        (preferred_word_matches(release, title, normalized_preferred_words) as i64) * 30
+    });
 
-    let custom_format_score = custom_format_bonus(&normalized_title, normalized_custom_rules);
+    let custom_format_score = normalized_title.as_deref().map_or(0, |title| {
+        custom_format_bonus(title, normalized_custom_rules)
+    });
 
     (quality_score + bitrate_score + group_score + preferred_word_score + custom_format_score)
-        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+        .clamp(SCORE_MIN, SCORE_MAX) as i32
 }
 
 fn custom_format_bonus(
