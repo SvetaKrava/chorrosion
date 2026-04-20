@@ -455,12 +455,12 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 10.1 Advanced Features
 
-- [ ] Custom formats support
-- [ ] Preferred word handling
-- [ ] Release restrictions
-- [ ] Tag-based organization
-- [ ] Smart playlists
-- [ ] Duplicate detection and management
+- [ ] Custom formats support (Issue #397)
+- [ ] Preferred word handling (Issue #398)
+- [ ] Release restrictions (Issue #399)
+- [ ] Tag-based organization (Issue #400)
+- [ ] Smart playlists (Issue #401)
+- [ ] Advanced duplicate detection and management (Issue #402)
 
 ### 10.2 Community Features
 
