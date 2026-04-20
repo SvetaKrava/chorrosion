@@ -96,13 +96,17 @@ pub fn rank_releases(
 
 pub fn deduplicate_releases(releases: &[ParsedReleaseTitle]) -> Vec<ParsedReleaseTitle> {
     let mut best_by_key: HashMap<String, ParsedReleaseTitle> = HashMap::new();
+    let default_options = ReleaseFilterOptions::default();
+    let normalized_default_words = normalize_preferred_words(&default_options.preferred_words);
 
     for release in releases {
         let key = duplicate_key(release);
         match best_by_key.get(&key) {
             Some(existing) => {
-                let existing_score = score_release(existing, &ReleaseFilterOptions::default());
-                let candidate_score = score_release(release, &ReleaseFilterOptions::default());
+                let existing_score =
+                    score_release_with_words(existing, &default_options, &normalized_default_words);
+                let candidate_score =
+                    score_release_with_words(release, &default_options, &normalized_default_words);
                 if candidate_score > existing_score {
                     best_by_key.insert(key, release.clone());
                 }
@@ -150,11 +154,6 @@ fn duplicate_key(release: &ParsedReleaseTitle) -> String {
             .to_lowercase(),
         release.quality_key(),
     )
-}
-
-fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -> i32 {
-    let normalized_preferred_words = normalize_preferred_words(&options.preferred_words);
-    score_release_with_words(release, options, &normalized_preferred_words)
 }
 
 fn score_release_with_words(
