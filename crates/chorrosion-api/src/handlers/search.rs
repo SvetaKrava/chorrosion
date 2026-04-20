@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chorrosion_application::{
-    manual_search, AppState, AudioQuality, IndexerConfig, IndexerError, IndexerProtocol,
-    ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
+    manual_search, AppState, AudioQuality, CustomFormatRule, IndexerConfig, IndexerError,
+    IndexerProtocol, ManualSearchRequest, NewznabClient, ReleaseFilterOptions, TorznabClient,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -20,6 +20,16 @@ pub struct ManualSearchApiRequest {
     pub preferred_release_groups: Vec<String>,
     #[serde(default)]
     pub preferred_words: Vec<String>,
+    #[serde(default)]
+    pub custom_format_rules: Vec<ManualSearchCustomFormatRule>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ManualSearchCustomFormatRule {
+    pub name: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    pub score_bonus: i32,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -117,6 +127,15 @@ pub async fn manual_search_endpoint(
         min_bitrate_kbps: request.min_bitrate_kbps,
         preferred_release_groups: request.preferred_release_groups,
         preferred_words: request.preferred_words,
+        custom_format_rules: request
+            .custom_format_rules
+            .into_iter()
+            .map(|rule| CustomFormatRule {
+                name: rule.name,
+                keywords: rule.keywords,
+                score_bonus: rule.score_bonus,
+            })
+            .collect(),
     };
 
     let manual_request = ManualSearchRequest {
@@ -317,6 +336,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -348,6 +368,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -372,6 +393,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await
@@ -395,6 +417,7 @@ mod tests {
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             }),
         )
         .await

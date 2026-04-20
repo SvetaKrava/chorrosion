@@ -436,6 +436,7 @@ mod tests {
                 min_bitrate_kbps: Some(256),
                 preferred_release_groups: vec![],
                 preferred_words: vec![],
+                custom_format_rules: vec![],
             },
         )
         .await

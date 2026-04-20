@@ -86,7 +86,7 @@ pub use permission::{PermissionChecker, PermissionConfig, PermissionError, Permi
 pub use quality_upgrade::{QualityComparer, QualityUpgradeService, UpgradeDecision, UpgradeReason};
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
-    AudioQuality, ParsedReleaseTitle, ReleaseFilterOptions,
+    AudioQuality, CustomFormatRule, ParsedReleaseTitle, ReleaseFilterOptions,
 };
 pub use release_restrictions::{ReleaseRestrictionSet, RestrictionRule};
 pub use scan_cache::{cached_scan_audio_files, DirScanCache};
