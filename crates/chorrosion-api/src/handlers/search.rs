@@ -18,6 +18,8 @@ pub struct ManualSearchApiRequest {
     pub min_bitrate_kbps: Option<u32>,
     #[serde(default)]
     pub preferred_release_groups: Vec<String>,
+    #[serde(default)]
+    pub preferred_words: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -114,6 +116,7 @@ pub async fn manual_search_endpoint(
         preferred_qualities,
         min_bitrate_kbps: request.min_bitrate_kbps,
         preferred_release_groups: request.preferred_release_groups,
+        preferred_words: request.preferred_words,
     };
 
     let manual_request = ManualSearchRequest {
@@ -313,6 +316,7 @@ mod tests {
                 preferred_qualities: vec![],
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
+                preferred_words: vec![],
             }),
         )
         .await
@@ -343,6 +347,7 @@ mod tests {
                 preferred_qualities: vec![],
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
+                preferred_words: vec![],
             }),
         )
         .await
@@ -366,6 +371,7 @@ mod tests {
                 preferred_qualities: vec![],
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
+                preferred_words: vec![],
             }),
         )
         .await
@@ -388,6 +394,7 @@ mod tests {
                 preferred_qualities: vec![],
                 min_bitrate_kbps: None,
                 preferred_release_groups: vec![],
+                preferred_words: vec![],
             }),
         )
         .await

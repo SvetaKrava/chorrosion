@@ -2,7 +2,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +29,7 @@ pub struct ReleaseFilterOptions {
     pub preferred_qualities: Vec<AudioQuality>,
     pub min_bitrate_kbps: Option<u32>,
     pub preferred_release_groups: Vec<String>,
+    pub preferred_words: Vec<String>,
 }
 
 pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
@@ -82,19 +83,30 @@ pub fn rank_releases(
     mut releases: Vec<ParsedReleaseTitle>,
     options: &ReleaseFilterOptions,
 ) -> Vec<ParsedReleaseTitle> {
-    releases.sort_by_key(|release| std::cmp::Reverse(score_release(release, options)));
+    let normalized_preferred_words = normalize_preferred_words(&options.preferred_words);
+    releases.sort_by_cached_key(|release| {
+        std::cmp::Reverse(score_release_with_words(
+            release,
+            options,
+            &normalized_preferred_words,
+        ))
+    });
     releases
 }
 
 pub fn deduplicate_releases(releases: &[ParsedReleaseTitle]) -> Vec<ParsedReleaseTitle> {
     let mut best_by_key: HashMap<String, ParsedReleaseTitle> = HashMap::new();
+    let default_options = ReleaseFilterOptions::default();
+    let normalized_default_words = normalize_preferred_words(&default_options.preferred_words);
 
     for release in releases {
         let key = duplicate_key(release);
         match best_by_key.get(&key) {
             Some(existing) => {
-                let existing_score = score_release(existing, &ReleaseFilterOptions::default());
-                let candidate_score = score_release(release, &ReleaseFilterOptions::default());
+                let existing_score =
+                    score_release_with_words(existing, &default_options, &normalized_default_words);
+                let candidate_score =
+                    score_release_with_words(release, &default_options, &normalized_default_words);
                 if candidate_score > existing_score {
                     best_by_key.insert(key, release.clone());
                 }
@@ -144,7 +156,11 @@ fn duplicate_key(release: &ParsedReleaseTitle) -> String {
     )
 }
 
-fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -> i32 {
+fn score_release_with_words(
+    release: &ParsedReleaseTitle,
+    options: &ReleaseFilterOptions,
+    normalized_preferred_words: &HashSet<String>,
+) -> i32 {
     let quality_score = match release.quality {
         AudioQuality::Flac | AudioQuality::Alac => 200,
         AudioQuality::Mp3 => 120,
@@ -169,7 +185,46 @@ fn score_release(release: &ParsedReleaseTitle, options: &ReleaseFilterOptions) -
         })
         .unwrap_or(0);
 
-    quality_score + bitrate_score + group_score
+    let preferred_word_score =
+        (preferred_word_matches(release, normalized_preferred_words) as i32) * 30;
+
+    quality_score + bitrate_score + group_score + preferred_word_score
+}
+
+fn preferred_word_matches(
+    release: &ParsedReleaseTitle,
+    normalized_preferred_words: &HashSet<String>,
+) -> usize {
+    if normalized_preferred_words.is_empty() {
+        return 0;
+    }
+
+    let original_title = normalize_whitespace(&release.original_title).to_lowercase();
+    let artist = release.artist.as_ref().map(|value| value.to_lowercase());
+    let album = release.album.as_ref().map(|value| value.to_lowercase());
+    let group = release
+        .release_group
+        .as_ref()
+        .map(|value| value.to_lowercase());
+
+    normalized_preferred_words
+        .iter()
+        .filter(|word| {
+            let word = word.as_str();
+            original_title.contains(word)
+                || artist.as_ref().is_some_and(|value| value.contains(word))
+                || album.as_ref().is_some_and(|value| value.contains(word))
+                || group.as_ref().is_some_and(|value| value.contains(word))
+        })
+        .count()
+}
+
+fn normalize_preferred_words(preferred_words: &[String]) -> HashSet<String> {
+    preferred_words
+        .iter()
+        .map(|word| word.trim().to_lowercase())
+        .filter(|word| !word.is_empty())
+        .collect()
 }
 
 fn normalize_whitespace(input: &str) -> String {
@@ -341,6 +396,7 @@ mod tests {
             preferred_qualities: vec![AudioQuality::Mp3],
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
+            preferred_words: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -360,6 +416,7 @@ mod tests {
             preferred_qualities: vec![],
             min_bitrate_kbps: Some(256),
             preferred_release_groups: vec![],
+            preferred_words: vec![],
         };
 
         let filtered = filter_releases(&releases, &options);
@@ -387,6 +444,7 @@ mod tests {
             preferred_qualities: vec![],
             min_bitrate_kbps: None,
             preferred_release_groups: vec!["Preferred".to_string()],
+            preferred_words: vec![],
         };
 
         let ranked = rank_releases(releases, &options);
@@ -416,6 +474,60 @@ mod tests {
 
         let ranked = rank_releases(releases, &ReleaseFilterOptions::default());
         assert_eq!(ranked[0].quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn ranks_preferred_word_higher_when_quality_same() {
+        let releases = vec![
+            parse_release_title("Artist - Album Deluxe Edition 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album Standard Edition 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec!["DELUXE".to_string()],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.to_lowercase().contains("deluxe"));
+    }
+
+    #[test]
+    fn preferred_word_can_match_release_group() {
+        let releases = vec![
+            parse_release_title("Artist - Album 320kbps MP3-ScenePrime"),
+            parse_release_title("Artist - Album 320kbps MP3-OtherGroup"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec!["sceneprime".to_string()],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert_eq!(ranked[0].release_group.as_deref(), Some("ScenePrime"));
+    }
+
+    #[test]
+    fn preferred_phrase_matches_original_title_with_irregular_whitespace() {
+        let releases = vec![
+            parse_release_title("Daft    Punk    Live Set FLAC"),
+            parse_release_title("Another Artist Live Set FLAC"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec!["daft punk".to_string()],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.contains("Daft"));
     }
 
     #[test]
