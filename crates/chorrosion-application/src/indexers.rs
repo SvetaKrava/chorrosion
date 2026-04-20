@@ -327,21 +327,23 @@ impl IndexerClient for GazelleClient {
     async fn detect_capabilities(&self) -> Result<IndexerCapabilities, IndexerError> {
         execute_gazelle_request(&self.client, &self.config, "index", None).await?;
         Ok(IndexerCapabilities {
-            supports_search: false,
+            supports_search: true,
             supports_rss: false,
             supports_capabilities_detection: true,
-            supports_categories: false,
-            supported_categories: Vec::new(),
+            supports_categories: true,
+            supported_categories: vec![
+                "music".to_string(),
+                "audio/flac".to_string(),
+                "audio/mp3".to_string(),
+            ],
         })
     }
 
     async fn search(
         &self,
-        _query: &IndexerSearchQuery,
+        query: &IndexerSearchQuery,
     ) -> Result<Vec<IndexerSearchResult>, IndexerError> {
-        Err(IndexerError::Unsupported(
-            "gazelle music-specific search is not implemented yet".to_string(),
-        ))
+        execute_gazelle_search(&self.client, &self.config, query).await
     }
 
     async fn fetch_rss_feed(&self) -> Result<Vec<IndexerRssItem>, IndexerError> {
@@ -677,6 +679,172 @@ fn parse_pub_date(value: Option<String>) -> Option<String> {
     Some(date)
 }
 
+// ── Gazelle JSON types ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct GazelleResponse<T> {
+    status: String,
+    response: Option<T>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GazelleBrowseResponse {
+    #[serde(default)]
+    results: Vec<GazelleSearchGroup>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GazelleSearchGroup {
+    group_id: Option<u64>,
+    group_name: Option<String>,
+    artist: Option<String>,
+    group_year: Option<u32>,
+    #[serde(default)]
+    torrents: Vec<GazelleTorrent>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GazelleTorrent {
+    torrent_id: Option<u64>,
+    format: Option<String>,
+    encoding: Option<String>,
+    media: Option<String>,
+    size: Option<u64>,
+    seeders: Option<u32>,
+    leechers: Option<u32>,
+}
+
+async fn execute_gazelle_search(
+    client: &Client,
+    config: &IndexerConfig,
+    query: &IndexerSearchQuery,
+) -> Result<Vec<IndexerSearchResult>, IndexerError> {
+    let mut params: Vec<(&str, String)> = Vec::new();
+
+    if !query.query.trim().is_empty() {
+        params.push(("searchstr", query.query.trim().to_string()));
+    }
+
+    if let Some(limit) = query.limit {
+        params.push(("results", limit.to_string()));
+    }
+
+    // Map category to Gazelle encoding filter
+    if let Some(category) = query.category.as_deref() {
+        let normalized = category.trim().to_lowercase();
+        if normalized.contains("flac") || normalized == "audio/flac" {
+            params.push(("format", "FLAC".to_string()));
+        } else if normalized.contains("mp3") || normalized == "audio/mp3" {
+            params.push(("format", "MP3".to_string()));
+        }
+    }
+
+    let body = execute_gazelle_request(client, config, "browse", Some(params)).await?;
+
+    let parsed: GazelleResponse<GazelleBrowseResponse> = serde_json::from_str(&body)
+        .map_err(|error| IndexerError::RssParse(format!("gazelle JSON parse error: {error}")))?;
+
+    if parsed.status != "success" {
+        return Err(IndexerError::Request(format!(
+            "gazelle search returned status: {}",
+            parsed.status
+        )));
+    }
+
+    let groups = parsed.response.map(|r| r.results).unwrap_or_default();
+
+    let base_url = config.base_url.trim_end_matches('/').to_string();
+    let mut results = Vec::new();
+
+    for group in groups {
+        let artist = group.artist.as_deref().unwrap_or("");
+        let album = group.group_name.as_deref().unwrap_or("");
+        let year = group.group_year.unwrap_or(0);
+        let had_torrents = !group.torrents.is_empty();
+
+        for torrent in group.torrents {
+            let format = torrent.format.as_deref().unwrap_or("");
+            let encoding = torrent.encoding.as_deref().unwrap_or("");
+            let media = torrent.media.as_deref().unwrap_or("");
+
+            let title = build_gazelle_title(artist, album, year, format, encoding, media);
+
+            let download_url = torrent
+                .torrent_id
+                .map(|id| format!("{base_url}/torrents.php?action=download&id={id}"));
+
+            let guid = torrent
+                .torrent_id
+                .map(|id| format!("{}-{}", group.group_id.unwrap_or(0), id));
+
+            results.push(IndexerSearchResult {
+                title,
+                guid,
+                download_url,
+                published_at: None,
+                size_bytes: torrent.size,
+                seeders: torrent.seeders,
+                leechers: torrent.leechers,
+            });
+        }
+
+        // If the group has no torrent entries, emit one row for the group itself
+        if !had_torrents {
+            let title = build_gazelle_title(artist, album, year, "", "", "");
+            let guid = group.group_id.map(|id| id.to_string());
+            results.push(IndexerSearchResult {
+                title,
+                guid,
+                download_url: group
+                    .group_id
+                    .map(|id| format!("{base_url}/torrents.php?id={id}")),
+                published_at: None,
+                size_bytes: None,
+                seeders: None,
+                leechers: None,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+fn build_gazelle_title(
+    artist: &str,
+    album: &str,
+    year: u32,
+    format: &str,
+    encoding: &str,
+    media: &str,
+) -> String {
+    let mut title = if artist.is_empty() {
+        album.to_string()
+    } else {
+        format!("{artist} - {album}")
+    };
+    let mut tags = Vec::new();
+    if year > 0 {
+        tags.push(year.to_string());
+    }
+    if !format.is_empty() {
+        tags.push(format.to_string());
+    }
+    if !encoding.is_empty() && encoding != format {
+        tags.push(encoding.to_string());
+    }
+    if !media.is_empty() {
+        tags.push(media.to_string());
+    }
+    if !tags.is_empty() {
+        title = format!("{title} [{}]", tags.join(" / "));
+    }
+    title
+}
+
+// ── XML / RSS helpers ─────────────────────────────────────────────────────────
+
 #[derive(Debug, Deserialize)]
 struct RssEnvelope {
     channel: RssChannel,
@@ -964,7 +1132,7 @@ mod tests {
 
         assert!(result.success);
         let capabilities = result.capabilities.expect("capabilities should be present");
-        assert!(!capabilities.supports_search);
+        assert!(capabilities.supports_search);
         assert!(!capabilities.supports_rss);
     }
 
@@ -985,5 +1153,137 @@ mod tests {
 
         assert!(matches!(error, super::IndexerError::Request(_)));
         assert!(error.to_string().contains("requires an api_key"));
+    }
+
+    #[tokio::test]
+    async fn gazelle_search_returns_results_with_auth_headers() {
+        let server = MockServer::start().await;
+
+        let response_body = r#"
+        {
+            "status": "success",
+            "response": {
+                "results": [
+                    {
+                        "groupId": 100,
+                        "groupName": "OK Computer",
+                        "artist": "Radiohead",
+                        "groupYear": 1997,
+                        "torrents": [
+                            {
+                                "torrentId": 200,
+                                "format": "FLAC",
+                                "encoding": "Lossless",
+                                "media": "WEB",
+                                "size": 300000000,
+                                "seeders": 15,
+                                "leechers": 2
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/ajax.php"))
+            .and(query_param("action", "browse"))
+            .and(query_param("searchstr", "radiohead"))
+            .and(query_param("format", "FLAC"))
+            .and(header("authorization", "Bearer secret"))
+            .and(header("x-api-key", "secret"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(response_body))
+            .mount(&server)
+            .await;
+
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("secret".to_string()),
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "radiohead".to_string(),
+                category: Some("audio/flac".to_string()),
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("gazelle search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].title,
+            "Radiohead - OK Computer [1997 / FLAC / Lossless / WEB]"
+        );
+        assert_eq!(results[0].guid.as_deref(), Some("100-200"));
+        assert!(results[0]
+            .download_url
+            .as_deref()
+            .unwrap()
+            .contains("action=download&id=200"));
+        assert_eq!(results[0].size_bytes, Some(300_000_000));
+        assert_eq!(results[0].seeders, Some(15));
+        assert_eq!(results[0].leechers, Some(2));
+    }
+
+    #[tokio::test]
+    async fn gazelle_search_group_without_torrents_emits_group_row() {
+        let server = MockServer::start().await;
+
+        let response_body = r#"
+        {
+            "status": "success",
+            "response": {
+                "results": [
+                    {
+                        "groupId": 50,
+                        "groupName": "Nevermind",
+                        "artist": "Nirvana",
+                        "groupYear": 1991,
+                        "torrents": []
+                    }
+                ]
+            }
+        }
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/ajax.php"))
+            .and(query_param("action", "browse"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(response_body))
+            .mount(&server)
+            .await;
+
+        let client = GazelleClient::new(IndexerConfig {
+            name: "test-gazelle".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Gazelle,
+            api_key: Some("secret".to_string()),
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "nirvana".to_string(),
+                category: None,
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("gazelle search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Nirvana - Nevermind [1991]");
+        assert_eq!(results[0].guid.as_deref(), Some("50"));
+        assert!(results[0]
+            .download_url
+            .as_deref()
+            .unwrap()
+            .contains("torrents.php?id=50"));
     }
 }

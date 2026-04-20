@@ -159,7 +159,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
   - [x] Magnet link support ✓
 - [ ] Gazelle protocol client (optional)
   - [x] API authentication ✓
-  - [ ] Music-specific search
+  - [x] Music-specific search ✓
 
 ### 3.3 Release Parsing
 
