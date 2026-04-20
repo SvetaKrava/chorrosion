@@ -871,7 +871,8 @@ fn gazelle_site_root_url(base_url: &str) -> Result<String, IndexerError> {
     }
     url.set_query(None);
     url.set_fragment(None);
-    Ok(url.to_string().trim_end_matches('/').to_string())
+    let normalized_url = url.to_string();
+    Ok(normalized_url.trim_end_matches('/').to_string())
 }
 
 // ── XML / RSS helpers ─────────────────────────────────────────────────────────
