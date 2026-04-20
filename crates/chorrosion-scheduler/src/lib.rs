@@ -46,9 +46,8 @@ impl Scheduler {
             self.pool.clone(),
             self.config.database.slow_query_threshold_ms,
         ));
-        let rss_indexer_repository = Arc::new(SqliteIndexerDefinitionRepository::new(
-            self.pool.clone(),
-        ));
+        let rss_indexer_repository =
+            Arc::new(SqliteIndexerDefinitionRepository::new(self.pool.clone()));
         let rss_download_client_repository = Arc::new(
             SqliteDownloadClientDefinitionRepository::new(self.pool.clone()),
         );
