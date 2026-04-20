@@ -43,7 +43,7 @@ pub struct CustomFormatRule {
 #[derive(Debug, Clone)]
 struct NormalizedCustomFormatRule {
     keywords: Vec<String>,
-    score_bonus: i32,
+    score_bonus: i64,
 }
 
 pub fn parse_release_title(title: &str) -> ParsedReleaseTitle {
@@ -193,11 +193,11 @@ fn score_release_with_words(
         AudioQuality::Mp3 => 120,
         AudioQuality::Aac => 100,
         AudioQuality::Unknown => 20,
-    };
+    } as i64;
 
     let bitrate_score = release
         .bitrate_kbps
-        .map(|value| (value / 10) as i32)
+        .map(|value| (value / 10) as i64)
         .unwrap_or(0);
 
     let group_score = release
@@ -210,31 +210,34 @@ fn score_release_with_words(
                 .any(|preferred| preferred.eq_ignore_ascii_case(group))
                 .then_some(75)
         })
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
+
+    let normalized_title = normalize_whitespace(&release.original_title).to_lowercase();
 
     let preferred_word_score =
-        (preferred_word_matches(release, normalized_preferred_words) as i32) * 30;
+        (preferred_word_matches(release, &normalized_title, normalized_preferred_words) as i64)
+            * 30;
 
-    let custom_format_score = custom_format_bonus(release, normalized_custom_rules);
+    let custom_format_score = custom_format_bonus(&normalized_title, normalized_custom_rules);
 
-    quality_score + bitrate_score + group_score + preferred_word_score + custom_format_score
+    (quality_score + bitrate_score + group_score + preferred_word_score + custom_format_score)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
 fn custom_format_bonus(
-    release: &ParsedReleaseTitle,
+    normalized_title: &str,
     normalized_custom_rules: &[NormalizedCustomFormatRule],
-) -> i32 {
+) -> i64 {
     if normalized_custom_rules.is_empty() {
         return 0;
     }
 
-    let title = normalize_whitespace(&release.original_title).to_lowercase();
     normalized_custom_rules
         .iter()
         .filter(|rule| {
             rule.keywords
                 .iter()
-                .any(|keyword| title.contains(keyword.as_str()))
+                .any(|keyword| normalized_title.contains(keyword.as_str()))
         })
         .map(|rule| rule.score_bonus)
         .sum()
@@ -242,13 +245,13 @@ fn custom_format_bonus(
 
 fn preferred_word_matches(
     release: &ParsedReleaseTitle,
+    normalized_title: &str,
     normalized_preferred_words: &HashSet<String>,
 ) -> usize {
     if normalized_preferred_words.is_empty() {
         return 0;
     }
 
-    let original_title = normalize_whitespace(&release.original_title).to_lowercase();
     let artist = release.artist.as_ref().map(|value| value.to_lowercase());
     let album = release.album.as_ref().map(|value| value.to_lowercase());
     let group = release
@@ -260,7 +263,7 @@ fn preferred_word_matches(
         .iter()
         .filter(|word| {
             let word = word.as_str();
-            original_title.contains(word)
+            normalized_title.contains(word)
                 || artist.as_ref().is_some_and(|value| value.contains(word))
                 || album.as_ref().is_some_and(|value| value.contains(word))
                 || group.as_ref().is_some_and(|value| value.contains(word))
@@ -271,7 +274,7 @@ fn preferred_word_matches(
 fn normalize_preferred_words(preferred_words: &[String]) -> HashSet<String> {
     preferred_words
         .iter()
-        .map(|word| word.trim().to_lowercase())
+        .map(|word| normalize_whitespace(word).to_lowercase())
         .filter(|word| !word.is_empty())
         .collect()
 }
@@ -283,7 +286,7 @@ fn normalize_custom_format_rules(rules: &[CustomFormatRule]) -> Vec<NormalizedCu
             let keywords = rule
                 .keywords
                 .iter()
-                .map(|word| word.trim().to_lowercase())
+                .map(|word| normalize_whitespace(word).to_lowercase())
                 .filter(|word| !word.is_empty())
                 .collect::<Vec<_>>();
 
@@ -293,7 +296,7 @@ fn normalize_custom_format_rules(rules: &[CustomFormatRule]) -> Vec<NormalizedCu
 
             Some(NormalizedCustomFormatRule {
                 keywords,
-                score_bonus: rule.score_bonus,
+                score_bonus: i64::from(rule.score_bonus),
             })
         })
         .collect()
@@ -662,6 +665,62 @@ mod tests {
                 keywords: vec!["mqa".to_string()],
                 score_bonus: 60,
             }],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0].original_title.to_lowercase().contains("mqa"));
+    }
+
+    #[test]
+    fn custom_format_keyword_matches_with_irregular_whitespace() {
+        let releases = vec![
+            parse_release_title("Artist - Album MQA Deluxe Edition 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album Standard Edition 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec![],
+            custom_format_rules: vec![CustomFormatRule {
+                name: "MQA Deluxe".to_string(),
+                keywords: vec!["mqa   deluxe".to_string()],
+                score_bonus: 80,
+            }],
+        };
+
+        let ranked = rank_releases(releases, &options);
+        assert!(ranked[0]
+            .original_title
+            .to_lowercase()
+            .contains("mqa deluxe"));
+    }
+
+    #[test]
+    fn custom_format_score_uses_saturating_total() {
+        let releases = vec![
+            parse_release_title("Artist - Album MQA 320kbps MP3-GroupA"),
+            parse_release_title("Artist - Album 320kbps MP3-GroupB"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![],
+            min_bitrate_kbps: None,
+            preferred_release_groups: vec![],
+            preferred_words: vec![],
+            custom_format_rules: vec![
+                CustomFormatRule {
+                    name: "Rule 1".to_string(),
+                    keywords: vec!["mqa".to_string()],
+                    score_bonus: i32::MAX,
+                },
+                CustomFormatRule {
+                    name: "Rule 2".to_string(),
+                    keywords: vec!["mqa".to_string()],
+                    score_bonus: i32::MAX,
+                },
+            ],
         };
 
         let ranked = rank_releases(releases, &options);
