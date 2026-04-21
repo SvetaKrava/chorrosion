@@ -208,9 +208,41 @@ impl std::fmt::Display for TrackFileId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TagId(pub Uuid);
+
+impl TagId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for TagId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for TagId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 // ============================================================================
 // Enums
 // ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityType {
+    Artist,
+    Album,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -702,6 +734,47 @@ impl IndexerDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tag {
+    pub id: TagId,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Tag {
+    pub fn new(name: impl Into<String>, description: Option<String>) -> Self {
+        let now = Utc::now();
+        Self {
+            id: TagId::new(),
+            name: name.into(),
+            description,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaggedEntity {
+    pub tag_id: TagId,
+    pub entity_id: String,
+    pub entity_type: EntityType,
+    pub created_at: DateTime<Utc>,
+}
+
+impl TaggedEntity {
+    pub fn new(tag_id: TagId, entity_id: impl Into<String>, entity_type: EntityType) -> Self {
+        Self {
+            tag_id,
+            entity_id: entity_id.into(),
+            entity_type,
+            created_at: Utc::now(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadClientDefinition {
     pub id: DownloadClientDefinitionId,
     pub name: String,
@@ -867,6 +940,23 @@ impl Validate for Track {
                     message: "duration must be > 0".into(),
                 });
             }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
+
+impl Validate for Tag {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.name.trim().is_empty() {
+            errors.push(ValidationError {
+                field: "name",
+                message: "name cannot be empty".into(),
+            });
         }
         if errors.is_empty() {
             Ok(())

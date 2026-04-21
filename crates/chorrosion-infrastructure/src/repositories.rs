@@ -2,8 +2,8 @@
 use anyhow::Result;
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistStatus,
-    DownloadClientDefinition, IndexerDefinition, MetadataProfile, QualityProfile, Track, TrackFile,
-    TrackId,
+    DownloadClientDefinition, EntityType, IndexerDefinition, MetadataProfile, QualityProfile, Tag,
+    TagId, TaggedEntity, Track, TrackFile, TrackId,
 };
 use chrono::NaiveDate;
 
@@ -180,4 +180,65 @@ pub trait ArtistRelationshipRepository: Repository<ArtistRelationship> {
         related_artist_id: ArtistId,
         relationship_type: &str,
     ) -> Result<bool>;
+}
+
+/// Tag repository for managing user-defined tags
+#[async_trait::async_trait]
+pub trait TagRepository: Repository<Tag> {
+    /// Get tag by name (case-insensitive lookup)
+    async fn get_by_name(&self, name: &str) -> Result<Option<Tag>>;
+
+    /// List tags by an entity type, filtered by entity_id
+    async fn get_tags_for_entity(
+        &self,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<Vec<Tag>>;
+
+    /// List all entities (artists or albums) with a specific tag
+    async fn get_entities_with_tag(
+        &self,
+        tag_id: TagId,
+        entity_type: EntityType,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<String>>;
+}
+
+/// Tagged entity repository for managing tag-entity associations
+#[async_trait::async_trait]
+pub trait TaggedEntityRepository: Repository<TaggedEntity> {
+    /// Assign a tag to an entity
+    async fn assign_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<()>;
+
+    /// Remove a tag from an entity
+    async fn remove_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<()>;
+
+    /// Get all tags for an entity
+    async fn get_tags_for_entity(
+        &self,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<Vec<TagId>>;
+
+    /// Check if an entity has a specific tag
+    async fn has_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<bool>;
+
+    /// Remove all tags from an entity
+    async fn clear_entity_tags(&self, entity_id: &str, entity_type: EntityType) -> Result<()>;
 }

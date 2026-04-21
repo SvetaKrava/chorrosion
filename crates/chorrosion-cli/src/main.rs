@@ -11,7 +11,8 @@ use chorrosion_infrastructure::{
     sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     },
     ResponseCache,
 };
@@ -45,6 +46,8 @@ async fn main() -> Result<()> {
         Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone()));
     let download_client_definition_repository =
         Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone()));
+    let tag_repository = Arc::new(SqliteTagRepository::new(pool.clone()));
+    let tagged_entity_repository = Arc::new(SqliteTaggedEntityRepository::new(pool.clone()));
 
     let response_cache = ResponseCache::new(
         config.cache.api_response_max_capacity,
@@ -60,6 +63,8 @@ async fn main() -> Result<()> {
         metadata_profile_repository,
         indexer_definition_repository,
         download_client_definition_repository,
+        tag_repository,
+        tagged_entity_repository,
         response_cache,
     );
     state.on_start();
