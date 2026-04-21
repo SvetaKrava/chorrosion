@@ -15,7 +15,6 @@ use chorrosion_infrastructure::{
         SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
         SqliteTrackRepository,
     },
-    ResponseCache,
 };
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
@@ -48,7 +47,12 @@ fn make_state(pool: SqlitePool) -> AppState {
         Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
         Arc::new(SqliteTagRepository::new(pool.clone())),
         Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
-        ResponseCache::new(100, 60),
+        Arc::new(
+            chorrosion_infrastructure::sqlite_adapters::SqliteSmartPlaylistRepository::new(
+                pool.clone(),
+            ),
+        ),
+        chorrosion_infrastructure::ResponseCache::new(100, 60),
     )
 }
 

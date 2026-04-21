@@ -95,6 +95,14 @@ use handlers::search::{
     manual_search_endpoint, ManualSearchApiRequest, ManualSearchApiResponse,
     ManualSearchResultItem, SearchErrorResponse, __path_manual_search_endpoint,
 };
+use handlers::smart_playlists::{
+    create_smart_playlist, delete_smart_playlist, get_smart_playlist, get_smart_playlist_items,
+    list_smart_playlists, update_smart_playlist, CreateSmartPlaylistRequest,
+    ErrorResponse as SmartPlaylistErrorResponse, ListSmartPlaylistsResponse,
+    SmartPlaylistCriteriaRequest, SmartPlaylistItemsResponse, SmartPlaylistResponse,
+    __path_create_smart_playlist, __path_delete_smart_playlist, __path_get_smart_playlist,
+    __path_get_smart_playlist_items, __path_list_smart_playlists, __path_update_smart_playlist,
+};
 use handlers::system::{
     get_system_logs, get_system_notifications, get_system_status, get_system_tasks,
     get_system_version, post_system_notifications_test, NotificationProviderStatusResponse,
@@ -323,6 +331,12 @@ async fn metrics() -> axum::response::Response {
         get_entity_tags,
         assign_tag_to_entity,
         remove_tag_from_entity,
+        list_smart_playlists,
+        create_smart_playlist,
+        get_smart_playlist,
+        update_smart_playlist,
+        delete_smart_playlist,
+        get_smart_playlist_items,
     ),
     components(
         schemas(
@@ -420,6 +434,12 @@ async fn metrics() -> axum::response::Response {
             TagErrorResponse,
             CreateTagRequest,
             UpdateTagRequest,
+            ListSmartPlaylistsResponse,
+            SmartPlaylistResponse,
+            SmartPlaylistCriteriaRequest,
+            CreateSmartPlaylistRequest,
+            SmartPlaylistItemsResponse,
+            SmartPlaylistErrorResponse,
         )
     ),
     tags(
@@ -435,7 +455,8 @@ async fn metrics() -> axum::response::Response {
         (name = "imports", description = "Import evaluation and manual decision endpoints"),
         (name = "wanted", description = "Wanted and missing album tracking"),
         (name = "calendar", description = "Upcoming releases calendar"),
-        (name = "tags", description = "Tag organization endpoints")
+        (name = "tags", description = "Tag organization endpoints"),
+        (name = "smart_playlists", description = "Dynamic smart playlist endpoints")
     ),
     modifiers(&SecurityAddon),
     info(
@@ -540,6 +561,20 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .route("/search/manual", post(manual_search_endpoint))
+        .route(
+            "/smart-playlists",
+            get(list_smart_playlists).post(create_smart_playlist),
+        )
+        .route(
+            "/smart-playlists/:playlist_id",
+            get(get_smart_playlist)
+                .patch(update_smart_playlist)
+                .delete(delete_smart_playlist),
+        )
+        .route(
+            "/smart-playlists/:playlist_id/items",
+            get(get_smart_playlist_items),
+        )
         .route("/tags", get(list_tags).post(create_tag))
         .route(
             "/tags/:tag_id",
@@ -587,14 +622,11 @@ pub fn router(state: AppState) -> Router {
 mod health_tests {
     use super::*;
     use chorrosion_config::AppConfig;
-    use chorrosion_infrastructure::{
-        sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository,
-            SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
-            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTagRepository,
-            SqliteTaggedEntityRepository, SqliteTrackRepository,
-        },
-        ResponseCache,
+    use chorrosion_infrastructure::sqlite_adapters::{
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     };
     use sqlx::SqlitePool;
     use std::sync::Arc;
@@ -611,7 +643,12 @@ mod health_tests {
             Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
             Arc::new(SqliteTagRepository::new(pool.clone())),
             Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
-            ResponseCache::new(100, 60),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteSmartPlaylistRepository::new(
+                    pool.clone(),
+                ),
+            ),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
     }
 

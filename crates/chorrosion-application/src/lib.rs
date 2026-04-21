@@ -4,7 +4,7 @@ use chorrosion_infrastructure::{
     repositories::{
         AlbumRepository, ArtistRepository, DownloadClientDefinitionRepository,
         IndexerDefinitionRepository, MetadataProfileRepository, QualityProfileRepository,
-        TagRepository, TaggedEntityRepository, TrackRepository,
+        SmartPlaylistRepository, TagRepository, TaggedEntityRepository, TrackRepository,
     },
     ResponseCache,
 };
@@ -101,8 +101,10 @@ pub use tag_embedding::{
 };
 pub use tag_sanitation::TagSanitizer;
 
-// Re-export tag domain types for API layer
-pub use chorrosion_domain::{EntityType, Tag, TagId, TaggedEntity};
+// Re-export tag and smart playlist domain types for API layer
+pub use chorrosion_domain::{
+    EntityType, SmartPlaylist, SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,
+};
 
 use tracing::info;
 
@@ -351,6 +353,7 @@ pub struct AppState {
     pub download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
     pub tag_repository: Arc<dyn TagRepository>,
     pub tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
+    pub smart_playlist_repository: Arc<dyn SmartPlaylistRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
@@ -374,6 +377,7 @@ impl AppState {
         download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
         tag_repository: Arc<dyn TagRepository>,
         tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
+        smart_playlist_repository: Arc<dyn SmartPlaylistRepository>,
         response_cache: ResponseCache,
     ) -> Self {
         Self {
@@ -390,6 +394,7 @@ impl AppState {
             download_client_definition_repository,
             tag_repository,
             tagged_entity_repository,
+            smart_playlist_repository,
             response_cache,
         }
     }

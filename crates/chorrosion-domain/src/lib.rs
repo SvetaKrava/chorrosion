@@ -233,6 +233,31 @@ impl std::fmt::Display for TagId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SmartPlaylistId(pub Uuid);
+
+impl SmartPlaylistId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Default for SmartPlaylistId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for SmartPlaylistId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 // ============================================================================
 // Enums
 // ============================================================================
@@ -784,6 +809,53 @@ impl TaggedEntity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartPlaylistCriteria {
+    pub recently_added_days: Option<i64>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub monitored_only: bool,
+}
+
+impl Default for SmartPlaylistCriteria {
+    fn default() -> Self {
+        Self {
+            recently_added_days: None,
+            genre: None,
+            year: None,
+            monitored_only: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartPlaylist {
+    pub id: SmartPlaylistId,
+    pub name: String,
+    pub description: Option<String>,
+    pub criteria: SmartPlaylistCriteria,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SmartPlaylist {
+    pub fn new(
+        name: impl Into<String>,
+        description: Option<String>,
+        criteria: SmartPlaylistCriteria,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: SmartPlaylistId::new(),
+            name: name.into(),
+            description,
+            criteria,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadClientDefinition {
     pub id: DownloadClientDefinitionId,
     pub name: String,
@@ -966,6 +1038,47 @@ impl Validate for Tag {
                 field: "name",
                 message: "name cannot be empty".into(),
             });
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
+
+impl Validate for SmartPlaylist {
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+        if self.name.trim().is_empty() {
+            errors.push(ValidationError {
+                field: "name",
+                message: "name cannot be empty".into(),
+            });
+        }
+        if let Some(days) = self.criteria.recently_added_days {
+            if days <= 0 {
+                errors.push(ValidationError {
+                    field: "criteria.recently_added_days",
+                    message: "recently_added_days must be > 0".into(),
+                });
+            }
+        }
+        if let Some(year) = self.criteria.year {
+            if !(1900..=2100).contains(&year) {
+                errors.push(ValidationError {
+                    field: "criteria.year",
+                    message: "year must be between 1900 and 2100".into(),
+                });
+            }
+        }
+        if let Some(genre) = &self.criteria.genre {
+            if genre.trim().is_empty() {
+                errors.push(ValidationError {
+                    field: "criteria.genre",
+                    message: "genre cannot be empty when provided".into(),
+                });
+            }
         }
         if errors.is_empty() {
             Ok(())

@@ -528,14 +528,11 @@ mod tests {
     use axum::extract::{Path, Query, State};
     use chorrosion_config::AppConfig;
     use chorrosion_domain::Tag as DomainTag;
-    use chorrosion_infrastructure::{
-        sqlite_adapters::{
-            SqliteAlbumRepository, SqliteArtistRepository,
-            SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
-            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTagRepository,
-            SqliteTaggedEntityRepository, SqliteTrackRepository,
-        },
-        ResponseCache,
+    use chorrosion_infrastructure::sqlite_adapters::{
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
+        SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     };
     use std::sync::Arc;
 
@@ -561,7 +558,12 @@ mod tests {
             Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
             Arc::new(SqliteTagRepository::new(pool.clone())),
             Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
-            ResponseCache::new(100, 60),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteSmartPlaylistRepository::new(
+                    pool.clone(),
+                ),
+            ),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
     }
 
