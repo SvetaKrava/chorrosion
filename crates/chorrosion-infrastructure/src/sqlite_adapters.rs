@@ -2,9 +2,9 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
-    ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, IndexerDefinition,
-    IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile, Track, TrackFile, TrackFileId,
-    TrackId,
+    ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, EntityType,
+    IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile, Tag, TagId,
+    TaggedEntity, Track, TrackFile, TrackFileId, TrackId,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -283,6 +283,21 @@ fn parse_album_status(s: &str) -> Result<AlbumStatus> {
         "released" => Ok(AlbumStatus::Released),
         "announced" => Ok(AlbumStatus::Announced),
         other => Err(anyhow!("unknown album status: {}", other)),
+    }
+}
+
+fn entity_type_as_str(entity_type: EntityType) -> &'static str {
+    match entity_type {
+        EntityType::Artist => "artist",
+        EntityType::Album => "album",
+    }
+}
+
+fn parse_entity_type(s: &str) -> Result<EntityType> {
+    match s {
+        "artist" => Ok(EntityType::Artist),
+        "album" => Ok(EntityType::Album),
+        other => Err(anyhow!("invalid entity type: {}", other)),
     }
 }
 
@@ -2241,6 +2256,432 @@ impl ArtistRelationshipRepository for SqliteArtistRelationshipRepository {
         let count: i64 = row.try_get("count")?;
         Ok(count > 0)
     }
+}
+
+// ============================================================================
+// SQLite Tag Repository Implementation
+// ============================================================================
+
+#[allow(dead_code)]
+pub struct SqliteTagRepository {
+    pool: SqlitePool,
+    profiler: QueryProfiler,
+}
+
+impl SqliteTagRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<Tag> for SqliteTagRepository {
+    async fn create(&self, entity: Tag) -> Result<Tag> {
+        debug!(target: "repository", tag_id = %entity.id, tag_name = %entity.name, "creating tag");
+
+        let id_str = entity.id.to_string();
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        let q = r#"
+            INSERT INTO tags (id, name, description, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)"#;
+
+        sqlx::query(q)
+            .bind(&id_str)
+            .bind(&entity.name)
+            .bind(&entity.description)
+            .bind(&created_at)
+            .bind(&updated_at)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Tag>> {
+        debug!(target: "repository", %id, "fetching tag by id");
+
+        let row = sqlx::query("SELECT * FROM tags WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(r) = row {
+            Ok(Some(row_to_tag(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<Tag>> {
+        debug!(target: "repository", limit, offset, "listing tags");
+
+        let rows = sqlx::query("SELECT * FROM tags ORDER BY name ASC LIMIT ? OFFSET ?")
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_tag(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, entity: Tag) -> Result<Tag> {
+        debug!(target: "repository", tag_id = %entity.id, tag_name = %entity.name, "updating tag");
+
+        let id_str = entity.id.to_string();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        let q = r#"
+            UPDATE tags
+            SET name = ?, description = ?, updated_at = ?
+            WHERE id = ?"#;
+
+        sqlx::query(q)
+            .bind(&entity.name)
+            .bind(&entity.description)
+            .bind(&updated_at)
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(entity)
+    }
+
+    async fn delete(&self, id: &str) -> Result<()> {
+        debug!(target: "repository", %id, "deleting tag");
+        let result = sqlx::query("DELETE FROM tags WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("tag not found: {}", id));
+        }
+        Ok(())
+    }
+}
+
+use crate::repositories::TagRepository;
+
+#[async_trait::async_trait]
+impl TagRepository for SqliteTagRepository {
+    async fn get_by_name(&self, name: &str) -> Result<Option<Tag>> {
+        debug!(target: "repository", tag_name = name, "fetching tag by name");
+
+        let row = sqlx::query("SELECT * FROM tags WHERE name = ? COLLATE NOCASE LIMIT 1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(r) = row {
+            Ok(Some(row_to_tag(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_tags_for_entity(
+        &self,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<Vec<Tag>> {
+        debug!(target: "repository", entity_id, entity_type = ?entity_type, "fetching tags for entity");
+
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        let rows = sqlx::query(
+            r#"
+            SELECT t.* FROM tags t
+            INNER JOIN tagged_entities te ON t.id = te.tag_id
+            WHERE te.entity_id = ? AND te.entity_type = ?
+            ORDER BY t.name ASC
+            "#,
+        )
+        .bind(entity_id)
+        .bind(entity_type_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_tag(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn get_entities_with_tag(
+        &self,
+        tag_id: TagId,
+        entity_type: EntityType,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<String>> {
+        debug!(target: "repository", tag_id = %tag_id, entity_type = ?entity_type, "fetching entities with tag");
+
+        let tag_id_str = tag_id.to_string();
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        let rows = sqlx::query(
+            "SELECT entity_id FROM tagged_entities WHERE tag_id = ? AND entity_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(&tag_id_str)
+        .bind(entity_type_str)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let entity_id: String = r.try_get("entity_id")?;
+            out.push(entity_id);
+        }
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// SQLite Tagged Entity Repository Implementation
+// ============================================================================
+
+#[allow(dead_code)]
+pub struct SqliteTaggedEntityRepository {
+    pool: SqlitePool,
+    profiler: QueryProfiler,
+}
+
+impl SqliteTaggedEntityRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<TaggedEntity> for SqliteTaggedEntityRepository {
+    async fn create(&self, entity: TaggedEntity) -> Result<TaggedEntity> {
+        debug!(target: "repository", tag_id = %entity.tag_id, entity_id = %entity.entity_id, entity_type = ?entity.entity_type, "assigning tag to entity");
+
+        let tag_id_str = entity.tag_id.to_string();
+        let entity_type_str = entity_type_as_str(entity.entity_type);
+        let created_at = entity.created_at.to_rfc3339();
+
+        let q = r#"
+            INSERT OR IGNORE INTO tagged_entities (tag_id, entity_id, entity_type, created_at)
+            VALUES (?, ?, ?, ?)"#;
+
+        sqlx::query(q)
+            .bind(&tag_id_str)
+            .bind(&entity.entity_id)
+            .bind(entity_type_str)
+            .bind(&created_at)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<TaggedEntity>> {
+        debug!(target: "repository", %id, "get_by_id unsupported for TaggedEntity");
+        Err(anyhow!(
+            "get_by_id is unsupported for TaggedEntity: expected a composite identifier (tag_id, entity_id, entity_type)"
+        ))
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<TaggedEntity>> {
+        debug!(target: "repository", limit, offset, "listing tagged entities");
+
+        let rows =
+            sqlx::query("SELECT * FROM tagged_entities ORDER BY created_at DESC LIMIT ? OFFSET ?")
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_tagged_entity(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, _entity: TaggedEntity) -> Result<TaggedEntity> {
+        // TaggedEntity is immutable; updates not supported
+        Err(anyhow!("update not supported for TaggedEntity"))
+    }
+
+    async fn delete(&self, id: &str) -> Result<()> {
+        debug!(
+            target: "repository",
+            %id,
+            "delete not supported for TaggedEntity via Repository::delete (use remove_tag)"
+        );
+        Err(anyhow!(
+            "delete not supported for TaggedEntity via Repository::delete; use remove_tag with tag_id, entity_id, and entity_type"
+        ))
+    }
+}
+
+use crate::repositories::TaggedEntityRepository;
+
+#[async_trait::async_trait]
+impl TaggedEntityRepository for SqliteTaggedEntityRepository {
+    async fn assign_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<()> {
+        let te = TaggedEntity::new(tag_id, entity_id, entity_type);
+        self.create(te).await?;
+        Ok(())
+    }
+
+    async fn remove_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<()> {
+        debug!(target: "repository", tag_id = %tag_id, entity_id, entity_type = ?entity_type, "removing tag from entity");
+
+        let tag_id_str = tag_id.to_string();
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        sqlx::query(
+            "DELETE FROM tagged_entities WHERE tag_id = ? AND entity_id = ? AND entity_type = ?",
+        )
+        .bind(&tag_id_str)
+        .bind(entity_id)
+        .bind(entity_type_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_tags_for_entity(
+        &self,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<Vec<TagId>> {
+        debug!(target: "repository", entity_id, entity_type = ?entity_type, "fetching tag IDs for entity");
+
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        let rows = sqlx::query(
+            "SELECT tag_id FROM tagged_entities WHERE entity_id = ? AND entity_type = ? ORDER BY created_at DESC",
+        )
+        .bind(entity_id)
+        .bind(entity_type_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let tag_id_str: String = r.try_get("tag_id")?;
+            let uuid = Uuid::parse_str(&tag_id_str)?;
+            out.push(TagId::from_uuid(uuid));
+        }
+        Ok(out)
+    }
+
+    async fn has_tag(
+        &self,
+        tag_id: TagId,
+        entity_id: &str,
+        entity_type: EntityType,
+    ) -> Result<bool> {
+        debug!(target: "repository", tag_id = %tag_id, entity_id, entity_type = ?entity_type, "checking if entity has tag");
+
+        let tag_id_str = tag_id.to_string();
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM tagged_entities WHERE tag_id = ? AND entity_id = ? AND entity_type = ?",
+        )
+        .bind(&tag_id_str)
+        .bind(entity_id)
+        .bind(entity_type_str)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count > 0)
+    }
+
+    async fn clear_entity_tags(&self, entity_id: &str, entity_type: EntityType) -> Result<()> {
+        debug!(target: "repository", entity_id, entity_type = ?entity_type, "clearing all tags from entity");
+
+        let entity_type_str = entity_type_as_str(entity_type);
+
+        sqlx::query("DELETE FROM tagged_entities WHERE entity_id = ? AND entity_type = ?")
+            .bind(entity_id)
+            .bind(entity_type_str)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Row conversion functions
+// ============================================================================
+
+fn row_to_tag(row: &sqlx::sqlite::SqliteRow) -> Result<Tag> {
+    let id_str: String = row.try_get("id")?;
+    let id = TagId::from_uuid(Uuid::parse_str(&id_str)?);
+    let name: String = row.try_get("name")?;
+    let description: Option<String> = row.try_get("description")?;
+    let created_at_str: String = row.try_get("created_at")?;
+    let updated_at_str: String = row.try_get("updated_at")?;
+
+    let created_at = parse_dt(created_at_str)?;
+    let updated_at = parse_dt(updated_at_str)?;
+
+    Ok(Tag {
+        id,
+        name,
+        description,
+        created_at,
+        updated_at,
+    })
+}
+
+fn row_to_tagged_entity(row: &sqlx::sqlite::SqliteRow) -> Result<TaggedEntity> {
+    let tag_id_str: String = row.try_get("tag_id")?;
+    let tag_id = TagId::from_uuid(Uuid::parse_str(&tag_id_str)?);
+    let entity_id: String = row.try_get("entity_id")?;
+    let entity_type_str: String = row.try_get("entity_type")?;
+    let created_at_str: String = row.try_get("created_at")?;
+
+    let entity_type = parse_entity_type(entity_type_str.to_lowercase().as_str())?;
+
+    let created_at = parse_dt(created_at_str)?;
+
+    Ok(TaggedEntity {
+        tag_id,
+        entity_id,
+        entity_type,
+        created_at,
+    })
 }
 
 // ============================================================================
@@ -4389,5 +4830,68 @@ mod tests {
             .await
             .expect("check wrong type");
         assert!(!wrong_type);
+    }
+
+    #[tokio::test]
+    async fn tag_repository_case_insensitive_lookup_and_delete_not_found() {
+        let pool = setup_pool().await;
+        let tag_repo = SqliteTagRepository::new(pool);
+
+        let created = tag_repo
+            .create(chorrosion_domain::Tag::new("Rock", None))
+            .await
+            .expect("create tag");
+
+        let fetched = tag_repo
+            .get_by_name("rock")
+            .await
+            .expect("lookup tag")
+            .expect("tag should exist");
+        assert_eq!(fetched.id, created.id);
+
+        let error = tag_repo
+            .delete(&uuid::Uuid::new_v4().to_string())
+            .await
+            .expect_err("delete should fail for unknown id");
+        assert!(error.to_string().contains("tag not found"));
+    }
+
+    #[tokio::test]
+    async fn tagged_entity_repository_assign_and_remove_round_trip() {
+        let pool = setup_pool().await;
+        let tag_repo = SqliteTagRepository::new(pool.clone());
+        let tagged_repo = SqliteTaggedEntityRepository::new(pool);
+
+        let tag = tag_repo
+            .create(chorrosion_domain::Tag::new("Favorites", None))
+            .await
+            .expect("create tag");
+        let entity_id = uuid::Uuid::new_v4().to_string();
+
+        tagged_repo
+            .assign_tag(tag.id, &entity_id, chorrosion_domain::EntityType::Artist)
+            .await
+            .expect("assign tag");
+
+        assert!(
+            tagged_repo
+                .has_tag(tag.id, &entity_id, chorrosion_domain::EntityType::Artist)
+                .await
+                .expect("check tag assignment"),
+            "tag assignment should exist"
+        );
+
+        tagged_repo
+            .remove_tag(tag.id, &entity_id, chorrosion_domain::EntityType::Artist)
+            .await
+            .expect("remove tag");
+
+        assert!(
+            !tagged_repo
+                .has_tag(tag.id, &entity_id, chorrosion_domain::EntityType::Artist)
+                .await
+                .expect("check tag removal"),
+            "tag assignment should be removed"
+        );
     }
 }

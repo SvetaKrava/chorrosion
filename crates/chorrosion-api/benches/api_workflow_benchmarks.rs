@@ -15,7 +15,8 @@ use chorrosion_infrastructure::{
     sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     },
     ResponseCache,
 };
@@ -52,7 +53,9 @@ fn make_state(pool: SqlitePool) -> AppState {
         Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
         Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
         Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
-        Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+        Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+        Arc::new(SqliteTagRepository::new(pool.clone())),
+        Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
         ResponseCache::new(1_000, 0),
     )
 }

@@ -4,7 +4,7 @@ use chorrosion_infrastructure::{
     repositories::{
         AlbumRepository, ArtistRepository, DownloadClientDefinitionRepository,
         IndexerDefinitionRepository, MetadataProfileRepository, QualityProfileRepository,
-        TrackRepository,
+        TagRepository, TaggedEntityRepository, TrackRepository,
     },
     ResponseCache,
 };
@@ -100,6 +100,9 @@ pub use tag_embedding::{
     TagEmbeddingRequest, TagEmbeddingService, TagFormat, TagRoundtripSnapshot,
 };
 pub use tag_sanitation::TagSanitizer;
+
+// Re-export tag domain types for API layer
+pub use chorrosion_domain::{EntityType, Tag, TagId, TaggedEntity};
 
 use tracing::info;
 
@@ -346,6 +349,8 @@ pub struct AppState {
     pub metadata_profile_repository: Arc<dyn MetadataProfileRepository>,
     pub indexer_definition_repository: Arc<dyn IndexerDefinitionRepository>,
     pub download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
+    pub tag_repository: Arc<dyn TagRepository>,
+    pub tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
@@ -367,6 +372,8 @@ impl AppState {
         metadata_profile_repository: Arc<dyn MetadataProfileRepository>,
         indexer_definition_repository: Arc<dyn IndexerDefinitionRepository>,
         download_client_definition_repository: Arc<dyn DownloadClientDefinitionRepository>,
+        tag_repository: Arc<dyn TagRepository>,
+        tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
         response_cache: ResponseCache,
     ) -> Self {
         Self {
@@ -381,6 +388,8 @@ impl AppState {
             metadata_profile_repository,
             indexer_definition_repository,
             download_client_definition_repository,
+            tag_repository,
+            tagged_entity_repository,
             response_cache,
         }
     }

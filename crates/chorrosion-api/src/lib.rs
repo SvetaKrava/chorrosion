@@ -104,6 +104,13 @@ use handlers::system::{
     __path_get_system_status, __path_get_system_tasks, __path_get_system_version,
     __path_post_system_notifications_test,
 };
+use handlers::tags::{
+    assign_tag_to_entity, create_tag, delete_tag, get_entity_tags, get_tag, list_tags,
+    remove_tag_from_entity, update_tag, CreateTagRequest, EntityTagsResponse,
+    ErrorResponse as TagErrorResponse, ListTagsResponse, TagResponse, UpdateTagRequest,
+    __path_assign_tag_to_entity, __path_create_tag, __path_delete_tag, __path_get_entity_tags,
+    __path_get_tag, __path_list_tags, __path_remove_tag_from_entity, __path_update_tag,
+};
 use handlers::tracks::{
     create_track, delete_track, get_track, list_tracks, list_tracks_by_album,
     list_tracks_by_artist, update_track, CreateTrackRequest, ErrorResponse as TrackErrorResponse,
@@ -308,6 +315,14 @@ async fn metrics() -> axum::response::Response {
         trigger_wanted_album_search,
         list_upcoming_releases,
         get_ical_feed,
+        create_tag,
+        list_tags,
+        get_tag,
+        update_tag,
+        delete_tag,
+        get_entity_tags,
+        assign_tag_to_entity,
+        remove_tag_from_entity,
     ),
     components(
         schemas(
@@ -399,6 +414,12 @@ async fn metrics() -> axum::response::Response {
             CalendarResponse,
             CalendarAlbumResponse,
             CalendarErrorResponse,
+            ListTagsResponse,
+            TagResponse,
+            EntityTagsResponse,
+            TagErrorResponse,
+            CreateTagRequest,
+            UpdateTagRequest,
         )
     ),
     tags(
@@ -413,7 +434,8 @@ async fn metrics() -> axum::response::Response {
         (name = "search", description = "Manual and interactive search endpoints"),
         (name = "imports", description = "Import evaluation and manual decision endpoints"),
         (name = "wanted", description = "Wanted and missing album tracking"),
-        (name = "calendar", description = "Upcoming releases calendar")
+        (name = "calendar", description = "Upcoming releases calendar"),
+        (name = "tags", description = "Tag organization endpoints")
     ),
     modifiers(&SecurityAddon),
     info(
@@ -518,6 +540,16 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/indexers/test", post(test_indexer_endpoint))
         .route("/search/manual", post(manual_search_endpoint))
+        .route("/tags", get(list_tags).post(create_tag))
+        .route(
+            "/tags/:tag_id",
+            get(get_tag).patch(update_tag).delete(delete_tag),
+        )
+        .route("/:entity_type/:entity_id/tags", get(get_entity_tags))
+        .route(
+            "/:entity_type/:entity_id/tags/:tag_id",
+            post(assign_tag_to_entity).delete(remove_tag_from_entity),
+        )
         .route("/imports/evaluate", post(evaluate_import_candidate))
         .route("/imports/decision", post(submit_manual_import_decision))
         .route("/wanted", get(list_wanted_albums))
@@ -559,7 +591,8 @@ mod health_tests {
         sqlite_adapters::{
             SqliteAlbumRepository, SqliteArtistRepository,
             SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
-            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTagRepository,
+            SqliteTaggedEntityRepository, SqliteTrackRepository,
         },
         ResponseCache,
     };
@@ -575,7 +608,9 @@ mod health_tests {
             Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
-            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteTagRepository::new(pool.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
             ResponseCache::new(100, 60),
         )
     }

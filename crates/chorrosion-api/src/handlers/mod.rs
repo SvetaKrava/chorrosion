@@ -12,5 +12,6 @@ pub mod metadata_profiles;
 pub mod quality_profiles;
 pub mod search;
 pub mod system;
+pub mod tags;
 pub mod tracks;
 pub mod wanted;
