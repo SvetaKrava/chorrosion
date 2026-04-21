@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS smart_playlists (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
     description TEXT,
     criteria_json TEXT NOT NULL,
     created_at TEXT NOT NULL,

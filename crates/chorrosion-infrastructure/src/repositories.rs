@@ -248,4 +248,7 @@ pub trait TaggedEntityRepository: Repository<TaggedEntity> {
 pub trait SmartPlaylistRepository: Repository<SmartPlaylist> {
     /// Get a smart playlist by case-insensitive name.
     async fn get_by_name(&self, name: &str) -> Result<Option<SmartPlaylist>>;
+
+    /// Count all smart playlists.
+    async fn count(&self) -> Result<i64>;
 }

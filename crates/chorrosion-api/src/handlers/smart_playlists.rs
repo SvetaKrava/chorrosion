@@ -257,9 +257,21 @@ pub async fn list_smart_playlists(
         ));
     }
 
-    let all = state
+    let total = state
         .smart_playlist_repository
-        .list(5000, 0)
+        .count()
+        .await
+        .map_err(|err| {
+            error!(target: "api", error = %err, "failed to count smart playlists");
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to list smart playlists",
+            )
+        })?;
+
+    let items = state
+        .smart_playlist_repository
+        .list(query.limit, query.offset)
         .await
         .map_err(|err| {
             error!(target: "api", error = %err, "failed to list smart playlists");
@@ -267,13 +279,8 @@ pub async fn list_smart_playlists(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "failed to list smart playlists",
             )
-        })?;
-
-    let total = all.len() as i64;
-    let items = all
+        })?
         .into_iter()
-        .skip(query.offset as usize)
-        .take(query.limit as usize)
         .map(SmartPlaylistResponse::from)
         .collect();
 
@@ -477,27 +484,42 @@ pub async fn get_smart_playlist_items(
         })?
         .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "smart playlist not found"))?;
 
-    let albums = state.album_repository.list(5000, 0).await.map_err(|err| {
-        error!(target: "api", error = %err, "failed to list albums for smart playlist evaluation");
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to evaluate smart playlist",
-        )
-    })?;
-
     let now = Utc::now();
-    let filtered: Vec<_> = albums
-        .into_iter()
-        .filter(|album| album_matches_criteria(album, &playlist.criteria, now))
-        .collect();
+    let mut total = 0_i64;
+    let mut repository_offset = 0_i64;
+    let mut items = Vec::new();
+    const ALBUM_EVALUATION_PAGE_SIZE: i64 = 500;
 
-    let total = filtered.len() as i64;
-    let items = filtered
-        .into_iter()
-        .skip(query.offset as usize)
-        .take(query.limit as usize)
-        .map(AlbumResponse::from)
-        .collect();
+    loop {
+        let albums = state
+            .album_repository
+            .list(ALBUM_EVALUATION_PAGE_SIZE, repository_offset)
+            .await
+            .map_err(|err| {
+                error!(target: "api", error = %err, "failed to list albums for smart playlist evaluation");
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to evaluate smart playlist",
+                )
+            })?;
+
+        let fetched_count = albums.len() as i64;
+
+        for album in albums {
+            if album_matches_criteria(&album, &playlist.criteria, now) {
+                if total >= query.offset && (items.len() as i64) < query.limit {
+                    items.push(AlbumResponse::from(album));
+                }
+                total += 1;
+            }
+        }
+
+        if fetched_count < ALBUM_EVALUATION_PAGE_SIZE {
+            break;
+        }
+
+        repository_offset += ALBUM_EVALUATION_PAGE_SIZE;
+    }
 
     Ok(Json(SmartPlaylistItemsResponse {
         playlist: SmartPlaylistResponse::from(playlist),

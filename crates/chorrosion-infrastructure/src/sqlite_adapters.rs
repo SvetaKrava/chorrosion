@@ -2791,6 +2791,21 @@ impl SmartPlaylistRepository for SqliteSmartPlaylistRepository {
             Ok(None)
         }
     }
+
+    async fn count(&self) -> Result<i64> {
+        debug!(target: "repository", "counting smart playlists");
+
+        let row = self
+            .profiler
+            .timed("smart_playlists::count", || async {
+                sqlx::query("SELECT COUNT(*) as count FROM smart_playlists")
+                    .fetch_one(&self.pool)
+                    .await
+            })
+            .await?;
+
+        Ok(row.try_get("count")?)
+    }
 }
 
 // ============================================================================
