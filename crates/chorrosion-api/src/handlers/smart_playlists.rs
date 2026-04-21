@@ -13,6 +13,9 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::handlers::albums::AlbumResponse;
 
+/// Batch size used while scanning albums for smart playlist evaluation.
+const ALBUM_EVALUATION_PAGE_SIZE: i64 = 500;
+
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListSmartPlaylistsQuery {
     #[serde(default = "default_limit")]
@@ -488,7 +491,6 @@ pub async fn get_smart_playlist_items(
     let mut total = 0_i64;
     let mut repository_offset = 0_i64;
     let mut items = Vec::new();
-    const ALBUM_EVALUATION_PAGE_SIZE: i64 = 500;
 
     loop {
         let albums = state
