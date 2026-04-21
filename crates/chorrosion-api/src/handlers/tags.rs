@@ -443,18 +443,14 @@ pub async fn assign_tag_to_entity(
             .get_by_id(&entity_id)
             .await
             .map(|entity| entity.is_some()),
-    };
+    }
+    .map_err(|e| {
+        error!(target: "api", "failed to verify entity: {}", e);
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to verify entity")
+    })?;
 
-    match entity_exists {
-        Ok(true) => {}
-        Ok(false) => return Err(error_response(StatusCode::NOT_FOUND, "Entity not found")),
-        Err(e) => {
-            error!(target: "api", "failed to verify entity: {}", e);
-            return Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to verify entity",
-            ));
-        }
+    if !entity_exists {
+        return Err(error_response(StatusCode::NOT_FOUND, "Entity not found"));
     }
 
     let parsed_tag_id = TagId::from_uuid(
