@@ -1,4 +1,5 @@
 -- Create tags table for user-defined tag management
+-- Tag names are case-insensitive for both lookups and uniqueness via COLLATE NOCASE.
 CREATE TABLE IF NOT EXISTS tags (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL COLLATE NOCASE UNIQUE,

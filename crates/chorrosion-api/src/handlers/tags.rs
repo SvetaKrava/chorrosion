@@ -332,18 +332,6 @@ pub async fn delete_tag(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     debug!(target: "api", "deleting tag: {}", tag_id);
 
-    match state.tag_repository.get_by_id(&tag_id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "Tag not found")),
-        Err(e) => {
-            error!(target: "api", "failed to get tag for deletion: {}", e);
-            return Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to delete tag",
-            ));
-        }
-    }
-
     match state.tag_repository.delete(&tag_id).await {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
         Err(e) => {
