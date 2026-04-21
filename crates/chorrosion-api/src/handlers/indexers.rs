@@ -653,7 +653,8 @@ mod tests {
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteTrackRepository,
+        SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     };
     use std::sync::Arc;
 
@@ -676,7 +677,9 @@ mod tests {
             Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
-            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteTagRepository::new(pool.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
             chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
     }

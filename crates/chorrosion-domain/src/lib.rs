@@ -244,6 +244,15 @@ pub enum EntityType {
     Album,
 }
 
+impl std::fmt::Display for EntityType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Artist => write!(f, "artist"),
+            Self::Album => write!(f, "album"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtistStatus {

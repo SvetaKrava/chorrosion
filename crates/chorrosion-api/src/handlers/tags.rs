@@ -54,6 +54,36 @@ pub struct AssignTagRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
+fn error_response(
+    status: StatusCode,
+    message: impl Into<String>,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        status,
+        Json(ErrorResponse {
+            error: message.into(),
+        }),
+    )
+}
+
+fn parse_entity_type(
+    entity_type_str: &str,
+) -> Result<EntityType, (StatusCode, Json<ErrorResponse>)> {
+    match entity_type_str.to_lowercase().as_str() {
+        "artist" => Ok(EntityType::Artist),
+        "album" => Ok(EntityType::Album),
+        _ => Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid entity type",
+        )),
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTagsResponse {
     pub items: Vec<TagResponse>,
     pub total: i64,
@@ -100,11 +130,14 @@ impl From<Tag> for TagResponse {
 pub async fn create_tag(
     State(state): State<AppState>,
     Json(payload): Json<CreateTagRequest>,
-) -> Result<(StatusCode, Json<TagResponse>), (StatusCode, String)> {
-    debug!("creating tag: {}", payload.name);
+) -> Result<(StatusCode, Json<TagResponse>), (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", "creating tag: {}", payload.name);
 
     if payload.name.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Tag name cannot be empty".into()));
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Tag name cannot be empty",
+        ));
     }
 
     let tag = Tag::new(payload.name, payload.description);
@@ -112,16 +145,16 @@ pub async fn create_tag(
     match state.tag_repository.create(tag).await {
         Ok(created_tag) => Ok((StatusCode::CREATED, Json(TagResponse::from(created_tag)))),
         Err(e) => {
-            error!("failed to create tag: {}", e);
+            error!(target: "api", "failed to create tag: {}", e);
             if e.to_string().contains("UNIQUE") {
-                Err((
+                Err(error_response(
                     StatusCode::CONFLICT,
-                    "Tag with this name already exists".into(),
+                    "Tag with this name already exists",
                 ))
             } else {
-                Err((
+                Err(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to create tag".into(),
+                    "Failed to create tag",
                 ))
             }
         }
@@ -142,19 +175,24 @@ pub async fn create_tag(
 pub async fn list_tags(
     State(state): State<AppState>,
     Query(params): Query<ListTagsQuery>,
-) -> Result<Json<ListTagsResponse>, (StatusCode, String)> {
-    debug!(
+) -> Result<Json<ListTagsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api",
         "listing tags: limit={}, offset={}",
         params.limit, params.offset
     );
 
-    let limit = params.limit.max(1).min(1000);
+    let limit = params.limit.clamp(1, 1000);
     let offset = params.offset.max(0);
 
-    match state.tag_repository.list(limit, offset).await {
+    match state.tag_repository.list(5000, 0).await {
         Ok(tags) => {
             let total = tags.len() as i64;
-            let items = tags.into_iter().map(TagResponse::from).collect();
+            let items = tags
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .map(TagResponse::from)
+                .collect();
             Ok(Json(ListTagsResponse {
                 items,
                 total,
@@ -163,10 +201,10 @@ pub async fn list_tags(
             }))
         }
         Err(e) => {
-            error!("failed to list tags: {}", e);
-            Err((
+            error!(target: "api", "failed to list tags: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list tags".into(),
+                "Failed to list tags",
             ))
         }
     }
@@ -189,17 +227,17 @@ pub async fn list_tags(
 pub async fn get_tag(
     State(state): State<AppState>,
     Path(tag_id): Path<String>,
-) -> Result<Json<TagResponse>, (StatusCode, String)> {
-    debug!("getting tag: {}", tag_id);
+) -> Result<Json<TagResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", "getting tag: {}", tag_id);
 
     match state.tag_repository.get_by_id(&tag_id).await {
         Ok(Some(tag)) => Ok(Json(TagResponse::from(tag))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, "Tag not found".into())),
+        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "Tag not found")),
         Err(e) => {
-            error!("failed to get tag: {}", e);
-            Err((
+            error!(target: "api", "failed to get tag: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to get tag".into(),
+                "Failed to get tag",
             ))
         }
     }
@@ -226,14 +264,17 @@ pub async fn update_tag(
     State(state): State<AppState>,
     Path(tag_id): Path<String>,
     Json(payload): Json<UpdateTagRequest>,
-) -> Result<Json<TagResponse>, (StatusCode, String)> {
-    debug!("updating tag: {}", tag_id);
+) -> Result<Json<TagResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", "updating tag: {}", tag_id);
 
     match state.tag_repository.get_by_id(&tag_id).await {
         Ok(Some(mut tag)) => {
             if let Some(name) = payload.name {
                 if name.trim().is_empty() {
-                    return Err((StatusCode::BAD_REQUEST, "Tag name cannot be empty".into()));
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "Tag name cannot be empty",
+                    ));
                 }
                 tag.name = name;
             }
@@ -245,27 +286,27 @@ pub async fn update_tag(
             match state.tag_repository.update(tag).await {
                 Ok(updated_tag) => Ok(Json(TagResponse::from(updated_tag))),
                 Err(e) => {
-                    error!("failed to update tag: {}", e);
+                    error!(target: "api", "failed to update tag: {}", e);
                     if e.to_string().contains("UNIQUE") {
-                        Err((
+                        Err(error_response(
                             StatusCode::CONFLICT,
-                            "Tag with this name already exists".into(),
+                            "Tag with this name already exists",
                         ))
                     } else {
-                        Err((
+                        Err(error_response(
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            "Failed to update tag".into(),
+                            "Failed to update tag",
                         ))
                     }
                 }
             }
         }
-        Ok(None) => Err((StatusCode::NOT_FOUND, "Tag not found".into())),
+        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "Tag not found")),
         Err(e) => {
-            error!("failed to get tag: {}", e);
-            Err((
+            error!(target: "api", "failed to get tag: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to update tag".into(),
+                "Failed to update tag",
             ))
         }
     }
@@ -288,17 +329,33 @@ pub async fn update_tag(
 pub async fn delete_tag(
     State(state): State<AppState>,
     Path(tag_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    debug!("deleting tag: {}", tag_id);
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", "deleting tag: {}", tag_id);
+
+    match state.tag_repository.get_by_id(&tag_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "Tag not found")),
+        Err(e) => {
+            error!(target: "api", "failed to get tag for deletion: {}", e);
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete tag",
+            ));
+        }
+    }
 
     match state.tag_repository.delete(&tag_id).await {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
         Err(e) => {
-            error!("failed to delete tag: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to delete tag".into(),
-            ))
+            error!(target: "api", "failed to delete tag: {}", e);
+            if e.to_string().contains("not found") {
+                Err(error_response(StatusCode::NOT_FOUND, "Tag not found"))
+            } else {
+                Err(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to delete tag",
+                ))
+            }
         }
     }
 }
@@ -321,14 +378,10 @@ pub async fn delete_tag(
 pub async fn get_entity_tags(
     State(state): State<AppState>,
     Path((entity_type_str, entity_id)): Path<(String, String)>,
-) -> Result<Json<EntityTagsResponse>, (StatusCode, String)> {
-    debug!("getting tags for {}/{}", entity_type_str, entity_id);
+) -> Result<Json<EntityTagsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api", "getting tags for {}/{}", entity_type_str, entity_id);
 
-    let entity_type = match entity_type_str.to_lowercase().as_str() {
-        "artist" => EntityType::Artist,
-        "album" => EntityType::Album,
-        _ => return Err((StatusCode::BAD_REQUEST, "Invalid entity type".into())),
-    };
+    let entity_type = parse_entity_type(&entity_type_str)?;
 
     match state
         .tag_repository
@@ -341,10 +394,10 @@ pub async fn get_entity_tags(
             tags: tags.into_iter().map(TagResponse::from).collect(),
         })),
         Err(e) => {
-            error!("failed to get tags for entity: {}", e);
-            Err((
+            error!(target: "api", "failed to get tags for entity: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to get entity tags".into(),
+                "Failed to get entity tags",
             ))
         }
     }
@@ -370,49 +423,68 @@ pub async fn get_entity_tags(
 pub async fn assign_tag_to_entity(
     State(state): State<AppState>,
     Path((entity_type_str, entity_id, tag_id)): Path<(String, String, String)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    debug!(
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api",
         "assigning tag {} to {}/{}",
         tag_id, entity_type_str, entity_id
     );
 
-    let entity_type = match entity_type_str.to_lowercase().as_str() {
-        "artist" => EntityType::Artist,
-        "album" => EntityType::Album,
-        _ => return Err((StatusCode::BAD_REQUEST, "Invalid entity type".into())),
-    };
+    let entity_type = parse_entity_type(&entity_type_str)?;
 
     // Verify tag exists
     match state.tag_repository.get_by_id(&tag_id).await {
         Ok(Some(_)) => {}
-        Ok(None) => return Err((StatusCode::NOT_FOUND, "Tag not found".into())),
+        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "Tag not found")),
         Err(e) => {
-            error!("failed to get tag: {}", e);
-            return Err((
+            error!(target: "api", "failed to get tag: {}", e);
+            return Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to verify tag".into(),
+                "Failed to verify tag",
             ));
         }
     }
 
+    let entity_exists = match entity_type {
+        EntityType::Artist => state
+            .artist_repository
+            .get_by_id(&entity_id)
+            .await
+            .map(|entity| entity.is_some()),
+        EntityType::Album => state
+            .album_repository
+            .get_by_id(&entity_id)
+            .await
+            .map(|entity| entity.is_some()),
+    };
+
+    match entity_exists {
+        Ok(true) => {}
+        Ok(false) => return Err(error_response(StatusCode::NOT_FOUND, "Entity not found")),
+        Err(e) => {
+            error!(target: "api", "failed to verify entity: {}", e);
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to verify entity",
+            ));
+        }
+    }
+
+    let parsed_tag_id = TagId::from_uuid(
+        uuid::Uuid::parse_str(&tag_id)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Invalid tag ID format"))?,
+    );
+
     match state
         .tagged_entity_repository
-        .assign_tag(
-            TagId::from_uuid(
-                uuid::Uuid::parse_str(&tag_id)
-                    .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid tag ID format".to_string()))?,
-            ),
-            &entity_id,
-            entity_type,
-        )
+        .assign_tag(parsed_tag_id, &entity_id, entity_type)
         .await
     {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
         Err(e) => {
-            error!("failed to assign tag: {}", e);
-            Err((
+            error!(target: "api", "failed to assign tag: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to assign tag".into(),
+                "Failed to assign tag",
             ))
         }
     }
@@ -437,37 +509,129 @@ pub async fn assign_tag_to_entity(
 pub async fn remove_tag_from_entity(
     State(state): State<AppState>,
     Path((entity_type_str, entity_id, tag_id)): Path<(String, String, String)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    debug!(
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    debug!(target: "api",
         "removing tag {} from {}/{}",
         tag_id, entity_type_str, entity_id
     );
 
-    let entity_type = match entity_type_str.to_lowercase().as_str() {
-        "artist" => EntityType::Artist,
-        "album" => EntityType::Album,
-        _ => return Err((StatusCode::BAD_REQUEST, "Invalid entity type".into())),
-    };
+    let entity_type = parse_entity_type(&entity_type_str)?;
+
+    let parsed_tag_id = TagId::from_uuid(
+        uuid::Uuid::parse_str(&tag_id)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Invalid tag ID format"))?,
+    );
 
     match state
         .tagged_entity_repository
-        .remove_tag(
-            TagId::from_uuid(
-                uuid::Uuid::parse_str(&tag_id)
-                    .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid tag ID format".to_string()))?,
-            ),
-            &entity_id,
-            entity_type,
-        )
+        .remove_tag(parsed_tag_id, &entity_id, entity_type)
         .await
     {
         Ok(_) => Ok(StatusCode::NO_CONTENT),
         Err(e) => {
-            error!("failed to remove tag: {}", e);
-            Err((
+            error!(target: "api", "failed to remove tag: {}", e);
+            Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to remove tag".into(),
+                "Failed to remove tag",
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::{Path, Query, State};
+    use chorrosion_config::AppConfig;
+    use chorrosion_domain::Tag as DomainTag;
+    use chorrosion_infrastructure::{
+        sqlite_adapters::{
+            SqliteAlbumRepository, SqliteArtistRepository,
+            SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
+            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTagRepository,
+            SqliteTaggedEntityRepository, SqliteTrackRepository,
+        },
+        ResponseCache,
+    };
+    use std::sync::Arc;
+
+    async fn make_test_state() -> AppState {
+        use sqlx::sqlite::SqlitePoolOptions;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory SQLite");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+        AppState::new(
+            AppConfig::default(),
+            Arc::new(SqliteArtistRepository::new(pool.clone())),
+            Arc::new(SqliteAlbumRepository::new(pool.clone())),
+            Arc::new(SqliteTrackRepository::new(pool.clone())),
+            Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
+            Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
+            Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteTagRepository::new(pool.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
+            ResponseCache::new(100, 60),
+        )
+    }
+
+    #[tokio::test]
+    async fn list_tags_returns_total_count_across_all_rows() {
+        let state = make_test_state().await;
+        for i in 0..3 {
+            state
+                .tag_repository
+                .create(DomainTag::new(format!("Tag {i}"), None))
+                .await
+                .expect("create tag");
+        }
+
+        let response = list_tags(
+            State(state),
+            Query(ListTagsQuery {
+                limit: 1,
+                offset: 1,
+            }),
+        )
+        .await
+        .expect("list tags");
+
+        assert_eq!(response.total, 3);
+        assert_eq!(response.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_tag_returns_not_found_for_missing_tag() {
+        let state = make_test_state().await;
+        let result = delete_tag(State(state), Path(uuid::Uuid::new_v4().to_string())).await;
+        assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
+    }
+
+    #[tokio::test]
+    async fn assign_tag_returns_not_found_for_missing_entity() {
+        let state = make_test_state().await;
+        let tag = state
+            .tag_repository
+            .create(DomainTag::new("tag".to_string(), None))
+            .await
+            .expect("create tag");
+
+        let result = assign_tag_to_entity(
+            State(state),
+            Path((
+                "artist".to_string(),
+                uuid::Uuid::new_v4().to_string(),
+                tag.id.to_string(),
+            )),
+        )
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
     }
 }

@@ -87,7 +87,8 @@ mod tests {
         sqlite_adapters::{
             SqliteAlbumRepository, SqliteArtistRepository,
             SqliteDownloadClientDefinitionRepository, SqliteIndexerDefinitionRepository,
-            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTrackRepository,
+            SqliteMetadataProfileRepository, SqliteQualityProfileRepository, SqliteTagRepository,
+            SqliteTaggedEntityRepository, SqliteTrackRepository,
         },
         ResponseCache,
     };
@@ -104,7 +105,9 @@ mod tests {
             Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
-            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool)),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteTagRepository::new(pool.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
             ResponseCache::new(100, 60),
         )
     }
@@ -189,7 +192,11 @@ mod tests {
             Arc::new(SqliteQualityProfileRepository::new(pool_handle.clone())),
             Arc::new(SqliteMetadataProfileRepository::new(pool_handle.clone())),
             Arc::new(SqliteIndexerDefinitionRepository::new(pool_handle.clone())),
-            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool_handle)),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(
+                pool_handle.clone(),
+            )),
+            Arc::new(SqliteTagRepository::new(pool_handle.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool_handle.clone())),
             ResponseCache::new(100, 60),
         );
 
