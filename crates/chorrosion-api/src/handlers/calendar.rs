@@ -386,6 +386,11 @@ mod tests {
                     pool.clone(),
                 ),
             ),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteDuplicateRepository::new(
+                    pool.clone(),
+                ),
+            ),
             chorrosion_infrastructure::ResponseCache::new(100, 60),
         );
         (pool, state)

@@ -10,9 +10,10 @@ use chorrosion_infrastructure::{
     init_database,
     sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
-        SqliteIndexerDefinitionRepository, SqliteMetadataProfileRepository,
-        SqliteQualityProfileRepository, SqliteSmartPlaylistRepository, SqliteTagRepository,
-        SqliteTaggedEntityRepository, SqliteTrackRepository,
+        SqliteDuplicateRepository, SqliteIndexerDefinitionRepository,
+        SqliteMetadataProfileRepository, SqliteQualityProfileRepository,
+        SqliteSmartPlaylistRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
+        SqliteTrackRepository,
     },
     ResponseCache,
 };
@@ -49,6 +50,7 @@ async fn main() -> Result<()> {
     let tag_repository = Arc::new(SqliteTagRepository::new(pool.clone()));
     let tagged_entity_repository = Arc::new(SqliteTaggedEntityRepository::new(pool.clone()));
     let smart_playlist_repository = Arc::new(SqliteSmartPlaylistRepository::new(pool.clone()));
+    let duplicate_repository = Arc::new(SqliteDuplicateRepository::new(pool.clone()));
 
     let response_cache = ResponseCache::new(
         config.cache.api_response_max_capacity,
@@ -67,6 +69,7 @@ async fn main() -> Result<()> {
         tag_repository,
         tagged_entity_repository,
         smart_playlist_repository,
+        duplicate_repository,
         response_cache,
     );
     state.on_start();

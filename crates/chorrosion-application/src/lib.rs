@@ -2,7 +2,7 @@
 use chorrosion_config::AppConfig;
 use chorrosion_infrastructure::{
     repositories::{
-        AlbumRepository, ArtistRepository, DownloadClientDefinitionRepository,
+        AlbumRepository, ArtistRepository, DownloadClientDefinitionRepository, DuplicateRepository,
         IndexerDefinitionRepository, MetadataProfileRepository, QualityProfileRepository,
         SmartPlaylistRepository, TagRepository, TaggedEntityRepository, TrackRepository,
     },
@@ -101,9 +101,10 @@ pub use tag_embedding::{
 };
 pub use tag_sanitation::TagSanitizer;
 
-// Re-export tag and smart playlist domain types for API layer
+// Re-export tag, smart playlist, and duplicate detection domain types for API layer
 pub use chorrosion_domain::{
-    EntityType, SmartPlaylist, SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,
+    DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,
+    SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,
 };
 
 use tracing::info;
@@ -354,6 +355,7 @@ pub struct AppState {
     pub tag_repository: Arc<dyn TagRepository>,
     pub tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
     pub smart_playlist_repository: Arc<dyn SmartPlaylistRepository>,
+    pub duplicate_repository: Arc<dyn DuplicateRepository>,
     /// In-memory cache for serialized API GET responses.
     pub response_cache: ResponseCache,
     /// Short-lived cache for the polled download-client activity snapshot.
@@ -378,6 +380,7 @@ impl AppState {
         tag_repository: Arc<dyn TagRepository>,
         tagged_entity_repository: Arc<dyn TaggedEntityRepository>,
         smart_playlist_repository: Arc<dyn SmartPlaylistRepository>,
+        duplicate_repository: Arc<dyn DuplicateRepository>,
         response_cache: ResponseCache,
     ) -> Self {
         Self {
@@ -395,6 +398,7 @@ impl AppState {
             tag_repository,
             tagged_entity_repository,
             smart_playlist_repository,
+            duplicate_repository,
             response_cache,
         }
     }

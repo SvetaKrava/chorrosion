@@ -570,6 +570,11 @@ mod tests {
             Arc::new(SqliteTagRepository::new(pool.clone())),
             Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
             Arc::new(SqliteSmartPlaylistRepository::new(pool.clone())),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteDuplicateRepository::new(
+                    pool.clone(),
+                ),
+            ),
             chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
     }
