@@ -2,8 +2,8 @@
 use anyhow::Result;
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistStatus,
-    DownloadClientDefinition, EntityType, IndexerDefinition, MetadataProfile, QualityProfile, Tag,
-    TagId, TaggedEntity, Track, TrackFile, TrackId,
+    DownloadClientDefinition, EntityType, IndexerDefinition, MetadataProfile, QualityProfile,
+    SmartPlaylist, Tag, TagId, TaggedEntity, Track, TrackFile, TrackId,
 };
 use chrono::NaiveDate;
 
@@ -241,4 +241,14 @@ pub trait TaggedEntityRepository: Repository<TaggedEntity> {
 
     /// Remove all tags from an entity
     async fn clear_entity_tags(&self, entity_id: &str, entity_type: EntityType) -> Result<()>;
+}
+
+/// Smart playlist repository for dynamic playlist definitions.
+#[async_trait::async_trait]
+pub trait SmartPlaylistRepository: Repository<SmartPlaylist> {
+    /// Get a smart playlist by case-insensitive name.
+    async fn get_by_name(&self, name: &str) -> Result<Option<SmartPlaylist>>;
+
+    /// Count all smart playlists.
+    async fn count(&self) -> Result<i64>;
 }

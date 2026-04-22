@@ -11,6 +11,7 @@ pub mod indexers;
 pub mod metadata_profiles;
 pub mod quality_profiles;
 pub mod search;
+pub mod smart_playlists;
 pub mod system;
 pub mod tags;
 pub mod tracks;

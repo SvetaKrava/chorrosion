@@ -455,11 +455,11 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 10.1 Advanced Features
 
-- [ ] Custom formats support (Issue #397)
-- [ ] Preferred word handling (Issue #398)
-- [ ] Release restrictions (Issue #399)
-- [ ] Tag-based organization (Issue #400)
-- [ ] Smart playlists (Issue #401)
+- [x] Custom formats support (Issue #397, PR #407) ✓
+- [x] Preferred word handling (Issue #398, PR #406) ✓
+- [x] Release restrictions (Issue #399, PR #405) ✓
+- [x] Tag-based organization (Issue #400, PR #408) ✓
+- [x] Smart playlists (Issue #401) ✓
 - [ ] Advanced duplicate detection and management (Issue #402)
 
 ### 10.2 Community Features
@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-16  
-**Current Phase:** Phase 9: PostgreSQL Support  
-**Next Milestone:** Phase 9 complete; move to next prioritized backlog item
+**Last Updated:** 2026-04-21  
+**Current Phase:** Phase 10: Optional Enhancements  
+**Next Milestone:** Issue #402 - advanced duplicate detection and management

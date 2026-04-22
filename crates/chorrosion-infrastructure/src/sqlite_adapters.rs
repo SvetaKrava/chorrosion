@@ -3,8 +3,9 @@ use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
     ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, EntityType,
-    IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile, Tag, TagId,
-    TaggedEntity, Track, TrackFile, TrackFileId, TrackId,
+    IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile,
+    SmartPlaylist, SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity, Track,
+    TrackFile, TrackFileId, TrackId,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -16,7 +17,8 @@ use crate::profiler::QueryProfiler;
 use crate::repositories::{
     AlbumRepository, ArtistRelationshipRepository, ArtistRepository,
     DownloadClientDefinitionRepository, IndexerDefinitionRepository, MetadataProfileRepository,
-    QualityProfileRepository, Repository, TrackFileRepository, TrackRepository,
+    QualityProfileRepository, Repository, SmartPlaylistRepository, TrackFileRepository,
+    TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -2642,6 +2644,171 @@ impl TaggedEntityRepository for SqliteTaggedEntityRepository {
 }
 
 // ============================================================================
+// SQLite Smart Playlist Repository Implementation
+// ============================================================================
+
+#[allow(dead_code)]
+pub struct SqliteSmartPlaylistRepository {
+    pool: SqlitePool,
+    profiler: QueryProfiler,
+}
+
+impl SqliteSmartPlaylistRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
+    }
+}
+
+#[async_trait::async_trait]
+impl Repository<SmartPlaylist> for SqliteSmartPlaylistRepository {
+    async fn create(&self, entity: SmartPlaylist) -> Result<SmartPlaylist> {
+        debug!(target: "repository", smart_playlist_id = %entity.id, smart_playlist_name = %entity.name, "creating smart playlist");
+
+        let criteria_json = serde_json::to_string(&entity.criteria)?;
+        let created_at = entity.created_at.to_rfc3339();
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT INTO smart_playlists (id, name, description, criteria_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(entity.id.to_string())
+        .bind(&entity.name)
+        .bind(&entity.description)
+        .bind(criteria_json)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(entity)
+    }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<SmartPlaylist>> {
+        debug!(target: "repository", %id, "fetching smart playlist by id");
+
+        let row = self
+            .profiler
+            .timed("smart_playlists::get_by_id", || async {
+                sqlx::query("SELECT * FROM smart_playlists WHERE id = ? LIMIT 1")
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await
+            })
+            .await?;
+
+        if let Some(r) = row {
+            Ok(Some(row_to_smart_playlist(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list(&self, limit: i64, offset: i64) -> Result<Vec<SmartPlaylist>> {
+        debug!(target: "repository", limit, offset, "listing smart playlists");
+
+        let rows = self
+            .profiler
+            .timed("smart_playlists::list", || async {
+                sqlx::query(
+                    "SELECT * FROM smart_playlists ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            out.push(row_to_smart_playlist(&r)?);
+        }
+        Ok(out)
+    }
+
+    async fn update(&self, entity: SmartPlaylist) -> Result<SmartPlaylist> {
+        debug!(target: "repository", smart_playlist_id = %entity.id, smart_playlist_name = %entity.name, "updating smart playlist");
+
+        let criteria_json = serde_json::to_string(&entity.criteria)?;
+        let updated_at = entity.updated_at.to_rfc3339();
+
+        sqlx::query(
+            r#"
+            UPDATE smart_playlists
+            SET name = ?, description = ?, criteria_json = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&entity.name)
+        .bind(&entity.description)
+        .bind(criteria_json)
+        .bind(updated_at)
+        .bind(entity.id.to_string())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(entity)
+    }
+
+    async fn delete(&self, id: &str) -> Result<()> {
+        debug!(target: "repository", %id, "deleting smart playlist");
+
+        let result = sqlx::query("DELETE FROM smart_playlists WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("smart playlist not found: {}", id));
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl SmartPlaylistRepository for SqliteSmartPlaylistRepository {
+    async fn get_by_name(&self, name: &str) -> Result<Option<SmartPlaylist>> {
+        debug!(target: "repository", smart_playlist_name = name, "fetching smart playlist by name");
+
+        let row =
+            sqlx::query("SELECT * FROM smart_playlists WHERE name = ? COLLATE NOCASE LIMIT 1")
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        if let Some(r) = row {
+            Ok(Some(row_to_smart_playlist(&r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn count(&self) -> Result<i64> {
+        debug!(target: "repository", "counting smart playlists");
+
+        let row = self
+            .profiler
+            .timed("smart_playlists::count", || async {
+                sqlx::query("SELECT COUNT(*) as count FROM smart_playlists")
+                    .fetch_one(&self.pool)
+                    .await
+            })
+            .await?;
+
+        Ok(row.try_get("count")?)
+    }
+}
+
+// ============================================================================
 // Row conversion functions
 // ============================================================================
 
@@ -2681,6 +2848,27 @@ fn row_to_tagged_entity(row: &sqlx::sqlite::SqliteRow) -> Result<TaggedEntity> {
         entity_id,
         entity_type,
         created_at,
+    })
+}
+
+fn row_to_smart_playlist(row: &sqlx::sqlite::SqliteRow) -> Result<SmartPlaylist> {
+    let id_str: String = row.try_get("id")?;
+    let id = SmartPlaylistId::from_uuid(Uuid::parse_str(&id_str)?);
+    let name: String = row.try_get("name")?;
+    let description: Option<String> = row.try_get("description")?;
+    let criteria_json: String = row.try_get("criteria_json")?;
+    let created_at_str: String = row.try_get("created_at")?;
+    let updated_at_str: String = row.try_get("updated_at")?;
+
+    let criteria: SmartPlaylistCriteria = serde_json::from_str(&criteria_json)?;
+
+    Ok(SmartPlaylist {
+        id,
+        name,
+        description,
+        criteria,
+        created_at: parse_dt(created_at_str)?,
+        updated_at: parse_dt(updated_at_str)?,
     })
 }
 

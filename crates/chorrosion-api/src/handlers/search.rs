@@ -330,7 +330,6 @@ mod tests {
         SqliteQualityProfileRepository, SqliteTagRepository, SqliteTaggedEntityRepository,
         SqliteTrackRepository,
     };
-    use chorrosion_infrastructure::ResponseCache;
     use std::sync::Arc;
 
     async fn make_test_state() -> AppState {
@@ -356,7 +355,12 @@ mod tests {
             Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
             Arc::new(SqliteTagRepository::new(pool.clone())),
             Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
-            ResponseCache::new(100, 60),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteSmartPlaylistRepository::new(
+                    pool.clone(),
+                ),
+            ),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
     }
 
