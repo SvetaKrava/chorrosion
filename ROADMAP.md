@@ -460,7 +460,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Release restrictions (Issue #399, PR #405) ✓
 - [x] Tag-based organization (Issue #400, PR #408) ✓
 - [x] Smart playlists (Issue #401) ✓
-- [ ] Advanced duplicate detection and management (Issue #402)
+- [x] Advanced duplicate detection and management (Issue #402) ✓
 
 ### 10.2 Community Features
 
@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-21  
+**Last Updated:** 2026-04-22  
 **Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Issue #402 - advanced duplicate detection and management
+**Next Milestone:** Plugin system architecture

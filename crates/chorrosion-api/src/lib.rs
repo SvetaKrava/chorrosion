@@ -54,6 +54,13 @@ use handlers::download_clients::{
     __path_create_download_client, __path_delete_download_client, __path_get_download_client,
     __path_list_download_clients, __path_update_download_client,
 };
+use handlers::duplicates::{
+    get_duplicate_group, list_duplicate_groups, resolve_duplicate_group, DuplicateFileResponse,
+    DuplicateGroupDetailResponse, DuplicateGroupQuery, DuplicateGroupResponse,
+    ErrorResponse as DuplicateErrorResponse, ListDuplicatesQuery, ListDuplicatesResponse,
+    ResolveDuplicateRequest, ResolveDuplicateResponse, __path_get_duplicate_group,
+    __path_list_duplicate_groups, __path_resolve_duplicate_group,
+};
 use handlers::events::{
     __path_get_sse_connections, __path_post_broadcast_event,
     __path_stream_download_progress_events, __path_stream_events,
@@ -337,6 +344,9 @@ async fn metrics() -> axum::response::Response {
         update_smart_playlist,
         delete_smart_playlist,
         get_smart_playlist_items,
+        list_duplicate_groups,
+        get_duplicate_group,
+        resolve_duplicate_group,
     ),
     components(
         schemas(
@@ -440,6 +450,15 @@ async fn metrics() -> axum::response::Response {
             CreateSmartPlaylistRequest,
             SmartPlaylistItemsResponse,
             SmartPlaylistErrorResponse,
+            ListDuplicatesResponse,
+            DuplicateGroupResponse,
+            DuplicateGroupDetailResponse,
+            DuplicateFileResponse,
+            ResolveDuplicateRequest,
+            ResolveDuplicateResponse,
+            DuplicateErrorResponse,
+            ListDuplicatesQuery,
+            DuplicateGroupQuery,
         )
     ),
     tags(
@@ -456,7 +475,8 @@ async fn metrics() -> axum::response::Response {
         (name = "wanted", description = "Wanted and missing album tracking"),
         (name = "calendar", description = "Upcoming releases calendar"),
         (name = "tags", description = "Tag organization endpoints"),
-        (name = "smart_playlists", description = "Dynamic smart playlist endpoints")
+        (name = "smart_playlists", description = "Dynamic smart playlist endpoints"),
+        (name = "duplicates", description = "Duplicate file detection and management endpoints")
     ),
     modifiers(&SecurityAddon),
     info(
@@ -575,6 +595,9 @@ pub fn router(state: AppState) -> Router {
             "/smart-playlists/:playlist_id/items",
             get(get_smart_playlist_items),
         )
+        .route("/duplicates", get(list_duplicate_groups))
+        .route("/duplicates/:key", get(get_duplicate_group))
+        .route("/duplicates/:key/resolve", post(resolve_duplicate_group))
         .route("/tags", get(list_tags).post(create_tag))
         .route(
             "/tags/:tag_id",
@@ -645,6 +668,11 @@ mod health_tests {
             Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
             Arc::new(
                 chorrosion_infrastructure::sqlite_adapters::SqliteSmartPlaylistRepository::new(
+                    pool.clone(),
+                ),
+            ),
+            Arc::new(
+                chorrosion_infrastructure::sqlite_adapters::SqliteDuplicateRepository::new(
                     pool.clone(),
                 ),
             ),

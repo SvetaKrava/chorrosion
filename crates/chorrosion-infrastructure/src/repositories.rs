@@ -2,8 +2,9 @@
 use anyhow::Result;
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistStatus,
-    DownloadClientDefinition, EntityType, IndexerDefinition, MetadataProfile, QualityProfile,
-    SmartPlaylist, Tag, TagId, TaggedEntity, Track, TrackFile, TrackId,
+    DownloadClientDefinition, DuplicateFileDetail, DuplicateGroup, EntityType, IndexerDefinition,
+    MetadataProfile, QualityProfile, SmartPlaylist, Tag, TagId, TaggedEntity, Track, TrackFile,
+    TrackId,
 };
 use chrono::NaiveDate;
 
@@ -251,4 +252,45 @@ pub trait SmartPlaylistRepository: Repository<SmartPlaylist> {
 
     /// Count all smart playlists.
     async fn count(&self) -> Result<i64>;
+}
+
+/// Repository for detecting and managing duplicate track files.
+///
+/// Duplicates are computed by querying the existing `track_files` table;
+/// no separate storage table is required.
+#[async_trait::async_trait]
+pub trait DuplicateRepository: Send + Sync {
+    /// Find groups of track files that share the same Chromaprint fingerprint hash.
+    async fn find_fingerprint_duplicate_groups(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<DuplicateGroup>>;
+
+    /// Count total fingerprint duplicate groups (for pagination metadata).
+    async fn count_fingerprint_duplicate_groups(&self) -> Result<i64>;
+
+    /// Find groups of track files that share the same content hash.
+    async fn find_hash_duplicate_groups(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<DuplicateGroup>>;
+
+    /// Count total hash duplicate groups (for pagination metadata).
+    async fn count_hash_duplicate_groups(&self) -> Result<i64>;
+
+    /// Return all files that share the given Chromaprint fingerprint hash.
+    async fn get_files_by_fingerprint(
+        &self,
+        fingerprint_hash: &str,
+    ) -> Result<Vec<DuplicateFileDetail>>;
+
+    /// Return all files that share the given content hash.
+    async fn get_files_by_hash(&self, file_hash: &str) -> Result<Vec<DuplicateFileDetail>>;
+
+    /// Delete a specific track file record by ID.
+    ///
+    /// Returns `true` if a row was deleted, `false` if the ID was not found.
+    async fn delete_track_file(&self, track_file_id: &str) -> Result<bool>;
 }

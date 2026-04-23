@@ -5,6 +5,7 @@ pub mod artists;
 pub mod auth;
 pub mod calendar;
 pub mod download_clients;
+pub mod duplicates;
 pub mod events;
 pub mod imports;
 pub mod indexers;

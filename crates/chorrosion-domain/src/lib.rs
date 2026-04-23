@@ -855,6 +855,51 @@ impl SmartPlaylist {
     }
 }
 
+// ============================================================================
+// Duplicate Detection
+// ============================================================================
+
+/// How a duplicate group was detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateDetectionMethod {
+    /// Duplicate detected via matching Chromaprint fingerprint hash.
+    FingerprintHash,
+    /// Duplicate detected via identical file content hash.
+    FileHash,
+}
+
+/// A summary of a group of files identified as duplicates.
+///
+/// Groups are synthetic — computed on-the-fly from `track_files` data and
+/// never persisted in their own table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateGroup {
+    /// The shared hash key that identifies this group.
+    pub key: String,
+    /// Detection strategy that produced this group.
+    pub method: DuplicateDetectionMethod,
+    /// Number of files in this group.
+    pub file_count: i64,
+    /// Earliest `created_at` timestamp across all files in the group.
+    pub first_seen_at: DateTime<Utc>,
+}
+
+/// Detailed information about a single file within a duplicate group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateFileDetail {
+    pub track_file_id: TrackFileId,
+    pub track_id: TrackId,
+    pub path: String,
+    pub size_bytes: u64,
+    pub quality: Option<String>,
+    pub bitrate_kbps: Option<u32>,
+    pub codec: Option<String>,
+    pub fingerprint_hash: Option<String>,
+    pub file_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadClientDefinition {
     pub id: DownloadClientDefinitionId,

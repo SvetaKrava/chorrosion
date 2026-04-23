@@ -52,6 +52,11 @@ fn make_state(pool: SqlitePool) -> AppState {
                 pool.clone(),
             ),
         ),
+        Arc::new(
+            chorrosion_infrastructure::sqlite_adapters::SqliteDuplicateRepository::new(
+                pool.clone(),
+            ),
+        ),
         chorrosion_infrastructure::ResponseCache::new(100, 60),
     )
 }

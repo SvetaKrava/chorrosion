@@ -2,10 +2,10 @@
 use anyhow::{anyhow, Result};
 use chorrosion_domain::{
     Album, AlbumId, AlbumStatus, Artist, ArtistId, ArtistRelationship, ArtistRelationshipId,
-    ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, EntityType,
-    IndexerDefinition, IndexerDefinitionId, MetadataProfile, ProfileId, QualityProfile,
-    SmartPlaylist, SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity, Track,
-    TrackFile, TrackFileId, TrackId,
+    ArtistStatus, DownloadClientDefinition, DownloadClientDefinitionId, DuplicateDetectionMethod,
+    DuplicateFileDetail, DuplicateGroup, EntityType, IndexerDefinition, IndexerDefinitionId,
+    MetadataProfile, ProfileId, QualityProfile, SmartPlaylist, SmartPlaylistCriteria,
+    SmartPlaylistId, Tag, TagId, TaggedEntity, Track, TrackFile, TrackFileId, TrackId,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::Row;
@@ -16,9 +16,9 @@ use uuid::Uuid;
 use crate::profiler::QueryProfiler;
 use crate::repositories::{
     AlbumRepository, ArtistRelationshipRepository, ArtistRepository,
-    DownloadClientDefinitionRepository, IndexerDefinitionRepository, MetadataProfileRepository,
-    QualityProfileRepository, Repository, SmartPlaylistRepository, TrackFileRepository,
-    TrackRepository,
+    DownloadClientDefinitionRepository, DuplicateRepository, IndexerDefinitionRepository,
+    MetadataProfileRepository, QualityProfileRepository, Repository, SmartPlaylistRepository,
+    TagRepository, TaggedEntityRepository, TrackFileRepository, TrackRepository,
 };
 
 /// SQLx-backed Artist repository
@@ -2374,8 +2374,6 @@ impl Repository<Tag> for SqliteTagRepository {
     }
 }
 
-use crate::repositories::TagRepository;
-
 #[async_trait::async_trait]
 impl TagRepository for SqliteTagRepository {
     async fn get_by_name(&self, name: &str) -> Result<Option<Tag>> {
@@ -2539,8 +2537,6 @@ impl Repository<TaggedEntity> for SqliteTaggedEntityRepository {
         ))
     }
 }
-
-use crate::repositories::TaggedEntityRepository;
 
 #[async_trait::async_trait]
 impl TaggedEntityRepository for SqliteTaggedEntityRepository {
@@ -2869,6 +2865,252 @@ fn row_to_smart_playlist(row: &sqlx::sqlite::SqliteRow) -> Result<SmartPlaylist>
         criteria,
         created_at: parse_dt(created_at_str)?,
         updated_at: parse_dt(updated_at_str)?,
+    })
+}
+
+// ============================================================================
+// Duplicate Detection Repository
+// ============================================================================
+
+pub struct SqliteDuplicateRepository {
+    pool: SqlitePool,
+    profiler: QueryProfiler,
+}
+
+impl SqliteDuplicateRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
+    }
+}
+
+#[async_trait::async_trait]
+impl DuplicateRepository for SqliteDuplicateRepository {
+    async fn find_fingerprint_duplicate_groups(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<DuplicateGroup>> {
+        let rows = self
+            .profiler
+            .timed("duplicates::find_fingerprint_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT fingerprint_hash AS key,
+                           COUNT(*) AS file_count,
+                           MIN(created_at) AS first_seen_at
+                    FROM track_files
+                    WHERE fingerprint_hash IS NOT NULL
+                    GROUP BY fingerprint_hash
+                    HAVING COUNT(*) > 1
+                    ORDER BY file_count DESC, first_seen_at ASC
+                    LIMIT ? OFFSET ?
+                    "#,
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        rows.iter()
+            .map(|row| row_to_duplicate_group(row, DuplicateDetectionMethod::FingerprintHash))
+            .collect()
+    }
+
+    async fn count_fingerprint_duplicate_groups(&self) -> Result<i64> {
+        let row = self
+            .profiler
+            .timed("duplicates::count_fingerprint_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT fingerprint_hash
+                        FROM track_files
+                        WHERE fingerprint_hash IS NOT NULL
+                        GROUP BY fingerprint_hash
+                        HAVING COUNT(*) > 1
+                    )
+                    "#,
+                )
+                .fetch_one(&self.pool)
+                .await
+            })
+            .await?;
+
+        let cnt: i64 = row.try_get("cnt")?;
+        Ok(cnt)
+    }
+
+    async fn find_hash_duplicate_groups(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<DuplicateGroup>> {
+        let rows = self
+            .profiler
+            .timed("duplicates::find_hash_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT hash AS key,
+                           COUNT(*) AS file_count,
+                           MIN(created_at) AS first_seen_at
+                    FROM track_files
+                    WHERE hash IS NOT NULL
+                    GROUP BY hash
+                    HAVING COUNT(*) > 1
+                    ORDER BY file_count DESC, first_seen_at ASC
+                    LIMIT ? OFFSET ?
+                    "#,
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        rows.iter()
+            .map(|row| row_to_duplicate_group(row, DuplicateDetectionMethod::FileHash))
+            .collect()
+    }
+
+    async fn count_hash_duplicate_groups(&self) -> Result<i64> {
+        let row = self
+            .profiler
+            .timed("duplicates::count_hash_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT hash
+                        FROM track_files
+                        WHERE hash IS NOT NULL
+                        GROUP BY hash
+                        HAVING COUNT(*) > 1
+                    )
+                    "#,
+                )
+                .fetch_one(&self.pool)
+                .await
+            })
+            .await?;
+
+        let cnt: i64 = row.try_get("cnt")?;
+        Ok(cnt)
+    }
+
+    async fn get_files_by_fingerprint(
+        &self,
+        fingerprint_hash: &str,
+    ) -> Result<Vec<DuplicateFileDetail>> {
+        let rows = self
+            .profiler
+            .timed("duplicates::get_files_by_fingerprint", || async {
+                sqlx::query(
+                    r#"
+                    SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
+                           fingerprint_hash, hash, created_at
+                    FROM track_files
+                    WHERE fingerprint_hash = ?
+                    ORDER BY bitrate_kbps DESC, size_bytes DESC
+                    "#,
+                )
+                .bind(fingerprint_hash)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        rows.iter().map(row_to_duplicate_file_detail).collect()
+    }
+
+    async fn get_files_by_hash(&self, file_hash: &str) -> Result<Vec<DuplicateFileDetail>> {
+        let rows = self
+            .profiler
+            .timed("duplicates::get_files_by_hash", || async {
+                sqlx::query(
+                    r#"
+                    SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
+                           fingerprint_hash, hash, created_at
+                    FROM track_files
+                    WHERE hash = ?
+                    ORDER BY bitrate_kbps DESC, size_bytes DESC
+                    "#,
+                )
+                .bind(file_hash)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        rows.iter().map(row_to_duplicate_file_detail).collect()
+    }
+
+    async fn delete_track_file(&self, track_file_id: &str) -> Result<bool> {
+        debug!(target: "repository", track_file_id, "deleting track file (duplicate resolution)");
+
+        let result = self
+            .profiler
+            .timed("duplicates::delete_track_file", || async {
+                sqlx::query("DELETE FROM track_files WHERE id = ?")
+                    .bind(track_file_id)
+                    .execute(&self.pool)
+                    .await
+            })
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+fn row_to_duplicate_group(
+    row: &sqlx::sqlite::SqliteRow,
+    method: DuplicateDetectionMethod,
+) -> Result<DuplicateGroup> {
+    let key: String = row.try_get("key")?;
+    let file_count: i64 = row.try_get("file_count")?;
+    let first_seen_at_str: String = row.try_get("first_seen_at")?;
+    Ok(DuplicateGroup {
+        key,
+        method,
+        file_count,
+        first_seen_at: parse_dt(first_seen_at_str)?,
+    })
+}
+
+fn row_to_duplicate_file_detail(row: &sqlx::sqlite::SqliteRow) -> Result<DuplicateFileDetail> {
+    let id_str: String = row.try_get("id")?;
+    let track_id_str: String = row.try_get("track_id")?;
+    let path: String = row.try_get("path")?;
+    let size_bytes: i64 = row.try_get("size_bytes")?;
+    let quality: Option<String> = row.try_get("quality")?;
+    let bitrate_kbps: Option<i64> = row.try_get("bitrate_kbps")?;
+    let codec: Option<String> = row.try_get("codec")?;
+    let fingerprint_hash: Option<String> = row.try_get("fingerprint_hash")?;
+    let file_hash: Option<String> = row.try_get("hash")?;
+    let created_at_str: String = row.try_get("created_at")?;
+
+    Ok(DuplicateFileDetail {
+        track_file_id: TrackFileId::from_uuid(
+            Uuid::parse_str(&id_str).map_err(|e| anyhow!("Invalid UUID: {}", e))?,
+        ),
+        track_id: TrackId::from_uuid(
+            Uuid::parse_str(&track_id_str).map_err(|e| anyhow!("Invalid track UUID: {}", e))?,
+        ),
+        path,
+        size_bytes: size_bytes as u64,
+        quality,
+        bitrate_kbps: bitrate_kbps.map(|b| b as u32),
+        codec,
+        fingerprint_hash,
+        file_hash,
+        created_at: parse_dt(created_at_str)?,
     })
 }
 
