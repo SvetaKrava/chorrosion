@@ -51,9 +51,14 @@ impl PluginRegistry {
 
     pub async fn register(&self, plugin: Arc<dyn Plugin>) -> Result<()> {
         let manifest = plugin.manifest();
-        let id = manifest.id.trim();
-        if id.is_empty() {
+        let id = manifest.id.as_str();
+        if id.trim().is_empty() {
             return Err(anyhow!("plugin id cannot be empty"));
+        }
+        if id != id.trim() {
+            return Err(anyhow!(
+                "plugin id cannot have leading or trailing whitespace"
+            ));
         }
 
         let mut plugins = self.plugins.write().await;
@@ -81,9 +86,12 @@ impl PluginRegistry {
     }
 
     pub async fn list_manifests(&self) -> Vec<PluginManifest> {
-        let plugins = self.plugins.read().await;
-        let mut manifests = plugins
-            .values()
+        let plugin_list: Vec<Arc<dyn Plugin>> = {
+            let plugins = self.plugins.read().await;
+            plugins.values().cloned().collect()
+        };
+        let mut manifests = plugin_list
+            .iter()
             .map(|plugin| plugin.manifest())
             .collect::<Vec<_>>();
         manifests.sort_by(|a, b| a.id.cmp(&b.id));
@@ -179,6 +187,26 @@ mod tests {
 
         assert!(
             err.to_string().contains("cannot be empty"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(registry.count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn rejects_plugin_id_with_surrounding_whitespace() {
+        let registry = PluginRegistry::new();
+
+        let err = registry
+            .register(plugin(
+                "  builtin.indexer.torznab  ",
+                "Torznab",
+                PluginCapability::Indexer,
+            ))
+            .await
+            .expect_err("plugin id with surrounding whitespace must fail");
+
+        assert!(
+            err.to_string().contains("leading or trailing whitespace"),
             "unexpected error: {err}"
         );
         assert_eq!(registry.count().await, 0);
