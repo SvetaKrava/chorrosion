@@ -61,6 +61,18 @@ pub struct PluginRegistry {
     extension_apis: Arc<RwLock<HashMap<String, Arc<dyn ExtensionApiHandler>>>>,
 }
 
+fn validate_extension_namespace(namespace: &str) -> Result<()> {
+    if namespace.trim().is_empty() {
+        return Err(anyhow!("extension namespace cannot be empty"));
+    }
+    if namespace != namespace.trim() {
+        return Err(anyhow!(
+            "extension namespace cannot have leading or trailing whitespace"
+        ));
+    }
+    Ok(())
+}
+
 impl PluginRegistry {
     pub fn new() -> Self {
         Self {
@@ -123,14 +135,7 @@ impl PluginRegistry {
         namespace: &str,
         handler: Arc<dyn ExtensionApiHandler>,
     ) -> Result<()> {
-        if namespace.trim().is_empty() {
-            return Err(anyhow!("extension namespace cannot be empty"));
-        }
-        if namespace != namespace.trim() {
-            return Err(anyhow!(
-                "extension namespace cannot have leading or trailing whitespace"
-            ));
-        }
+        validate_extension_namespace(namespace)?;
 
         let mut apis = self.extension_apis.write().await;
         if apis.contains_key(namespace) {
@@ -156,14 +161,7 @@ impl PluginRegistry {
         namespace: &str,
         request: ExtensionApiRequest,
     ) -> Result<ExtensionApiResponse> {
-        if namespace.trim().is_empty() {
-            return Err(anyhow!("extension namespace cannot be empty"));
-        }
-        if namespace != namespace.trim() {
-            return Err(anyhow!(
-                "extension namespace cannot have leading or trailing whitespace"
-            ));
-        }
+        validate_extension_namespace(namespace)?;
 
         let handler = {
             let apis = self.extension_apis.read().await;
