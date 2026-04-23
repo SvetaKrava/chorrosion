@@ -7,6 +7,7 @@ use chorrosion_application::AppState;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 use utoipa::{IntoParams, ToSchema};
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, ToSchema, IntoParams)]
 pub struct ListDuplicatesQuery {
@@ -106,9 +107,14 @@ fn error_response(
 }
 
 fn group_to_response(group: chorrosion_application::DuplicateGroup) -> DuplicateGroupResponse {
+    let method = match group.method {
+        chorrosion_application::DuplicateDetectionMethod::FingerprintHash => "fingerprint",
+        chorrosion_application::DuplicateDetectionMethod::FileHash => "hash",
+    };
+
     DuplicateGroupResponse {
         key: group.key,
-        method: format!("{:?}", group.method).to_lowercase(),
+        method: method.to_string(),
         file_count: group.file_count,
         first_seen_at: group.first_seen_at.to_rfc3339(),
     }
@@ -334,22 +340,86 @@ pub async fn get_duplicate_group(
 pub async fn resolve_duplicate_group(
     State(state): State<AppState>,
     Path(key): Path<String>,
+    Query(query): Query<DuplicateGroupQuery>,
     Json(payload): Json<ResolveDuplicateRequest>,
 ) -> Result<Json<ResolveDuplicateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    debug!(target: "api", key = %key, action = %payload.action, "resolving duplicate group");
+    debug!(target: "api", key = %key, method = %query.method, action = %payload.action, "resolving duplicate group");
 
     match payload.action.as_str() {
         "delete_specific" => {
-            let track_file_id = payload.track_file_id.ok_or_else(|| {
+            let track_file_id_raw = payload.track_file_id.ok_or_else(|| {
                 error_response(
                     StatusCode::BAD_REQUEST,
                     "track_file_id is required for delete_specific action",
                 )
             })?;
+            let track_file_id = Uuid::parse_str(&track_file_id_raw).map_err(|_| {
+                error_response(
+                    StatusCode::BAD_REQUEST,
+                    "track_file_id must be a valid UUID",
+                )
+            })?;
+
+            let group_files = match query.method.as_str() {
+                "fingerprint" => state
+                    .duplicate_repository
+                    .get_files_by_fingerprint(&key)
+                    .await
+                    .map_err(|err| {
+                        error!(
+                            target: "api",
+                            error = %err,
+                            "failed to get duplicate group by fingerprint for resolution"
+                        );
+                        error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "failed to resolve duplicate group",
+                        )
+                    })?,
+                "hash" => state
+                    .duplicate_repository
+                    .get_files_by_hash(&key)
+                    .await
+                    .map_err(|err| {
+                        error!(
+                            target: "api",
+                            error = %err,
+                            "failed to get duplicate group by hash for resolution"
+                        );
+                        error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "failed to resolve duplicate group",
+                        )
+                    })?,
+                _ => {
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "method must be 'fingerprint' or 'hash'",
+                    ));
+                }
+            };
+
+            if group_files.is_empty() {
+                return Err(error_response(
+                    StatusCode::NOT_FOUND,
+                    "duplicate group not found",
+                ));
+            }
+
+            let track_file_id_str = track_file_id.to_string();
+            if !group_files
+                .iter()
+                .any(|file| file.track_file_id.to_string() == track_file_id_str)
+            {
+                return Err(error_response(
+                    StatusCode::NOT_FOUND,
+                    "track file not found in duplicate group",
+                ));
+            }
 
             let deleted = state
                 .duplicate_repository
-                .delete_track_file(&track_file_id)
+                .delete_track_file(&track_file_id_str)
                 .await
                 .map_err(|err| {
                     error!(target: "api", error = %err, "failed to delete track file");
@@ -367,7 +437,7 @@ pub async fn resolve_duplicate_group(
             }
 
             Ok(Json(ResolveDuplicateResponse {
-                message: format!("track file {} deleted", track_file_id),
+                message: format!("track file {} deleted", track_file_id_str),
             }))
         }
         _ => Err(error_response(
@@ -416,6 +486,34 @@ mod tests {
             Arc::new(SqliteDuplicateRepository::new(pool.clone())),
             chorrosion_infrastructure::ResponseCache::new(100, 60),
         )
+    }
+
+    async fn make_test_state_with_pool() -> (AppState, sqlx::SqlitePool) {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory SQLite");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+
+        let state = AppState::new(
+            AppConfig::default(),
+            Arc::new(SqliteArtistRepository::new(pool.clone())),
+            Arc::new(SqliteAlbumRepository::new(pool.clone())),
+            Arc::new(SqliteTrackRepository::new(pool.clone())),
+            Arc::new(SqliteQualityProfileRepository::new(pool.clone())),
+            Arc::new(SqliteMetadataProfileRepository::new(pool.clone())),
+            Arc::new(SqliteIndexerDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteDownloadClientDefinitionRepository::new(pool.clone())),
+            Arc::new(SqliteTagRepository::new(pool.clone())),
+            Arc::new(SqliteTaggedEntityRepository::new(pool.clone())),
+            Arc::new(SqliteSmartPlaylistRepository::new(pool.clone())),
+            Arc::new(SqliteDuplicateRepository::new(pool.clone())),
+            chorrosion_infrastructure::ResponseCache::new(100, 60),
+        );
+
+        (state, pool)
     }
 
     #[tokio::test]
@@ -521,6 +619,9 @@ mod tests {
         let result = resolve_duplicate_group(
             State(state),
             Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "fingerprint".to_string(),
+            }),
             Json(ResolveDuplicateRequest {
                 action: "delete_specific".to_string(),
                 track_file_id: None,
@@ -540,6 +641,9 @@ mod tests {
         let result = resolve_duplicate_group(
             State(state),
             Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "fingerprint".to_string(),
+            }),
             Json(ResolveDuplicateRequest {
                 action: "delete_specific".to_string(),
                 track_file_id: Some("00000000-0000-0000-0000-000000000000".to_string()),
@@ -559,9 +663,192 @@ mod tests {
         let result = resolve_duplicate_group(
             State(state),
             Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "fingerprint".to_string(),
+            }),
             Json(ResolveDuplicateRequest {
                 action: "keep_best".to_string(),
                 track_file_id: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_duplicates_returns_non_empty_with_expected_method_and_ordering() {
+        let (state, pool) = make_test_state_with_pool().await;
+
+        sqlx::query(
+            r#"
+            INSERT INTO artists (id, name, monitored, status, created_at, updated_at)
+            VALUES (?, ?, 1, 'continuing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind("11111111-1111-1111-1111-111111111111")
+        .bind("Test Artist")
+        .execute(&pool)
+        .await
+        .expect("insert artist");
+
+        sqlx::query(
+            r#"
+            INSERT INTO albums (id, artist_id, title, monitored, status, created_at, updated_at)
+            VALUES (?, ?, ?, 1, 'wanted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind("22222222-2222-2222-2222-222222222222")
+        .bind("11111111-1111-1111-1111-111111111111")
+        .bind("Test Album")
+        .execute(&pool)
+        .await
+        .expect("insert album");
+
+        sqlx::query(
+            r#"
+            INSERT INTO tracks (id, album_id, artist_id, title, track_number, has_file, monitored, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 1, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind("33333333-3333-3333-3333-333333333333")
+        .bind("22222222-2222-2222-2222-222222222222")
+        .bind("11111111-1111-1111-1111-111111111111")
+        .bind("Track 1")
+        .execute(&pool)
+        .await
+        .expect("insert track 1");
+
+        sqlx::query(
+            r#"
+            INSERT INTO tracks (id, album_id, artist_id, title, track_number, has_file, monitored, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 2, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind("44444444-4444-4444-4444-444444444444")
+        .bind("22222222-2222-2222-2222-222222222222")
+        .bind("11111111-1111-1111-1111-111111111111")
+        .bind("Track 2")
+        .execute(&pool)
+        .await
+        .expect("insert track 2");
+
+        sqlx::query(
+            r#"
+            INSERT INTO tracks (id, album_id, artist_id, title, track_number, has_file, monitored, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind("55555555-5555-5555-5555-555555555555")
+        .bind("22222222-2222-2222-2222-222222222222")
+        .bind("11111111-1111-1111-1111-111111111111")
+        .bind("Track 3")
+        .execute(&pool)
+        .await
+        .expect("insert track 3");
+
+        sqlx::query(
+            r#"
+            INSERT INTO track_files (id, track_id, path, size_bytes, quality, bitrate_kbps, codec, hash, fingerprint_hash, created_at)
+            VALUES (?, ?, ?, 100, 'flac', 1000, 'flac', 'hash_a', 'fp_a', '2026-01-01T00:00:00Z')
+            "#,
+        )
+        .bind("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        .bind("33333333-3333-3333-3333-333333333333")
+        .bind("/music/a.flac")
+        .execute(&pool)
+        .await
+        .expect("insert file a");
+
+        sqlx::query(
+            r#"
+            INSERT INTO track_files (id, track_id, path, size_bytes, quality, bitrate_kbps, codec, hash, fingerprint_hash, created_at)
+            VALUES (?, ?, ?, 100, 'flac', 1000, 'flac', 'hash_a', 'fp_a', '2026-01-02T00:00:00Z')
+            "#,
+        )
+        .bind("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        .bind("44444444-4444-4444-4444-444444444444")
+        .bind("/music/b.flac")
+        .execute(&pool)
+        .await
+        .expect("insert file b");
+
+        sqlx::query(
+            r#"
+            INSERT INTO track_files (id, track_id, path, size_bytes, quality, bitrate_kbps, codec, hash, fingerprint_hash, created_at)
+            VALUES (?, ?, ?, 100, 'flac', 1000, 'flac', 'hash_b', 'fp_b', '2026-01-03T00:00:00Z')
+            "#,
+        )
+        .bind("cccccccc-cccc-cccc-cccc-cccccccccccc")
+        .bind("55555555-5555-5555-5555-555555555555")
+        .bind("/music/c.flac")
+        .execute(&pool)
+        .await
+        .expect("insert file c");
+
+        sqlx::query(
+            r#"
+            INSERT INTO track_files (id, track_id, path, size_bytes, quality, bitrate_kbps, codec, hash, fingerprint_hash, created_at)
+            VALUES (?, ?, ?, 100, 'flac', 1000, 'flac', 'hash_b', 'fp_b', '2026-01-04T00:00:00Z')
+            "#,
+        )
+        .bind("dddddddd-dddd-dddd-dddd-dddddddddddd")
+        .bind("33333333-3333-3333-3333-333333333333")
+        .bind("/music/d.flac")
+        .execute(&pool)
+        .await
+        .expect("insert file d");
+
+        sqlx::query(
+            r#"
+            INSERT INTO track_files (id, track_id, path, size_bytes, quality, bitrate_kbps, codec, hash, fingerprint_hash, created_at)
+            VALUES (?, ?, ?, 100, 'flac', 1000, 'flac', 'hash_b', 'fp_b', '2026-01-05T00:00:00Z')
+            "#,
+        )
+        .bind("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+        .bind("44444444-4444-4444-4444-444444444444")
+        .bind("/music/e.flac")
+        .execute(&pool)
+        .await
+        .expect("insert file e");
+
+        let result = list_duplicate_groups(
+            State(state),
+            Query(ListDuplicatesQuery {
+                method: "hash".to_string(),
+                limit: 50,
+                offset: 0,
+            }),
+        )
+        .await
+        .expect("list hash duplicate groups should succeed");
+
+        assert_eq!(result.method, "hash");
+        assert_eq!(result.total, 2);
+        assert_eq!(result.items.len(), 2);
+        assert_eq!(result.items[0].key, "hash_b");
+        assert_eq!(result.items[0].method, "hash");
+        assert_eq!(result.items[0].file_count, 3);
+        assert_eq!(result.items[1].key, "hash_a");
+        assert_eq!(result.items[1].method, "hash");
+        assert_eq!(result.items[1].file_count, 2);
+    }
+
+    #[tokio::test]
+    async fn resolve_duplicate_rejects_invalid_track_file_id_format() {
+        let state = make_test_state().await;
+
+        let result = resolve_duplicate_group(
+            State(state),
+            Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "fingerprint".to_string(),
+            }),
+            Json(ResolveDuplicateRequest {
+                action: "delete_specific".to_string(),
+                track_file_id: Some("not-a-uuid".to_string()),
             }),
         )
         .await;

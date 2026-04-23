@@ -2874,11 +2874,18 @@ fn row_to_smart_playlist(row: &sqlx::sqlite::SqliteRow) -> Result<SmartPlaylist>
 
 pub struct SqliteDuplicateRepository {
     pool: SqlitePool,
+    profiler: QueryProfiler,
 }
 
 impl SqliteDuplicateRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let profiler = QueryProfiler::new(pool.clone(), 0);
+        Self { pool, profiler }
+    }
+
+    pub fn new_with_threshold(pool: SqlitePool, threshold_ms: u64) -> Self {
+        let profiler = QueryProfiler::new(pool.clone(), threshold_ms);
+        Self { pool, profiler }
     }
 }
 
@@ -2889,23 +2896,28 @@ impl DuplicateRepository for SqliteDuplicateRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<DuplicateGroup>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT fingerprint_hash AS key,
-                   COUNT(*) AS file_count,
-                   MIN(created_at) AS first_seen_at
-            FROM track_files
-            WHERE fingerprint_hash IS NOT NULL
-            GROUP BY fingerprint_hash
-            HAVING COUNT(*) > 1
-            ORDER BY file_count DESC, first_seen_at ASC
-            LIMIT ? OFFSET ?
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("duplicates::find_fingerprint_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT fingerprint_hash AS key,
+                           COUNT(*) AS file_count,
+                           MIN(created_at) AS first_seen_at
+                    FROM track_files
+                    WHERE fingerprint_hash IS NOT NULL
+                    GROUP BY fingerprint_hash
+                    HAVING COUNT(*) > 1
+                    ORDER BY file_count DESC, first_seen_at ASC
+                    LIMIT ? OFFSET ?
+                    "#,
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
 
         rows.iter()
             .map(|row| row_to_duplicate_group(row, DuplicateDetectionMethod::FingerprintHash))
@@ -2913,19 +2925,24 @@ impl DuplicateRepository for SqliteDuplicateRepository {
     }
 
     async fn count_fingerprint_duplicate_groups(&self) -> Result<i64> {
-        let row = sqlx::query(
-            r#"
-            SELECT COUNT(*) AS cnt FROM (
-                SELECT fingerprint_hash
-                FROM track_files
-                WHERE fingerprint_hash IS NOT NULL
-                GROUP BY fingerprint_hash
-                HAVING COUNT(*) > 1
-            )
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row = self
+            .profiler
+            .timed("duplicates::count_fingerprint_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT fingerprint_hash
+                        FROM track_files
+                        WHERE fingerprint_hash IS NOT NULL
+                        GROUP BY fingerprint_hash
+                        HAVING COUNT(*) > 1
+                    )
+                    "#,
+                )
+                .fetch_one(&self.pool)
+                .await
+            })
+            .await?;
 
         let cnt: i64 = row.try_get("cnt")?;
         Ok(cnt)
@@ -2936,23 +2953,28 @@ impl DuplicateRepository for SqliteDuplicateRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<DuplicateGroup>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT hash AS key,
-                   COUNT(*) AS file_count,
-                   MIN(created_at) AS first_seen_at
-            FROM track_files
-            WHERE hash IS NOT NULL
-            GROUP BY hash
-            HAVING COUNT(*) > 1
-            ORDER BY file_count DESC, first_seen_at ASC
-            LIMIT ? OFFSET ?
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("duplicates::find_hash_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT hash AS key,
+                           COUNT(*) AS file_count,
+                           MIN(created_at) AS first_seen_at
+                    FROM track_files
+                    WHERE hash IS NOT NULL
+                    GROUP BY hash
+                    HAVING COUNT(*) > 1
+                    ORDER BY file_count DESC, first_seen_at ASC
+                    LIMIT ? OFFSET ?
+                    "#,
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
 
         rows.iter()
             .map(|row| row_to_duplicate_group(row, DuplicateDetectionMethod::FileHash))
@@ -2960,19 +2982,24 @@ impl DuplicateRepository for SqliteDuplicateRepository {
     }
 
     async fn count_hash_duplicate_groups(&self) -> Result<i64> {
-        let row = sqlx::query(
-            r#"
-            SELECT COUNT(*) AS cnt FROM (
-                SELECT hash
-                FROM track_files
-                WHERE hash IS NOT NULL
-                GROUP BY hash
-                HAVING COUNT(*) > 1
-            )
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row = self
+            .profiler
+            .timed("duplicates::count_hash_duplicate_groups", || async {
+                sqlx::query(
+                    r#"
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT hash
+                        FROM track_files
+                        WHERE hash IS NOT NULL
+                        GROUP BY hash
+                        HAVING COUNT(*) > 1
+                    )
+                    "#,
+                )
+                .fetch_one(&self.pool)
+                .await
+            })
+            .await?;
 
         let cnt: i64 = row.try_get("cnt")?;
         Ok(cnt)
@@ -2982,35 +3009,45 @@ impl DuplicateRepository for SqliteDuplicateRepository {
         &self,
         fingerprint_hash: &str,
     ) -> Result<Vec<DuplicateFileDetail>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
-                   fingerprint_hash, hash, created_at
-            FROM track_files
-            WHERE fingerprint_hash = ?
-            ORDER BY bitrate_kbps DESC, size_bytes DESC
-            "#,
-        )
-        .bind(fingerprint_hash)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("duplicates::get_files_by_fingerprint", || async {
+                sqlx::query(
+                    r#"
+                    SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
+                           fingerprint_hash, hash, created_at
+                    FROM track_files
+                    WHERE fingerprint_hash = ?
+                    ORDER BY bitrate_kbps DESC, size_bytes DESC
+                    "#,
+                )
+                .bind(fingerprint_hash)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
 
         rows.iter().map(row_to_duplicate_file_detail).collect()
     }
 
     async fn get_files_by_hash(&self, file_hash: &str) -> Result<Vec<DuplicateFileDetail>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
-                   fingerprint_hash, hash, created_at
-            FROM track_files
-            WHERE hash = ?
-            ORDER BY bitrate_kbps DESC, size_bytes DESC
-            "#,
-        )
-        .bind(file_hash)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = self
+            .profiler
+            .timed("duplicates::get_files_by_hash", || async {
+                sqlx::query(
+                    r#"
+                    SELECT id, track_id, path, size_bytes, quality, bitrate_kbps, codec,
+                           fingerprint_hash, hash, created_at
+                    FROM track_files
+                    WHERE hash = ?
+                    ORDER BY bitrate_kbps DESC, size_bytes DESC
+                    "#,
+                )
+                .bind(file_hash)
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
 
         rows.iter().map(row_to_duplicate_file_detail).collect()
     }
@@ -3018,9 +3055,14 @@ impl DuplicateRepository for SqliteDuplicateRepository {
     async fn delete_track_file(&self, track_file_id: &str) -> Result<bool> {
         debug!(target: "repository", track_file_id, "deleting track file (duplicate resolution)");
 
-        let result = sqlx::query("DELETE FROM track_files WHERE id = ?")
-            .bind(track_file_id)
-            .execute(&self.pool)
+        let result = self
+            .profiler
+            .timed("duplicates::delete_track_file", || async {
+                sqlx::query("DELETE FROM track_files WHERE id = ?")
+                    .bind(track_file_id)
+                    .execute(&self.pool)
+                    .await
+            })
             .await?;
 
         Ok(result.rows_affected() > 0)
