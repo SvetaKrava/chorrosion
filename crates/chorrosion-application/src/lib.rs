@@ -84,7 +84,10 @@ pub use notifications::{
     NotificationProviderKind, PushoverProvider, ScriptNotificationProvider, SlackWebhookProvider,
 };
 pub use permission::{PermissionChecker, PermissionConfig, PermissionError, PermissionManager};
-pub use plugins::{Plugin, PluginCapability, PluginManifest, PluginRegistry};
+pub use plugins::{
+    ExtensionApiHandler, ExtensionApiRequest, ExtensionApiResponse, Plugin, PluginCapability,
+    PluginManifest, PluginRegistry,
+};
 pub use quality_upgrade::{QualityComparer, QualityUpgradeService, UpgradeDecision, UpgradeReason};
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
