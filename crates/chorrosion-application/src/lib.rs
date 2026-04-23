@@ -29,6 +29,7 @@ pub mod matching;
 pub mod matching_precedence;
 pub mod notifications;
 pub mod permission;
+pub mod plugins;
 pub mod quality_upgrade;
 pub mod release_parsing;
 pub mod release_restrictions;
@@ -83,6 +84,7 @@ pub use notifications::{
     NotificationProviderKind, PushoverProvider, ScriptNotificationProvider, SlackWebhookProvider,
 };
 pub use permission::{PermissionChecker, PermissionConfig, PermissionError, PermissionManager};
+pub use plugins::{Plugin, PluginCapability, PluginManifest, PluginRegistry};
 pub use quality_upgrade::{QualityComparer, QualityUpgradeService, UpgradeDecision, UpgradeReason};
 pub use release_parsing::{
     deduplicate_releases, filter_releases, find_duplicate_keys, parse_release_title, rank_releases,
