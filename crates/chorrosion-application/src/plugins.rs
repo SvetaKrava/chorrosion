@@ -123,9 +123,13 @@ impl PluginRegistry {
         namespace: &str,
         handler: Arc<dyn ExtensionApiHandler>,
     ) -> Result<()> {
-        let namespace = namespace.trim();
-        if namespace.is_empty() {
+        if namespace.trim().is_empty() {
             return Err(anyhow!("extension namespace cannot be empty"));
+        }
+        if namespace != namespace.trim() {
+            return Err(anyhow!(
+                "extension namespace cannot have leading or trailing whitespace"
+            ));
         }
 
         let mut apis = self.extension_apis.write().await;
@@ -152,6 +156,15 @@ impl PluginRegistry {
         namespace: &str,
         request: ExtensionApiRequest,
     ) -> Result<ExtensionApiResponse> {
+        if namespace.trim().is_empty() {
+            return Err(anyhow!("extension namespace cannot be empty"));
+        }
+        if namespace != namespace.trim() {
+            return Err(anyhow!(
+                "extension namespace cannot have leading or trailing whitespace"
+            ));
+        }
+
         let handler = {
             let apis = self.extension_apis.read().await;
             apis.get(namespace).cloned()
@@ -332,6 +345,49 @@ mod tests {
 
         let namespaces = registry.list_extension_namespaces().await;
         assert_eq!(namespaces, vec!["media.tools", "metadata.lookup"]);
+    }
+
+    #[tokio::test]
+    async fn rejects_extension_namespace_with_surrounding_whitespace() {
+        let registry = PluginRegistry::new();
+
+        let err = registry
+            .register_extension_api("  media.tools  ", Arc::new(EchoExtensionApi))
+            .await
+            .expect_err("namespace with surrounding whitespace must fail");
+
+        assert!(
+            err.to_string().contains("leading or trailing whitespace"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(registry.list_extension_namespaces().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_namespace_with_surrounding_whitespace() {
+        let registry = PluginRegistry::new();
+
+        registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect("register extension api");
+
+        let err = registry
+            .dispatch_extension_api(
+                "  media.tools  ",
+                ExtensionApiRequest {
+                    method: "GET".to_string(),
+                    path: "/health".to_string(),
+                    body: None,
+                },
+            )
+            .await
+            .expect_err("namespace with surrounding whitespace must fail dispatch");
+
+        assert!(
+            err.to_string().contains("leading or trailing whitespace"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]
