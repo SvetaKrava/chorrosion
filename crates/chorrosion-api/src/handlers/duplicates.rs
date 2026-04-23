@@ -353,7 +353,13 @@ pub async fn resolve_duplicate_group(
                     "track_file_id is required for delete_specific action",
                 )
             })?;
-            let track_file_id = Uuid::parse_str(&track_file_id_raw).map_err(|_| {
+            let track_file_id = Uuid::parse_str(&track_file_id_raw).map_err(|err| {
+                error!(
+                    target: "api",
+                    track_file_id = %track_file_id_raw,
+                    error = %err,
+                    "invalid track_file_id format for duplicate resolution"
+                );
                 error_response(
                     StatusCode::BAD_REQUEST,
                     "track_file_id must be a valid UUID",
