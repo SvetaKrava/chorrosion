@@ -426,23 +426,34 @@ impl AppState {
         info!(target: "application", "application state initialized");
     }
 
-    pub fn appearance_settings(&self) -> crate::appearance::AppearanceSettings {
-        self.appearance_settings
-            .lock()
-            .expect("appearance settings lock")
-            .clone()
+    pub async fn appearance_settings(&self) -> crate::appearance::AppearanceSettings {
+        let appearance_settings = Arc::clone(&self.appearance_settings);
+
+        tokio::task::spawn_blocking(move || {
+            appearance_settings
+                .lock()
+                .expect("appearance settings lock")
+                .clone()
+        })
+        .await
+        .expect("appearance settings task")
     }
 
-    pub fn set_theme_mode(
+    pub async fn set_theme_mode(
         &self,
         theme_mode: crate::appearance::ThemeMode,
     ) -> crate::appearance::AppearanceSettings {
-        let mut settings = self
-            .appearance_settings
-            .lock()
-            .expect("appearance settings lock");
-        settings.theme_mode = theme_mode;
-        settings.clone()
+        let appearance_settings = Arc::clone(&self.appearance_settings);
+
+        tokio::task::spawn_blocking(move || {
+            let mut settings = appearance_settings
+                .lock()
+                .expect("appearance settings lock");
+            settings.theme_mode = theme_mode;
+            settings.clone()
+        })
+        .await
+        .expect("appearance settings task")
     }
 }
 

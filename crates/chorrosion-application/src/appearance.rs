@@ -26,11 +26,16 @@ impl FromStr for ThemeMode {
     type Err = AppearanceError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "system" => Ok(Self::System),
-            "dark" => Ok(Self::Dark),
-            "light" => Ok(Self::Light),
-            _ => Err(AppearanceError::InvalidThemeMode(value.to_string())),
+        let trimmed = value.trim();
+
+        if trimmed.eq_ignore_ascii_case("system") {
+            Ok(Self::System)
+        } else if trimmed.eq_ignore_ascii_case("dark") {
+            Ok(Self::Dark)
+        } else if trimmed.eq_ignore_ascii_case("light") {
+            Ok(Self::Light)
+        } else {
+            Err(AppearanceError::InvalidThemeMode(value.to_string()))
         }
     }
 }

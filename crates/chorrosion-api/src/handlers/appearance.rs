@@ -30,6 +30,7 @@ pub struct AppearanceSettingsResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateAppearanceSettingsRequest {
+    #[schema(value_type = ThemeModeApi)]
     pub theme_mode: String,
 }
 
@@ -49,7 +50,7 @@ pub struct AppearanceErrorResponse {
 pub async fn get_appearance_settings(
     State(state): State<AppState>,
 ) -> Json<AppearanceSettingsResponse> {
-    let settings = state.appearance_settings();
+    let settings = state.appearance_settings().await;
     Json(AppearanceSettingsResponse {
         theme_mode: settings.theme_mode.into(),
     })
@@ -78,7 +79,7 @@ pub async fn update_appearance_settings(
         )
     })?;
 
-    let updated = state.set_theme_mode(theme_mode);
+    let updated = state.set_theme_mode(theme_mode).await;
     Ok(Json(AppearanceSettingsResponse {
         theme_mode: updated.theme_mode.into(),
     }))
