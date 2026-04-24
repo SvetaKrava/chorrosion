@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub mod activity;
 pub mod albums;
+pub mod appearance;
 pub mod artists;
 pub mod auth;
 pub mod calendar;

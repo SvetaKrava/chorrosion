@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+pub mod appearance;
 pub mod community_indexers;
 pub mod download_clients;
 pub mod embedded_tags;
@@ -114,6 +115,7 @@ pub use tag_embedding::{
 pub use tag_sanitation::TagSanitizer;
 
 // Re-export tag, smart playlist, and duplicate detection domain types for API layer
+pub use appearance::{AppearanceError, AppearanceSettings, ThemeMode};
 pub use chorrosion_domain::{
     DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,
     SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,
@@ -376,6 +378,8 @@ pub struct AppState {
     pub activity_history_store: ActivityHistoryStore,
     /// In-memory tracker used to detect downloads that stop making progress.
     pub activity_stall_tracker: ActivityStallTracker,
+    /// In-memory appearance settings for UI-related preferences.
+    pub appearance_settings: Arc<Mutex<crate::appearance::AppearanceSettings>>,
 }
 
 impl AppState {
@@ -399,6 +403,9 @@ impl AppState {
             activity_snapshot_cache: ActivitySnapshotCache::default(),
             activity_history_store: ActivityHistoryStore::default(),
             activity_stall_tracker: ActivityStallTracker::new(config.activity.stall_after_seconds),
+            appearance_settings: Arc::new(Mutex::new(
+                crate::appearance::AppearanceSettings::default(),
+            )),
             config,
             artist_repository,
             album_repository,
@@ -417,6 +424,25 @@ impl AppState {
 
     pub fn on_start(&self) {
         info!(target: "application", "application state initialized");
+    }
+
+    pub fn appearance_settings(&self) -> crate::appearance::AppearanceSettings {
+        self.appearance_settings
+            .lock()
+            .expect("appearance settings lock")
+            .clone()
+    }
+
+    pub fn set_theme_mode(
+        &self,
+        theme_mode: crate::appearance::ThemeMode,
+    ) -> crate::appearance::AppearanceSettings {
+        let mut settings = self
+            .appearance_settings
+            .lock()
+            .expect("appearance settings lock");
+        settings.theme_mode = theme_mode;
+        settings.clone()
     }
 }
 

@@ -471,7 +471,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 10.3 UI Improvements
 
-- [ ] Dark/light theme support
+- [x] Dark/light theme support (Issue #419) ✓
 - [ ] Mobile-responsive design
 - [ ] Keyboard shortcuts
 - [ ] Bulk operations UI
@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-22  
+**Last Updated:** 2026-04-24  
 **Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Dark/light theme support
+**Next Milestone:** Mobile-responsive design
