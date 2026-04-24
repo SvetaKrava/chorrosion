@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use serde::{Deserialize, Serialize};
 
+use crate::indexers::IndexerCapabilities;
 use crate::IndexerProtocol;
 
 /// A curated template describing a well-known community indexer.
@@ -13,7 +14,12 @@ pub struct CommunityIndexerTemplate {
     pub id: String,
     /// Human-readable display name.
     pub name: String,
-    /// URL template where `{host}` is replaced by the user's actual host.
+    /// URL template used as a preset when configuring an indexer.
+    ///
+    /// `{host}` is typically replaced with the user's actual host, and some built-in templates
+    /// may also contain additional placeholders such as `{indexer_id}` or `{tracker_id}` that
+    /// are filled in by the UI or configuration flow.
+    ///
     /// Example: `"http://{host}:9696/{indexer_id}/api"`
     pub url_template: String,
     /// Protocol used by this indexer.
@@ -24,12 +30,18 @@ pub struct CommunityIndexerTemplate {
     pub description: String,
     /// Searchable tags (e.g. `["music", "aggregator", "usenet"]`).
     pub tags: Vec<String>,
+    /// Optional default capabilities for this indexer type.
+    ///
+    /// `None` means no defaults are known at the template level; actual capabilities are
+    /// detected at runtime when the indexer is tested or queried.
+    pub default_capabilities: Option<IndexerCapabilities>,
 }
 
 /// In-memory catalog of built-in [`CommunityIndexerTemplate`]s.
 ///
-/// All entries are statically allocated; no heap allocation occurs until a caller clones or
-/// collects them.
+/// The catalog is composed of owned template values stored in memory. The current
+/// implementation allocates when the registry is constructed because each template stores
+/// owned `String` and `Vec<String>` data.
 pub struct CommunityIndexerRegistry {
     templates: Vec<CommunityIndexerTemplate>,
 }
@@ -51,6 +63,7 @@ fn template(
         requires_api_key,
         description: description.to_string(),
         tags: tags.iter().map(|tag| tag.to_string()).collect(),
+        default_capabilities: None,
     }
 }
 
