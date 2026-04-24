@@ -169,7 +169,8 @@ impl PluginRegistry {
         }
         .ok_or_else(|| anyhow!("extension namespace '{}' is not registered", namespace))?;
 
-        handler.handle(request).await
+        let response = handler.handle(request).await;
+        response
     }
 }
 
