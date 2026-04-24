@@ -2,7 +2,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -92,8 +91,6 @@ impl ScriptHookDefinition {
 pub enum ScriptHookError {
     #[error("script not found: {0}")]
     ScriptNotFound(PathBuf),
-    #[error("failed to execute script: {0}")]
-    ExecutionFailed(String),
     #[error("script timed out after {0} seconds")]
     Timeout(u64),
     #[error("script exited with code {0}: {1}")]
@@ -102,6 +99,8 @@ pub enum ScriptHookError {
     IoError(#[from] std::io::Error),
     #[error("hook not found: {0}")]
     HookNotFound(String),
+    #[error("hook with id {0} already exists")]
+    DuplicateId(String),
 }
 
 pub type ScriptHookResult<T> = Result<T, ScriptHookError>;
@@ -136,7 +135,12 @@ pub struct ScriptHookRunner;
 
 impl ScriptHookRunner {
     /// Execute a script hook with the given context.
-    pub fn execute(
+    ///
+    /// Runs the script asynchronously and enforces `hook.timeout_secs`, killing the
+    /// child process if the deadline is exceeded.  Reserved env vars (`EVENT_TYPE`,
+    /// `HOOK_TYPE`, `TIMESTAMP`, `HOOK_ID`, `HOOK_TAGS`) are set **after** any
+    /// caller-supplied `additional_vars` so they cannot be overridden.
+    pub async fn execute(
         hook: &ScriptHookDefinition,
         context: &ScriptHookContext,
     ) -> ScriptHookResult<String> {
@@ -149,25 +153,25 @@ impl ScriptHookRunner {
             return Err(ScriptHookError::ScriptNotFound(hook.script_path.clone()));
         }
 
-        // Build command
-        let mut cmd = Command::new(&hook.script_path);
+        // Build async command
+        let mut cmd = tokio::process::Command::new(&hook.script_path);
 
-        // Set environment variables
-        cmd.env("EVENT_TYPE", context.event_type.clone());
-        cmd.env("HOOK_TYPE", hook.hook_type.as_str());
-        cmd.env("TIMESTAMP", context.timestamp.clone());
-        cmd.env("HOOK_ID", hook.id.clone());
-        cmd.env("HOOK_TAGS", hook.tags.join(","));
-
-        // Add additional variables
+        // Apply caller-supplied vars first …
         for (key, value) in &context.additional_vars {
             cmd.env(key, value);
         }
+        // … then reserved vars so callers cannot override them.
+        cmd.env("EVENT_TYPE", &context.event_type);
+        cmd.env("HOOK_TYPE", hook.hook_type.as_str());
+        cmd.env("TIMESTAMP", &context.timestamp);
+        cmd.env("HOOK_ID", &hook.id);
+        cmd.env("HOOK_TAGS", hook.tags.join(","));
 
-        // Execute with timeout (simplified; full timeout would require cross-platform async handling)
-        let output = cmd
-            .output()
-            .map_err(|e| ScriptHookError::ExecutionFailed(e.to_string()))?;
+        // Execute with timeout
+        let duration = std::time::Duration::from_secs(hook.timeout_secs);
+        let output = tokio::time::timeout(duration, cmd.output())
+            .await
+            .map_err(|_| ScriptHookError::Timeout(hook.timeout_secs))??;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -195,7 +199,13 @@ impl ScriptHookRegistry {
     }
 
     /// Register a new script hook.
+    ///
+    /// Returns [`ScriptHookError::DuplicateId`] if a hook with the same ID is already
+    /// registered, preventing accidental overwrites.
     pub fn register(&mut self, hook: ScriptHookDefinition) -> ScriptHookResult<()> {
+        if self.hooks.contains_key(&hook.id) {
+            return Err(ScriptHookError::DuplicateId(hook.id.clone()));
+        }
         self.hooks.insert(hook.id.clone(), hook);
         Ok(())
     }
@@ -309,6 +319,26 @@ mod tests {
     }
 
     #[test]
+    fn registry_rejects_duplicate_id() {
+        let mut registry = ScriptHookRegistry::new();
+        let hook =
+            ScriptHookDefinition::new(ScriptHookType::BeforeSearch, "/path/to/script.sh", 30);
+        let duplicate = ScriptHookDefinition {
+            id: hook.id.clone(),
+            hook_type: ScriptHookType::AfterSearch,
+            script_path: PathBuf::from("/path/to/other.sh"),
+            enabled: true,
+            timeout_secs: 30,
+            tags: vec![],
+        };
+        registry.register(hook).expect("first register");
+        let err = registry
+            .register(duplicate)
+            .expect_err("duplicate should fail");
+        assert!(matches!(err, ScriptHookError::DuplicateId(_)));
+    }
+
+    #[test]
     fn registry_by_type() {
         let mut registry = ScriptHookRegistry::new();
         registry
@@ -343,22 +373,20 @@ mod tests {
     #[test]
     fn registry_enabled_by_type() {
         let mut registry = ScriptHookRegistry::new();
-        let hook1_id = Uuid::new_v4().to_string();
         let hook1 =
             ScriptHookDefinition::new(ScriptHookType::BeforeSearch, "/path/to/script1.sh", 30);
-        let hook1_id_actual = hook1.id.clone();
+        let hook1_id = hook1.id.clone();
 
         let hook2 =
             ScriptHookDefinition::new(ScriptHookType::BeforeSearch, "/path/to/script2.sh", 30)
                 .set_enabled(false);
-        let hook2_id = hook2.id.clone();
 
         registry.register(hook1).expect("register");
         registry.register(hook2).expect("register");
 
         let enabled = registry.enabled_by_type(ScriptHookType::BeforeSearch);
         assert_eq!(enabled.len(), 1);
-        assert_eq!(enabled[0].id, hook1_id_actual);
+        assert_eq!(enabled[0].id, hook1_id);
     }
 
     #[test]
