@@ -24,6 +24,24 @@ pub struct PluginManifest {
     pub capabilities: Vec<PluginCapability>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionApiRequest {
+    pub method: String,
+    pub path: String,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionApiResponse {
+    pub status: u16,
+    pub body: Option<String>,
+}
+
+#[async_trait]
+pub trait ExtensionApiHandler: Send + Sync {
+    async fn handle(&self, request: ExtensionApiRequest) -> Result<ExtensionApiResponse>;
+}
+
 #[async_trait]
 pub trait Plugin: Send + Sync {
     fn manifest(&self) -> PluginManifest;
@@ -40,12 +58,26 @@ pub trait Plugin: Send + Sync {
 #[derive(Clone, Default)]
 pub struct PluginRegistry {
     plugins: Arc<RwLock<HashMap<String, Arc<dyn Plugin>>>>,
+    extension_apis: Arc<RwLock<HashMap<String, Arc<dyn ExtensionApiHandler>>>>,
+}
+
+fn validate_extension_namespace(namespace: &str) -> Result<()> {
+    if namespace.trim().is_empty() {
+        return Err(anyhow!("extension namespace cannot be empty"));
+    }
+    if namespace != namespace.trim() {
+        return Err(anyhow!(
+            "extension namespace cannot have leading or trailing whitespace"
+        ));
+    }
+    Ok(())
 }
 
 impl PluginRegistry {
     pub fn new() -> Self {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            extension_apis: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -97,6 +129,49 @@ impl PluginRegistry {
         manifests.sort_by(|a, b| a.id.cmp(&b.id));
         manifests
     }
+
+    pub async fn register_extension_api(
+        &self,
+        namespace: &str,
+        handler: Arc<dyn ExtensionApiHandler>,
+    ) -> Result<()> {
+        validate_extension_namespace(namespace)?;
+
+        let mut apis = self.extension_apis.write().await;
+        if apis.contains_key(namespace) {
+            return Err(anyhow!(
+                "extension namespace '{}' is already registered",
+                namespace
+            ));
+        }
+
+        apis.insert(namespace.to_string(), handler);
+        Ok(())
+    }
+
+    pub async fn list_extension_namespaces(&self) -> Vec<String> {
+        let apis = self.extension_apis.read().await;
+        let mut namespaces = apis.keys().cloned().collect::<Vec<_>>();
+        namespaces.sort();
+        namespaces
+    }
+
+    pub async fn dispatch_extension_api(
+        &self,
+        namespace: &str,
+        request: ExtensionApiRequest,
+    ) -> Result<ExtensionApiResponse> {
+        validate_extension_namespace(namespace)?;
+
+        let handler = {
+            let apis = self.extension_apis.read().await;
+            apis.get(namespace).cloned()
+        }
+        .ok_or_else(|| anyhow!("extension namespace '{}' is not registered", namespace))?;
+
+        let response = handler.handle(request).await;
+        response
+    }
 }
 
 #[cfg(test)]
@@ -107,10 +182,22 @@ mod tests {
         manifest: PluginManifest,
     }
 
+    struct EchoExtensionApi;
+
     #[async_trait]
     impl Plugin for MockPlugin {
         fn manifest(&self) -> PluginManifest {
             self.manifest.clone()
+        }
+    }
+
+    #[async_trait]
+    impl ExtensionApiHandler for EchoExtensionApi {
+        async fn handle(&self, request: ExtensionApiRequest) -> Result<ExtensionApiResponse> {
+            Ok(ExtensionApiResponse {
+                status: 200,
+                body: Some(format!("{} {}", request.method, request.path)),
+            })
         }
     }
 
@@ -239,5 +326,133 @@ mod tests {
         assert_eq!(manifests.len(), 2);
         assert_eq!(manifests[0].id, "builtin.indexer.torznab");
         assert_eq!(manifests[1].id, "builtin.notification.discord");
+    }
+
+    #[tokio::test]
+    async fn registers_and_lists_extension_namespaces() {
+        let registry = PluginRegistry::new();
+
+        registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect("register extension api");
+
+        registry
+            .register_extension_api("metadata.lookup", Arc::new(EchoExtensionApi))
+            .await
+            .expect("register second extension api");
+
+        let namespaces = registry.list_extension_namespaces().await;
+        assert_eq!(namespaces, vec!["media.tools", "metadata.lookup"]);
+    }
+
+    #[tokio::test]
+    async fn rejects_extension_namespace_with_surrounding_whitespace() {
+        let registry = PluginRegistry::new();
+
+        let err = registry
+            .register_extension_api("  media.tools  ", Arc::new(EchoExtensionApi))
+            .await
+            .expect_err("namespace with surrounding whitespace must fail");
+
+        assert!(
+            err.to_string().contains("leading or trailing whitespace"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(registry.list_extension_namespaces().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_namespace_with_surrounding_whitespace() {
+        let registry = PluginRegistry::new();
+
+        registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect("register extension api");
+
+        let err = registry
+            .dispatch_extension_api(
+                "  media.tools  ",
+                ExtensionApiRequest {
+                    method: "GET".to_string(),
+                    path: "/health".to_string(),
+                    body: None,
+                },
+            )
+            .await
+            .expect_err("namespace with surrounding whitespace must fail dispatch");
+
+        assert!(
+            err.to_string().contains("leading or trailing whitespace"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_extension_namespace() {
+        let registry = PluginRegistry::new();
+
+        registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect("first registration succeeds");
+
+        let err = registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect_err("duplicate namespace must fail");
+
+        assert!(
+            err.to_string().contains("already registered"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_to_registered_extension_namespace() {
+        let registry = PluginRegistry::new();
+
+        registry
+            .register_extension_api("media.tools", Arc::new(EchoExtensionApi))
+            .await
+            .expect("register extension api");
+
+        let response = registry
+            .dispatch_extension_api(
+                "media.tools",
+                ExtensionApiRequest {
+                    method: "GET".to_string(),
+                    path: "/health".to_string(),
+                    body: None,
+                },
+            )
+            .await
+            .expect("dispatch succeeds");
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body.as_deref(), Some("GET /health"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_to_unknown_namespace_returns_error() {
+        let registry = PluginRegistry::new();
+
+        let err = registry
+            .dispatch_extension_api(
+                "unknown.namespace",
+                ExtensionApiRequest {
+                    method: "GET".to_string(),
+                    path: "/health".to_string(),
+                    body: None,
+                },
+            )
+            .await
+            .expect_err("unknown namespace must fail");
+
+        assert!(
+            err.to_string().contains("is not registered"),
+            "unexpected error: {err}"
+        );
     }
 }
