@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, Json};
-use chorrosion_application::{AppState, ThemeMode};
+use chorrosion_application::{AppState, AppearanceSettings, ThemeMode};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use utoipa::ToSchema;
@@ -26,12 +26,18 @@ impl From<ThemeMode> for ThemeModeApi {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AppearanceSettingsResponse {
     pub theme_mode: ThemeModeApi,
+    pub mobile_breakpoint_px: u16,
+    pub mobile_compact_layout: bool,
+    pub touch_targets_optimized: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateAppearanceSettingsRequest {
     #[schema(value_type = ThemeModeApi)]
     pub theme_mode: String,
+    pub mobile_breakpoint_px: u16,
+    pub mobile_compact_layout: bool,
+    pub touch_targets_optimized: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -53,6 +59,9 @@ pub async fn get_appearance_settings(
     let settings = state.appearance_settings().await;
     Json(AppearanceSettingsResponse {
         theme_mode: settings.theme_mode.into(),
+        mobile_breakpoint_px: settings.mobile_breakpoint_px,
+        mobile_compact_layout: settings.mobile_compact_layout,
+        touch_targets_optimized: settings.touch_targets_optimized,
     })
 }
 
@@ -79,9 +88,30 @@ pub async fn update_appearance_settings(
         )
     })?;
 
-    let updated = state.set_theme_mode(theme_mode).await;
+    AppearanceSettings::validate_mobile_breakpoint_px(request.mobile_breakpoint_px).map_err(
+        |err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(AppearanceErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+        },
+    )?;
+
+    let updated = state
+        .set_appearance_settings(AppearanceSettings {
+            theme_mode,
+            mobile_breakpoint_px: request.mobile_breakpoint_px,
+            mobile_compact_layout: request.mobile_compact_layout,
+            touch_targets_optimized: request.touch_targets_optimized,
+        })
+        .await;
     Ok(Json(AppearanceSettingsResponse {
         theme_mode: updated.theme_mode.into(),
+        mobile_breakpoint_px: updated.mobile_breakpoint_px,
+        mobile_compact_layout: updated.mobile_compact_layout,
+        touch_targets_optimized: updated.touch_targets_optimized,
     }))
 }
 
@@ -142,6 +172,9 @@ mod tests {
         let Json(response) = get_appearance_settings(State(state)).await;
 
         assert!(matches!(response.theme_mode, ThemeModeApi::System));
+        assert_eq!(response.mobile_breakpoint_px, 768);
+        assert!(response.mobile_compact_layout);
+        assert!(response.touch_targets_optimized);
     }
 
     #[tokio::test]
@@ -152,15 +185,43 @@ mod tests {
             State(state.clone()),
             Json(UpdateAppearanceSettingsRequest {
                 theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 640,
+                mobile_compact_layout: false,
+                touch_targets_optimized: true,
             }),
         )
         .await
         .expect("valid update");
 
         assert!(matches!(result.0.theme_mode, ThemeModeApi::Dark));
+        assert_eq!(result.0.mobile_breakpoint_px, 640);
+        assert!(!result.0.mobile_compact_layout);
+        assert!(result.0.touch_targets_optimized);
 
         let Json(check) = get_appearance_settings(State(state)).await;
         assert!(matches!(check.theme_mode, ThemeModeApi::Dark));
+        assert_eq!(check.mobile_breakpoint_px, 640);
+        assert!(!check.mobile_compact_layout);
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_breakpoint() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 200,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid breakpoint should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid mobile breakpoint"));
     }
 
     #[tokio::test]
@@ -171,6 +232,9 @@ mod tests {
             State(state),
             Json(UpdateAppearanceSettingsRequest {
                 theme_mode: "midnight".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
             }),
         )
         .await;

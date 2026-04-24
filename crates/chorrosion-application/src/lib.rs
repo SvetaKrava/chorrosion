@@ -455,6 +455,23 @@ impl AppState {
         .await
         .expect("appearance settings task")
     }
+
+    pub async fn set_appearance_settings(
+        &self,
+        settings: crate::appearance::AppearanceSettings,
+    ) -> crate::appearance::AppearanceSettings {
+        let appearance_settings = Arc::clone(&self.appearance_settings);
+
+        tokio::task::spawn_blocking(move || {
+            let mut current = appearance_settings
+                .lock()
+                .expect("appearance settings lock");
+            *current = settings;
+            current.clone()
+        })
+        .await
+        .expect("appearance settings task")
+    }
 }
 
 #[cfg(test)]
