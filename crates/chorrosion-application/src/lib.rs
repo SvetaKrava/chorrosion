@@ -115,7 +115,7 @@ pub use tag_embedding::{
 pub use tag_sanitation::TagSanitizer;
 
 // Re-export tag, smart playlist, and duplicate detection domain types for API layer
-pub use appearance::{AppearanceError, AppearanceSettings, ThemeMode};
+pub use appearance::{AppearanceError, AppearanceSettings, ThemeMode, DEFAULT_MOBILE_BREAKPOINT_PX};
 pub use chorrosion_domain::{
     DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,
     SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,
@@ -459,10 +459,14 @@ impl AppState {
     pub async fn set_appearance_settings(
         &self,
         settings: crate::appearance::AppearanceSettings,
-    ) -> crate::appearance::AppearanceSettings {
+    ) -> Result<crate::appearance::AppearanceSettings, crate::appearance::AppearanceError> {
+        crate::appearance::AppearanceSettings::validate_mobile_breakpoint_px(
+            settings.mobile_breakpoint_px,
+        )?;
+
         let appearance_settings = Arc::clone(&self.appearance_settings);
 
-        tokio::task::spawn_blocking(move || {
+        let updated = tokio::task::spawn_blocking(move || {
             let mut current = appearance_settings
                 .lock()
                 .expect("appearance settings lock");
@@ -470,7 +474,9 @@ impl AppState {
             current.clone()
         })
         .await
-        .expect("appearance settings task")
+        .expect("appearance settings task");
+
+        Ok(updated)
     }
 }
 

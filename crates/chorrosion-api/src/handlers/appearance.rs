@@ -35,9 +35,26 @@ pub struct AppearanceSettingsResponse {
 pub struct UpdateAppearanceSettingsRequest {
     #[schema(value_type = ThemeModeApi)]
     pub theme_mode: String,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_mobile_breakpoint_px")]
     pub mobile_breakpoint_px: u16,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_mobile_compact_layout")]
     pub mobile_compact_layout: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_touch_targets_optimized")]
     pub touch_targets_optimized: bool,
+}
+
+impl UpdateAppearanceSettingsRequest {
+    fn default_mobile_breakpoint_px() -> u16 {
+        AppearanceSettings::default().mobile_breakpoint_px
+    }
+
+    fn default_mobile_compact_layout() -> bool {
+        AppearanceSettings::default().mobile_compact_layout
+    }
+
+    fn default_touch_targets_optimized() -> bool {
+        AppearanceSettings::default().touch_targets_optimized
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -71,7 +88,7 @@ pub async fn get_appearance_settings(
     request_body = UpdateAppearanceSettingsRequest,
     responses(
         (status = 200, description = "Updated appearance settings", body = AppearanceSettingsResponse),
-        (status = 400, description = "Invalid theme mode", body = AppearanceErrorResponse)
+        (status = 400, description = "Invalid theme mode or mobile breakpoint", body = AppearanceErrorResponse)
     ),
     tag = "settings"
 )]
@@ -88,17 +105,6 @@ pub async fn update_appearance_settings(
         )
     })?;
 
-    AppearanceSettings::validate_mobile_breakpoint_px(request.mobile_breakpoint_px).map_err(
-        |err| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(AppearanceErrorResponse {
-                    error: err.to_string(),
-                }),
-            )
-        },
-    )?;
-
     let updated = state
         .set_appearance_settings(AppearanceSettings {
             theme_mode,
@@ -106,7 +112,16 @@ pub async fn update_appearance_settings(
             mobile_compact_layout: request.mobile_compact_layout,
             touch_targets_optimized: request.touch_targets_optimized,
         })
-        .await;
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(AppearanceErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+        })?;
+
     Ok(Json(AppearanceSettingsResponse {
         theme_mode: updated.theme_mode.into(),
         mobile_breakpoint_px: updated.mobile_breakpoint_px,
@@ -118,6 +133,7 @@ pub async fn update_appearance_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chorrosion_application::DEFAULT_MOBILE_BREAKPOINT_PX;
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
@@ -172,7 +188,7 @@ mod tests {
         let Json(response) = get_appearance_settings(State(state)).await;
 
         assert!(matches!(response.theme_mode, ThemeModeApi::System));
-        assert_eq!(response.mobile_breakpoint_px, 768);
+        assert_eq!(response.mobile_breakpoint_px, DEFAULT_MOBILE_BREAKPOINT_PX);
         assert!(response.mobile_compact_layout);
         assert!(response.touch_targets_optimized);
     }
