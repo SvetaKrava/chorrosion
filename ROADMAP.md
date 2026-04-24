@@ -466,7 +466,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 - [x] Plugin system architecture (Issue #411) ✓
 - [x] Extension API (Issue #413) ✓
-- [ ] Community indexer definitions
+- [x] Community indexer definitions (Issue #415) ✓
 - [ ] Custom script hooks
 
 ### 10.3 UI Improvements
@@ -532,4 +532,4 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 **Last Updated:** 2026-04-22  
 **Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Community indexer definitions
+**Next Milestone:** Custom script hooks

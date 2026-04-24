@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+pub mod community_indexers;
 pub mod download_clients;
 pub mod embedded_tags;
 pub mod events;
@@ -40,6 +41,7 @@ pub mod tag_sanitation;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
+pub use community_indexers::{CommunityIndexerRegistry, CommunityIndexerTemplate};
 pub use download_clients::{
     AddTorrentRequest, DelugeClient, DownloadClient, DownloadClientError, DownloadItem,
     DownloadState, NzbgetClient, QBittorrentClient, SabnzbdClient, TransmissionClient,
