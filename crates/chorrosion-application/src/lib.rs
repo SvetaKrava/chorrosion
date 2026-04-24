@@ -35,6 +35,7 @@ pub mod quality_upgrade;
 pub mod release_parsing;
 pub mod release_restrictions;
 pub mod scan_cache;
+pub mod script_hooks;
 pub mod search_automation;
 pub mod tag_embedding;
 pub mod tag_sanitation;
@@ -97,6 +98,10 @@ pub use release_parsing::{
 };
 pub use release_restrictions::{ReleaseRestrictionSet, RestrictionRule};
 pub use scan_cache::{cached_scan_audio_files, DirScanCache};
+pub use script_hooks::{
+    ScriptHookContext, ScriptHookDefinition, ScriptHookError, ScriptHookRegistry, ScriptHookResult,
+    ScriptHookRunner, ScriptHookType,
+};
 pub use search_automation::{
     automatic_search_missing_albums, detect_missing_albums, manual_search, AlbumSearchTarget,
     AutomaticSearchDecision, ManualSearchRequest, RankedRelease,
