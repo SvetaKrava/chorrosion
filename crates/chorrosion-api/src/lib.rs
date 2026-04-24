@@ -30,6 +30,11 @@ use handlers::albums::{
     __path_list_albums, __path_list_albums_by_artist, __path_trigger_album_search,
     __path_update_album,
 };
+use handlers::appearance::{
+    get_appearance_settings, update_appearance_settings, AppearanceErrorResponse,
+    AppearanceSettingsResponse, ThemeModeApi, UpdateAppearanceSettingsRequest,
+    __path_get_appearance_settings, __path_update_appearance_settings,
+};
 use handlers::artists::{
     create_artist, delete_artist, get_artist, get_artist_statistics, list_artists, update_artist,
     ArtistResponse, ArtistStatisticsResponse, CreateArtistRequest, ErrorResponse,
@@ -289,6 +294,8 @@ async fn metrics() -> axum::response::Response {
         get_system_logs,
         get_system_notifications,
         post_system_notifications_test,
+        get_appearance_settings,
+        update_appearance_settings,
         get_activity_queue,
         get_activity_history,
         get_activity_failed,
@@ -389,6 +396,10 @@ async fn metrics() -> axum::response::Response {
             NotificationStatusResponse,
             NotificationProviderStatusResponse,
             NotificationTestResponse,
+            AppearanceSettingsResponse,
+            UpdateAppearanceSettingsRequest,
+            AppearanceErrorResponse,
+            ThemeModeApi,
             ActivityItemResponse,
             ActivityListResponse,
             ActivityErrorResponse,
@@ -541,6 +552,10 @@ pub fn router(state: AppState) -> Router {
             get(stream_import_progress_events),
         )
         .route("/events/job-status", get(stream_job_status_events))
+        .route(
+            "/settings/appearance",
+            get(get_appearance_settings).put(update_appearance_settings),
+        )
         .route(
             "/settings/quality-profiles",
             get(list_quality_profiles).post(create_quality_profile),
