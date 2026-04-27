@@ -125,7 +125,7 @@ pub async fn get_appearance_settings(
     request_body = UpdateAppearanceSettingsRequest,
     responses(
         (status = 200, description = "Updated appearance settings", body = AppearanceSettingsResponse),
-        (status = 400, description = "Invalid theme mode or mobile breakpoint", body = AppearanceErrorResponse)
+        (status = 400, description = "Invalid theme mode, mobile breakpoint, or shortcut profile", body = AppearanceErrorResponse)
     ),
     tag = "settings"
 )]
