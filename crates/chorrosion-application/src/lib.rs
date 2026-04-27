@@ -115,7 +115,10 @@ pub use tag_embedding::{
 pub use tag_sanitation::TagSanitizer;
 
 // Re-export tag, smart playlist, and duplicate detection domain types for API layer
-pub use appearance::{AppearanceError, AppearanceSettings, ThemeMode, DEFAULT_MOBILE_BREAKPOINT_PX};
+pub use appearance::{
+    AppearanceError, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_MOBILE_BREAKPOINT_PX,
+    DEFAULT_SHORTCUT_PROFILE,
+};
 pub use chorrosion_domain::{
     DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,
     SmartPlaylistCriteria, SmartPlaylistId, Tag, TagId, TaggedEntity,

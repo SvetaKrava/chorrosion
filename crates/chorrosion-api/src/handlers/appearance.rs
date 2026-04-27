@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, Json};
-use chorrosion_application::{AppState, AppearanceSettings, ThemeMode};
+use chorrosion_application::{
+    AppState, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_SHORTCUT_PROFILE,
+};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use utoipa::ToSchema;
@@ -11,6 +13,24 @@ pub enum ThemeModeApi {
     System,
     Dark,
     Light,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ShortcutProfileApi {
+    Standard,
+    Vim,
+    Emacs,
+}
+
+impl From<ShortcutProfile> for ShortcutProfileApi {
+    fn from(value: ShortcutProfile) -> Self {
+        match value {
+            ShortcutProfile::Standard => Self::Standard,
+            ShortcutProfile::Vim => Self::Vim,
+            ShortcutProfile::Emacs => Self::Emacs,
+        }
+    }
 }
 
 impl From<ThemeMode> for ThemeModeApi {
@@ -29,6 +49,8 @@ pub struct AppearanceSettingsResponse {
     pub mobile_breakpoint_px: u16,
     pub mobile_compact_layout: bool,
     pub touch_targets_optimized: bool,
+    pub keyboard_shortcuts_enabled: bool,
+    pub shortcut_profile: ShortcutProfileApi,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -41,6 +63,11 @@ pub struct UpdateAppearanceSettingsRequest {
     pub mobile_compact_layout: bool,
     #[serde(default = "UpdateAppearanceSettingsRequest::default_touch_targets_optimized")]
     pub touch_targets_optimized: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_keyboard_shortcuts_enabled")]
+    pub keyboard_shortcuts_enabled: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_shortcut_profile")]
+    #[schema(value_type = ShortcutProfileApi)]
+    pub shortcut_profile: String,
 }
 
 impl UpdateAppearanceSettingsRequest {
@@ -54,6 +81,14 @@ impl UpdateAppearanceSettingsRequest {
 
     fn default_touch_targets_optimized() -> bool {
         AppearanceSettings::default().touch_targets_optimized
+    }
+
+    fn default_keyboard_shortcuts_enabled() -> bool {
+        AppearanceSettings::default().keyboard_shortcuts_enabled
+    }
+
+    fn default_shortcut_profile() -> String {
+        DEFAULT_SHORTCUT_PROFILE.as_str().to_string()
     }
 }
 
@@ -79,6 +114,8 @@ pub async fn get_appearance_settings(
         mobile_breakpoint_px: settings.mobile_breakpoint_px,
         mobile_compact_layout: settings.mobile_compact_layout,
         touch_targets_optimized: settings.touch_targets_optimized,
+        keyboard_shortcuts_enabled: settings.keyboard_shortcuts_enabled,
+        shortcut_profile: settings.shortcut_profile.into(),
     })
 }
 
@@ -88,7 +125,7 @@ pub async fn get_appearance_settings(
     request_body = UpdateAppearanceSettingsRequest,
     responses(
         (status = 200, description = "Updated appearance settings", body = AppearanceSettingsResponse),
-        (status = 400, description = "Invalid theme mode or mobile breakpoint", body = AppearanceErrorResponse)
+        (status = 400, description = "Invalid theme mode, mobile breakpoint, or shortcut profile", body = AppearanceErrorResponse)
     ),
     tag = "settings"
 )]
@@ -105,12 +142,23 @@ pub async fn update_appearance_settings(
         )
     })?;
 
+    let shortcut_profile = ShortcutProfile::from_str(&request.shortcut_profile).map_err(|err| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(AppearanceErrorResponse {
+                error: err.to_string(),
+            }),
+        )
+    })?;
+
     let updated = state
         .set_appearance_settings(AppearanceSettings {
             theme_mode,
             mobile_breakpoint_px: request.mobile_breakpoint_px,
             mobile_compact_layout: request.mobile_compact_layout,
             touch_targets_optimized: request.touch_targets_optimized,
+            keyboard_shortcuts_enabled: request.keyboard_shortcuts_enabled,
+            shortcut_profile,
         })
         .await
         .map_err(|err| {
@@ -127,6 +175,8 @@ pub async fn update_appearance_settings(
         mobile_breakpoint_px: updated.mobile_breakpoint_px,
         mobile_compact_layout: updated.mobile_compact_layout,
         touch_targets_optimized: updated.touch_targets_optimized,
+        keyboard_shortcuts_enabled: updated.keyboard_shortcuts_enabled,
+        shortcut_profile: updated.shortcut_profile.into(),
     }))
 }
 
@@ -191,6 +241,11 @@ mod tests {
         assert_eq!(response.mobile_breakpoint_px, DEFAULT_MOBILE_BREAKPOINT_PX);
         assert!(response.mobile_compact_layout);
         assert!(response.touch_targets_optimized);
+        assert!(response.keyboard_shortcuts_enabled);
+        assert!(matches!(
+            response.shortcut_profile,
+            ShortcutProfileApi::Standard
+        ));
     }
 
     #[tokio::test]
@@ -204,6 +259,8 @@ mod tests {
                 mobile_breakpoint_px: 640,
                 mobile_compact_layout: false,
                 touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: false,
+                shortcut_profile: "vim".to_string(),
             }),
         )
         .await
@@ -213,11 +270,15 @@ mod tests {
         assert_eq!(result.0.mobile_breakpoint_px, 640);
         assert!(!result.0.mobile_compact_layout);
         assert!(result.0.touch_targets_optimized);
+        assert!(!result.0.keyboard_shortcuts_enabled);
+        assert!(matches!(result.0.shortcut_profile, ShortcutProfileApi::Vim));
 
         let Json(check) = get_appearance_settings(State(state)).await;
         assert!(matches!(check.theme_mode, ThemeModeApi::Dark));
         assert_eq!(check.mobile_breakpoint_px, 640);
         assert!(!check.mobile_compact_layout);
+        assert!(!check.keyboard_shortcuts_enabled);
+        assert!(matches!(check.shortcut_profile, ShortcutProfileApi::Vim));
     }
 
     #[tokio::test]
@@ -231,6 +292,8 @@ mod tests {
                 mobile_breakpoint_px: 200,
                 mobile_compact_layout: true,
                 touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
             }),
         )
         .await;
@@ -238,6 +301,28 @@ mod tests {
         let (status, Json(error)) = result.expect_err("invalid breakpoint should fail");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(error.error.contains("invalid mobile breakpoint"));
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_shortcut_profile() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "gaming".to_string(),
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid profile should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid shortcut profile"));
     }
 
     #[tokio::test]
@@ -251,6 +336,8 @@ mod tests {
                 mobile_breakpoint_px: 768,
                 mobile_compact_layout: true,
                 touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
             }),
         )
         .await;
