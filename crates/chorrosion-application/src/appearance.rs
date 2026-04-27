@@ -6,6 +6,44 @@ use thiserror::Error;
 pub const DEFAULT_MOBILE_BREAKPOINT_PX: u16 = 768;
 pub const MIN_MOBILE_BREAKPOINT_PX: u16 = 320;
 pub const MAX_MOBILE_BREAKPOINT_PX: u16 = 1440;
+pub const DEFAULT_SHORTCUT_PROFILE: ShortcutProfile = ShortcutProfile::Standard;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShortcutProfile {
+    #[default]
+    Standard,
+    Vim,
+    Emacs,
+}
+
+impl ShortcutProfile {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Vim => "vim",
+            Self::Emacs => "emacs",
+        }
+    }
+}
+
+impl FromStr for ShortcutProfile {
+    type Err = AppearanceError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let trimmed = value.trim();
+
+        if trimmed.eq_ignore_ascii_case("standard") {
+            Ok(Self::Standard)
+        } else if trimmed.eq_ignore_ascii_case("vim") {
+            Ok(Self::Vim)
+        } else if trimmed.eq_ignore_ascii_case("emacs") {
+            Ok(Self::Emacs)
+        } else {
+            Err(AppearanceError::InvalidShortcutProfile(value.to_string()))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +88,8 @@ pub struct AppearanceSettings {
     pub mobile_breakpoint_px: u16,
     pub mobile_compact_layout: bool,
     pub touch_targets_optimized: bool,
+    pub keyboard_shortcuts_enabled: bool,
+    pub shortcut_profile: ShortcutProfile,
 }
 
 impl AppearanceSettings {
@@ -59,6 +99,8 @@ impl AppearanceSettings {
             mobile_breakpoint_px: DEFAULT_MOBILE_BREAKPOINT_PX,
             mobile_compact_layout: true,
             touch_targets_optimized: true,
+            keyboard_shortcuts_enabled: true,
+            shortcut_profile: DEFAULT_SHORTCUT_PROFILE,
         }
     }
 
@@ -85,6 +127,8 @@ pub enum AppearanceError {
         "invalid mobile breakpoint: {0}. expected {MIN_MOBILE_BREAKPOINT_PX}..={MAX_MOBILE_BREAKPOINT_PX} px"
     )]
     InvalidMobileBreakpoint(u16),
+    #[error("invalid shortcut profile: {0}")]
+    InvalidShortcutProfile(String),
 }
 
 #[cfg(test)]
@@ -101,6 +145,11 @@ mod tests {
         );
         assert!(AppearanceSettings::default().mobile_compact_layout);
         assert!(AppearanceSettings::default().touch_targets_optimized);
+        assert!(AppearanceSettings::default().keyboard_shortcuts_enabled);
+        assert_eq!(
+            AppearanceSettings::default().shortcut_profile,
+            ShortcutProfile::Standard
+        );
     }
 
     #[test]
@@ -135,10 +184,34 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_profile_parse_accepts_valid_values() {
+        assert_eq!(
+            ShortcutProfile::from_str("standard").expect("standard"),
+            ShortcutProfile::Standard
+        );
+        assert_eq!(
+            ShortcutProfile::from_str("vim").expect("vim"),
+            ShortcutProfile::Vim
+        );
+        assert_eq!(
+            ShortcutProfile::from_str("EMACS").expect("emacs"),
+            ShortcutProfile::Emacs
+        );
+    }
+
+    #[test]
+    fn shortcut_profile_parse_rejects_invalid_values() {
+        let err = ShortcutProfile::from_str("gaming").expect_err("invalid should fail");
+        assert!(err.to_string().contains("invalid shortcut profile"));
+    }
+
+    #[test]
     fn appearance_settings_new_sets_theme_mode() {
         let settings = AppearanceSettings::new(ThemeMode::Light);
         assert_eq!(settings.theme_mode, ThemeMode::Light);
         assert_eq!(settings.mobile_breakpoint_px, DEFAULT_MOBILE_BREAKPOINT_PX);
+        assert!(settings.keyboard_shortcuts_enabled);
+        assert_eq!(settings.shortcut_profile, ShortcutProfile::Standard);
     }
 
     #[test]
