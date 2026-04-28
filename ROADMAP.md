@@ -474,7 +474,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Dark/light theme support (Issue #419) ✓
 - [x] Mobile-responsive design (Issue #421) ✓
 - [x] Keyboard shortcuts (Issue #423) ✓
-- [ ] Bulk operations UI
+- [x] Bulk operations UI (Issue #425) ✓
 - [ ] Advanced filtering
 
 ---
@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-27  
+**Last Updated:** 2026-04-28  
 **Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Bulk operations UI
+**Next Milestone:** Advanced filtering

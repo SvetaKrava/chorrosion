@@ -116,8 +116,8 @@ pub use tag_sanitation::TagSanitizer;
 
 // Re-export tag, smart playlist, and duplicate detection domain types for API layer
 pub use appearance::{
-    AppearanceError, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_MOBILE_BREAKPOINT_PX,
-    DEFAULT_SHORTCUT_PROFILE,
+    AppearanceError, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_BULK_SELECTION_LIMIT,
+    DEFAULT_MOBILE_BREAKPOINT_PX, DEFAULT_SHORTCUT_PROFILE,
 };
 pub use chorrosion_domain::{
     DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,
@@ -463,9 +463,7 @@ impl AppState {
         &self,
         settings: crate::appearance::AppearanceSettings,
     ) -> Result<crate::appearance::AppearanceSettings, crate::appearance::AppearanceError> {
-        crate::appearance::AppearanceSettings::validate_mobile_breakpoint_px(
-            settings.mobile_breakpoint_px,
-        )?;
+        settings.validate()?;
 
         let appearance_settings = Arc::clone(&self.appearance_settings);
 

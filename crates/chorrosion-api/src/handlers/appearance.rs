@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, Json};
 use chorrosion_application::{
-    AppState, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_SHORTCUT_PROFILE,
+    AppState, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_BULK_SELECTION_LIMIT,
+    DEFAULT_SHORTCUT_PROFILE,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -51,6 +52,9 @@ pub struct AppearanceSettingsResponse {
     pub touch_targets_optimized: bool,
     pub keyboard_shortcuts_enabled: bool,
     pub shortcut_profile: ShortcutProfileApi,
+    pub bulk_operations_enabled: bool,
+    pub bulk_selection_limit: u16,
+    pub bulk_action_confirmation: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -68,6 +72,12 @@ pub struct UpdateAppearanceSettingsRequest {
     #[serde(default = "UpdateAppearanceSettingsRequest::default_shortcut_profile")]
     #[schema(value_type = ShortcutProfileApi)]
     pub shortcut_profile: String,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_bulk_operations_enabled")]
+    pub bulk_operations_enabled: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_bulk_selection_limit")]
+    pub bulk_selection_limit: u16,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_bulk_action_confirmation")]
+    pub bulk_action_confirmation: bool,
 }
 
 impl UpdateAppearanceSettingsRequest {
@@ -89,6 +99,18 @@ impl UpdateAppearanceSettingsRequest {
 
     fn default_shortcut_profile() -> String {
         DEFAULT_SHORTCUT_PROFILE.as_str().to_string()
+    }
+
+    fn default_bulk_operations_enabled() -> bool {
+        AppearanceSettings::default().bulk_operations_enabled
+    }
+
+    fn default_bulk_selection_limit() -> u16 {
+        DEFAULT_BULK_SELECTION_LIMIT
+    }
+
+    fn default_bulk_action_confirmation() -> bool {
+        AppearanceSettings::default().bulk_action_confirmation
     }
 }
 
@@ -116,6 +138,9 @@ pub async fn get_appearance_settings(
         touch_targets_optimized: settings.touch_targets_optimized,
         keyboard_shortcuts_enabled: settings.keyboard_shortcuts_enabled,
         shortcut_profile: settings.shortcut_profile.into(),
+        bulk_operations_enabled: settings.bulk_operations_enabled,
+        bulk_selection_limit: settings.bulk_selection_limit,
+        bulk_action_confirmation: settings.bulk_action_confirmation,
     })
 }
 
@@ -125,7 +150,7 @@ pub async fn get_appearance_settings(
     request_body = UpdateAppearanceSettingsRequest,
     responses(
         (status = 200, description = "Updated appearance settings", body = AppearanceSettingsResponse),
-        (status = 400, description = "Invalid theme mode, mobile breakpoint, or shortcut profile", body = AppearanceErrorResponse)
+        (status = 400, description = "Invalid theme mode, mobile breakpoint, shortcut profile, or bulk selection limit", body = AppearanceErrorResponse)
     ),
     tag = "settings"
 )]
@@ -159,6 +184,9 @@ pub async fn update_appearance_settings(
             touch_targets_optimized: request.touch_targets_optimized,
             keyboard_shortcuts_enabled: request.keyboard_shortcuts_enabled,
             shortcut_profile,
+            bulk_operations_enabled: request.bulk_operations_enabled,
+            bulk_selection_limit: request.bulk_selection_limit,
+            bulk_action_confirmation: request.bulk_action_confirmation,
         })
         .await
         .map_err(|err| {
@@ -177,6 +205,9 @@ pub async fn update_appearance_settings(
         touch_targets_optimized: updated.touch_targets_optimized,
         keyboard_shortcuts_enabled: updated.keyboard_shortcuts_enabled,
         shortcut_profile: updated.shortcut_profile.into(),
+        bulk_operations_enabled: updated.bulk_operations_enabled,
+        bulk_selection_limit: updated.bulk_selection_limit,
+        bulk_action_confirmation: updated.bulk_action_confirmation,
     }))
 }
 
@@ -246,6 +277,9 @@ mod tests {
             response.shortcut_profile,
             ShortcutProfileApi::Standard
         ));
+        assert!(response.bulk_operations_enabled);
+        assert_eq!(response.bulk_selection_limit, DEFAULT_BULK_SELECTION_LIMIT);
+        assert!(response.bulk_action_confirmation);
     }
 
     #[tokio::test]
@@ -261,6 +295,9 @@ mod tests {
                 touch_targets_optimized: true,
                 keyboard_shortcuts_enabled: false,
                 shortcut_profile: "vim".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 250,
+                bulk_action_confirmation: false,
             }),
         )
         .await
@@ -272,6 +309,9 @@ mod tests {
         assert!(result.0.touch_targets_optimized);
         assert!(!result.0.keyboard_shortcuts_enabled);
         assert!(matches!(result.0.shortcut_profile, ShortcutProfileApi::Vim));
+        assert!(result.0.bulk_operations_enabled);
+        assert_eq!(result.0.bulk_selection_limit, 250);
+        assert!(!result.0.bulk_action_confirmation);
 
         let Json(check) = get_appearance_settings(State(state)).await;
         assert!(matches!(check.theme_mode, ThemeModeApi::Dark));
@@ -279,6 +319,9 @@ mod tests {
         assert!(!check.mobile_compact_layout);
         assert!(!check.keyboard_shortcuts_enabled);
         assert!(matches!(check.shortcut_profile, ShortcutProfileApi::Vim));
+        assert!(check.bulk_operations_enabled);
+        assert_eq!(check.bulk_selection_limit, 250);
+        assert!(!check.bulk_action_confirmation);
     }
 
     #[tokio::test]
@@ -294,6 +337,9 @@ mod tests {
                 touch_targets_optimized: true,
                 keyboard_shortcuts_enabled: true,
                 shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
             }),
         )
         .await;
@@ -316,6 +362,9 @@ mod tests {
                 touch_targets_optimized: true,
                 keyboard_shortcuts_enabled: true,
                 shortcut_profile: "gaming".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
             }),
         )
         .await;
@@ -323,6 +372,31 @@ mod tests {
         let (status, Json(error)) = result.expect_err("invalid profile should fail");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(error.error.contains("invalid shortcut profile"));
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_bulk_selection_limit() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 5,
+                bulk_action_confirmation: true,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid bulk limit should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid bulk selection limit"));
     }
 
     #[tokio::test]
@@ -338,6 +412,9 @@ mod tests {
                 touch_targets_optimized: true,
                 keyboard_shortcuts_enabled: true,
                 shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
             }),
         )
         .await;
