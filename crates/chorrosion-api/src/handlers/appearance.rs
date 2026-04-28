@@ -609,4 +609,34 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(error.error.contains("invalid max filter clauses"));
     }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_filter_history_limit() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 0,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid filter history limit should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid filter history limit"));
+    }
 }

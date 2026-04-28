@@ -475,7 +475,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Mobile-responsive design (Issue #421) ✓
 - [x] Keyboard shortcuts (Issue #423) ✓
 - [x] Bulk operations UI (Issue #425) ✓
-- [ ] Advanced filtering (Issue #427) ✓
+- [x] Advanced filtering (Issue #427) ✓
 
 ---
 

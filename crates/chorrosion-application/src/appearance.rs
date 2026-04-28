@@ -5,8 +5,8 @@ use thiserror::Error;
 
 pub const DEFAULT_MOBILE_BREAKPOINT_PX: u16 = 768;
 pub const DEFAULT_MAX_FILTER_CLAUSES: u8 = 10;
-pub const MIN_MAX_FILTER_CLAUSES: u8 = 2;
-pub const MAX_MAX_FILTER_CLAUSES: u8 = 50;
+pub const MIN_FILTER_CLAUSES: u8 = 2;
+pub const MAX_FILTER_CLAUSES: u8 = 50;
 pub const DEFAULT_FILTER_HISTORY_LIMIT: u8 = 20;
 pub const MIN_FILTER_HISTORY_LIMIT: u8 = 1;
 pub const MAX_FILTER_HISTORY_LIMIT: u8 = 100;
@@ -180,7 +180,7 @@ impl AppearanceSettings {
     }
 
     pub fn validate_max_filter_clauses(value: u8) -> Result<(), AppearanceError> {
-        if (MIN_MAX_FILTER_CLAUSES..=MAX_MAX_FILTER_CLAUSES).contains(&value) {
+        if (MIN_FILTER_CLAUSES..=MAX_FILTER_CLAUSES).contains(&value) {
             Ok(())
         } else {
             Err(AppearanceError::InvalidMaxFilterClauses(value))
@@ -227,7 +227,7 @@ pub enum AppearanceError {
     #[error("invalid filter operator: {0}")]
     InvalidFilterOperator(String),
     #[error(
-        "invalid max filter clauses: {0}. expected {MIN_MAX_FILTER_CLAUSES}..={MAX_MAX_FILTER_CLAUSES}"
+        "invalid max filter clauses: {0}. expected {MIN_FILTER_CLAUSES}..={MAX_FILTER_CLAUSES}"
     )]
     InvalidMaxFilterClauses(u8),
     #[error(
@@ -444,24 +444,24 @@ mod tests {
 
     #[test]
     fn validate_max_filter_clauses_accepts_values_in_range() {
-        AppearanceSettings::validate_max_filter_clauses(MIN_MAX_FILTER_CLAUSES)
+        AppearanceSettings::validate_max_filter_clauses(MIN_FILTER_CLAUSES)
             .expect("min should be valid");
         AppearanceSettings::validate_max_filter_clauses(DEFAULT_MAX_FILTER_CLAUSES)
             .expect("default should be valid");
-        AppearanceSettings::validate_max_filter_clauses(MAX_MAX_FILTER_CLAUSES)
+        AppearanceSettings::validate_max_filter_clauses(MAX_FILTER_CLAUSES)
             .expect("max should be valid");
     }
 
     #[test]
     fn validate_max_filter_clauses_rejects_out_of_range_values() {
         let below = AppearanceSettings::validate_max_filter_clauses(
-            MIN_MAX_FILTER_CLAUSES.saturating_sub(1),
+            MIN_FILTER_CLAUSES.saturating_sub(1),
         )
         .expect_err("below min should be invalid");
         assert!(below.to_string().contains("invalid max filter clauses"));
 
         let above = AppearanceSettings::validate_max_filter_clauses(
-            MAX_MAX_FILTER_CLAUSES.saturating_add(1),
+            MAX_FILTER_CLAUSES.saturating_add(1),
         )
         .expect_err("above max should be invalid");
         assert!(above.to_string().contains("invalid max filter clauses"));
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn validate_rejects_invalid_max_filter_clauses() {
         let mut settings = AppearanceSettings::default();
-        settings.max_filter_clauses = MIN_MAX_FILTER_CLAUSES.saturating_sub(1);
+        settings.max_filter_clauses = MIN_FILTER_CLAUSES.saturating_sub(1);
         let err = settings
             .validate()
             .expect_err("invalid max filter clauses should fail");
