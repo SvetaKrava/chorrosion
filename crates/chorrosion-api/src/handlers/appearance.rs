@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use axum::{extract::State, http::StatusCode, Json};
 use chorrosion_application::{
-    AppState, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_BULK_SELECTION_LIMIT,
-    DEFAULT_SHORTCUT_PROFILE,
+    AppState, AppearanceSettings, FilterOperator, ShortcutProfile, ThemeMode,
+    DEFAULT_BULK_SELECTION_LIMIT, DEFAULT_FILTER_HISTORY_LIMIT, DEFAULT_FILTER_OPERATOR,
+    DEFAULT_MAX_FILTER_CLAUSES, DEFAULT_SHORTCUT_PROFILE,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -14,6 +15,22 @@ pub enum ThemeModeApi {
     System,
     Dark,
     Light,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterOperatorApi {
+    And,
+    Or,
+}
+
+impl From<FilterOperator> for FilterOperatorApi {
+    fn from(value: FilterOperator) -> Self {
+        match value {
+            FilterOperator::And => Self::And,
+            FilterOperator::Or => Self::Or,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
@@ -55,6 +72,11 @@ pub struct AppearanceSettingsResponse {
     pub bulk_operations_enabled: bool,
     pub bulk_selection_limit: u16,
     pub bulk_action_confirmation: bool,
+    pub advanced_filtering_enabled: bool,
+    pub default_filter_operator: FilterOperatorApi,
+    pub max_filter_clauses: u8,
+    pub filter_history_enabled: bool,
+    pub filter_history_limit: u8,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -78,6 +100,17 @@ pub struct UpdateAppearanceSettingsRequest {
     pub bulk_selection_limit: u16,
     #[serde(default = "UpdateAppearanceSettingsRequest::default_bulk_action_confirmation")]
     pub bulk_action_confirmation: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_advanced_filtering_enabled")]
+    pub advanced_filtering_enabled: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_filter_operator")]
+    #[schema(value_type = FilterOperatorApi)]
+    pub default_filter_operator: String,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_max_filter_clauses")]
+    pub max_filter_clauses: u8,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_filter_history_enabled")]
+    pub filter_history_enabled: bool,
+    #[serde(default = "UpdateAppearanceSettingsRequest::default_filter_history_limit")]
+    pub filter_history_limit: u8,
 }
 
 impl UpdateAppearanceSettingsRequest {
@@ -112,6 +145,26 @@ impl UpdateAppearanceSettingsRequest {
     fn default_bulk_action_confirmation() -> bool {
         AppearanceSettings::default().bulk_action_confirmation
     }
+
+    fn default_advanced_filtering_enabled() -> bool {
+        AppearanceSettings::default().advanced_filtering_enabled
+    }
+
+    fn default_filter_operator() -> String {
+        DEFAULT_FILTER_OPERATOR.as_str().to_string()
+    }
+
+    fn default_max_filter_clauses() -> u8 {
+        DEFAULT_MAX_FILTER_CLAUSES
+    }
+
+    fn default_filter_history_enabled() -> bool {
+        AppearanceSettings::default().filter_history_enabled
+    }
+
+    fn default_filter_history_limit() -> u8 {
+        DEFAULT_FILTER_HISTORY_LIMIT
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -141,6 +194,11 @@ pub async fn get_appearance_settings(
         bulk_operations_enabled: settings.bulk_operations_enabled,
         bulk_selection_limit: settings.bulk_selection_limit,
         bulk_action_confirmation: settings.bulk_action_confirmation,
+        advanced_filtering_enabled: settings.advanced_filtering_enabled,
+        default_filter_operator: settings.default_filter_operator.into(),
+        max_filter_clauses: settings.max_filter_clauses,
+        filter_history_enabled: settings.filter_history_enabled,
+        filter_history_limit: settings.filter_history_limit,
     })
 }
 
@@ -176,6 +234,16 @@ pub async fn update_appearance_settings(
         )
     })?;
 
+    let default_filter_operator = FilterOperator::from_str(&request.default_filter_operator)
+        .map_err(|err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(AppearanceErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+        })?;
+
     let updated = state
         .set_appearance_settings(AppearanceSettings {
             theme_mode,
@@ -187,6 +255,11 @@ pub async fn update_appearance_settings(
             bulk_operations_enabled: request.bulk_operations_enabled,
             bulk_selection_limit: request.bulk_selection_limit,
             bulk_action_confirmation: request.bulk_action_confirmation,
+            advanced_filtering_enabled: request.advanced_filtering_enabled,
+            default_filter_operator,
+            max_filter_clauses: request.max_filter_clauses,
+            filter_history_enabled: request.filter_history_enabled,
+            filter_history_limit: request.filter_history_limit,
         })
         .await
         .map_err(|err| {
@@ -208,13 +281,18 @@ pub async fn update_appearance_settings(
         bulk_operations_enabled: updated.bulk_operations_enabled,
         bulk_selection_limit: updated.bulk_selection_limit,
         bulk_action_confirmation: updated.bulk_action_confirmation,
+        advanced_filtering_enabled: updated.advanced_filtering_enabled,
+        default_filter_operator: updated.default_filter_operator.into(),
+        max_filter_clauses: updated.max_filter_clauses,
+        filter_history_enabled: updated.filter_history_enabled,
+        filter_history_limit: updated.filter_history_limit,
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chorrosion_application::DEFAULT_MOBILE_BREAKPOINT_PX;
+    use chorrosion_application::{DEFAULT_MAX_FILTER_CLAUSES, DEFAULT_MOBILE_BREAKPOINT_PX};
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
         SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
@@ -280,6 +358,13 @@ mod tests {
         assert!(response.bulk_operations_enabled);
         assert_eq!(response.bulk_selection_limit, DEFAULT_BULK_SELECTION_LIMIT);
         assert!(response.bulk_action_confirmation);
+        assert!(response.advanced_filtering_enabled);
+        assert!(matches!(
+            response.default_filter_operator,
+            FilterOperatorApi::And
+        ));
+        assert_eq!(response.max_filter_clauses, DEFAULT_MAX_FILTER_CLAUSES);
+        assert!(response.filter_history_enabled);
     }
 
     #[tokio::test]
@@ -298,6 +383,11 @@ mod tests {
                 bulk_operations_enabled: true,
                 bulk_selection_limit: 250,
                 bulk_action_confirmation: false,
+                advanced_filtering_enabled: false,
+                default_filter_operator: "or".to_string(),
+                max_filter_clauses: 15,
+                filter_history_enabled: false,
+                filter_history_limit: 30,
             }),
         )
         .await
@@ -312,6 +402,14 @@ mod tests {
         assert!(result.0.bulk_operations_enabled);
         assert_eq!(result.0.bulk_selection_limit, 250);
         assert!(!result.0.bulk_action_confirmation);
+        assert!(!result.0.advanced_filtering_enabled);
+        assert!(matches!(
+            result.0.default_filter_operator,
+            FilterOperatorApi::Or
+        ));
+        assert_eq!(result.0.max_filter_clauses, 15);
+        assert!(!result.0.filter_history_enabled);
+        assert_eq!(result.0.filter_history_limit, 30);
 
         let Json(check) = get_appearance_settings(State(state)).await;
         assert!(matches!(check.theme_mode, ThemeModeApi::Dark));
@@ -322,6 +420,14 @@ mod tests {
         assert!(check.bulk_operations_enabled);
         assert_eq!(check.bulk_selection_limit, 250);
         assert!(!check.bulk_action_confirmation);
+        assert!(!check.advanced_filtering_enabled);
+        assert!(matches!(
+            check.default_filter_operator,
+            FilterOperatorApi::Or
+        ));
+        assert_eq!(check.max_filter_clauses, 15);
+        assert!(!check.filter_history_enabled);
+        assert_eq!(check.filter_history_limit, 30);
     }
 
     #[tokio::test]
@@ -340,6 +446,11 @@ mod tests {
                 bulk_operations_enabled: true,
                 bulk_selection_limit: 100,
                 bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
             }),
         )
         .await;
@@ -365,6 +476,11 @@ mod tests {
                 bulk_operations_enabled: true,
                 bulk_selection_limit: 100,
                 bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
             }),
         )
         .await;
@@ -390,6 +506,11 @@ mod tests {
                 bulk_operations_enabled: true,
                 bulk_selection_limit: 5,
                 bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
             }),
         )
         .await;
@@ -415,6 +536,11 @@ mod tests {
                 bulk_operations_enabled: true,
                 bulk_selection_limit: 100,
                 bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
             }),
         )
         .await;
@@ -422,5 +548,95 @@ mod tests {
         let (status, Json(error)) = result.expect_err("invalid mode should fail");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(error.error.contains("invalid theme mode"));
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_filter_operator() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "xor".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid filter operator should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid filter operator"));
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_max_filter_clauses() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 1,
+                filter_history_enabled: true,
+                filter_history_limit: 20,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid max filter clauses should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid max filter clauses"));
+    }
+
+    #[tokio::test]
+    async fn update_appearance_settings_rejects_invalid_filter_history_limit() {
+        let state = make_test_state().await;
+
+        let result = update_appearance_settings(
+            State(state),
+            Json(UpdateAppearanceSettingsRequest {
+                theme_mode: "dark".to_string(),
+                mobile_breakpoint_px: 768,
+                mobile_compact_layout: true,
+                touch_targets_optimized: true,
+                keyboard_shortcuts_enabled: true,
+                shortcut_profile: "standard".to_string(),
+                bulk_operations_enabled: true,
+                bulk_selection_limit: 100,
+                bulk_action_confirmation: true,
+                advanced_filtering_enabled: true,
+                default_filter_operator: "and".to_string(),
+                max_filter_clauses: 10,
+                filter_history_enabled: true,
+                filter_history_limit: 0,
+            }),
+        )
+        .await;
+
+        let (status, Json(error)) = result.expect_err("invalid filter history limit should fail");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(error.error.contains("invalid filter history limit"));
     }
 }

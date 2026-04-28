@@ -116,8 +116,9 @@ pub use tag_sanitation::TagSanitizer;
 
 // Re-export tag, smart playlist, and duplicate detection domain types for API layer
 pub use appearance::{
-    AppearanceError, AppearanceSettings, ShortcutProfile, ThemeMode, DEFAULT_BULK_SELECTION_LIMIT,
-    DEFAULT_MOBILE_BREAKPOINT_PX, DEFAULT_SHORTCUT_PROFILE,
+    AppearanceError, AppearanceSettings, FilterOperator, ShortcutProfile, ThemeMode,
+    DEFAULT_BULK_SELECTION_LIMIT, DEFAULT_FILTER_HISTORY_LIMIT, DEFAULT_FILTER_OPERATOR,
+    DEFAULT_MAX_FILTER_CLAUSES, DEFAULT_MOBILE_BREAKPOINT_PX, DEFAULT_SHORTCUT_PROFILE,
 };
 pub use chorrosion_domain::{
     DuplicateDetectionMethod, DuplicateFileDetail, DuplicateGroup, EntityType, SmartPlaylist,

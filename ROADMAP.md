@@ -475,7 +475,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Mobile-responsive design (Issue #421) ✓
 - [x] Keyboard shortcuts (Issue #423) ✓
 - [x] Bulk operations UI (Issue #425) ✓
-- [ ] Advanced filtering
+- [x] Advanced filtering (Issue #427) ✓
 
 ---
 
@@ -530,6 +530,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-28  
+**Last Updated:** 2026-04-29  
 **Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Advanced filtering
+**Next Milestone:** Phase 10 complete / community contributions

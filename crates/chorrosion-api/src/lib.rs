@@ -32,8 +32,9 @@ use handlers::albums::{
 };
 use handlers::appearance::{
     get_appearance_settings, update_appearance_settings, AppearanceErrorResponse,
-    AppearanceSettingsResponse, ShortcutProfileApi, ThemeModeApi, UpdateAppearanceSettingsRequest,
-    __path_get_appearance_settings, __path_update_appearance_settings,
+    AppearanceSettingsResponse, FilterOperatorApi, ShortcutProfileApi, ThemeModeApi,
+    UpdateAppearanceSettingsRequest, __path_get_appearance_settings,
+    __path_update_appearance_settings,
 };
 use handlers::artists::{
     create_artist, delete_artist, get_artist, get_artist_statistics, list_artists, update_artist,
@@ -401,6 +402,7 @@ async fn metrics() -> axum::response::Response {
             AppearanceErrorResponse,
             ThemeModeApi,
             ShortcutProfileApi,
+            FilterOperatorApi,
             ActivityItemResponse,
             ActivityListResponse,
             ActivityErrorResponse,
