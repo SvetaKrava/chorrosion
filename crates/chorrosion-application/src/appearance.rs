@@ -128,6 +128,12 @@ impl AppearanceSettings {
             Err(AppearanceError::InvalidBulkSelectionLimit(value))
         }
     }
+
+    pub fn validate(&self) -> Result<(), AppearanceError> {
+        Self::validate_mobile_breakpoint_px(self.mobile_breakpoint_px)?;
+        Self::validate_bulk_selection_limit(self.bulk_selection_limit)?;
+        Ok(())
+    }
 }
 
 impl Default for AppearanceSettings {
@@ -292,5 +298,32 @@ mod tests {
         )
         .expect_err("above max should be invalid");
         assert!(above.to_string().contains("invalid bulk selection limit"));
+    }
+
+    #[test]
+    fn validate_accepts_default_settings() {
+        AppearanceSettings::default()
+            .validate()
+            .expect("default settings should be valid");
+    }
+
+    #[test]
+    fn validate_rejects_invalid_mobile_breakpoint() {
+        let mut settings = AppearanceSettings::default();
+        settings.mobile_breakpoint_px = MIN_MOBILE_BREAKPOINT_PX.saturating_sub(1);
+        let err = settings
+            .validate()
+            .expect_err("invalid breakpoint should fail");
+        assert!(err.to_string().contains("invalid mobile breakpoint"));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_bulk_selection_limit() {
+        let mut settings = AppearanceSettings::default();
+        settings.bulk_selection_limit = MIN_BULK_SELECTION_LIMIT.saturating_sub(1);
+        let err = settings
+            .validate()
+            .expect_err("invalid bulk limit should fail");
+        assert!(err.to_string().contains("invalid bulk selection limit"));
     }
 }

@@ -463,9 +463,7 @@ impl AppState {
         &self,
         settings: crate::appearance::AppearanceSettings,
     ) -> Result<crate::appearance::AppearanceSettings, crate::appearance::AppearanceError> {
-        crate::appearance::AppearanceSettings::validate_mobile_breakpoint_px(
-            settings.mobile_breakpoint_px,
-        )?;
+        settings.validate()?;
 
         let appearance_settings = Arc::clone(&self.appearance_settings);
 

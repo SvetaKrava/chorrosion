@@ -150,7 +150,7 @@ pub async fn get_appearance_settings(
     request_body = UpdateAppearanceSettingsRequest,
     responses(
         (status = 200, description = "Updated appearance settings", body = AppearanceSettingsResponse),
-        (status = 400, description = "Invalid theme mode, mobile breakpoint, or shortcut profile", body = AppearanceErrorResponse)
+        (status = 400, description = "Invalid theme mode, mobile breakpoint, shortcut profile, or bulk selection limit", body = AppearanceErrorResponse)
     ),
     tag = "settings"
 )]
@@ -175,17 +175,6 @@ pub async fn update_appearance_settings(
             }),
         )
     })?;
-
-    AppearanceSettings::validate_bulk_selection_limit(request.bulk_selection_limit).map_err(
-        |err| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(AppearanceErrorResponse {
-                    error: err.to_string(),
-                }),
-            )
-        },
-    )?;
 
     let updated = state
         .set_appearance_settings(AppearanceSettings {
