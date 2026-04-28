@@ -406,8 +406,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_mobile_breakpoint() {
-        let mut settings = AppearanceSettings::default();
-        settings.mobile_breakpoint_px = MIN_MOBILE_BREAKPOINT_PX.saturating_sub(1);
+        let settings = AppearanceSettings {
+            mobile_breakpoint_px: MIN_MOBILE_BREAKPOINT_PX.saturating_sub(1),
+            ..Default::default()
+        };
         let err = settings
             .validate()
             .expect_err("invalid breakpoint should fail");
@@ -416,8 +418,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_bulk_selection_limit() {
-        let mut settings = AppearanceSettings::default();
-        settings.bulk_selection_limit = MIN_BULK_SELECTION_LIMIT.saturating_sub(1);
+        let settings = AppearanceSettings {
+            bulk_selection_limit: MIN_BULK_SELECTION_LIMIT.saturating_sub(1),
+            ..Default::default()
+        };
         let err = settings
             .validate()
             .expect_err("invalid bulk limit should fail");
@@ -494,8 +498,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_max_filter_clauses() {
-        let mut settings = AppearanceSettings::default();
-        settings.max_filter_clauses = MIN_FILTER_CLAUSES.saturating_sub(1);
+        let settings = AppearanceSettings {
+            max_filter_clauses: MIN_FILTER_CLAUSES.saturating_sub(1),
+            ..Default::default()
+        };
         let err = settings
             .validate()
             .expect_err("invalid max filter clauses should fail");
@@ -504,8 +510,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_filter_history_limit() {
-        let mut settings = AppearanceSettings::default();
-        settings.filter_history_limit = MIN_FILTER_HISTORY_LIMIT.saturating_sub(1);
+        let settings = AppearanceSettings {
+            filter_history_limit: MIN_FILTER_HISTORY_LIMIT.saturating_sub(1),
+            ..Default::default()
+        };
         let err = settings
             .validate()
             .expect_err("invalid filter history limit should fail");
