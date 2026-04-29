@@ -458,16 +458,14 @@ mod tests {
 
     #[test]
     fn validate_max_filter_clauses_rejects_out_of_range_values() {
-        let below = AppearanceSettings::validate_max_filter_clauses(
-            MIN_FILTER_CLAUSES.saturating_sub(1),
-        )
-        .expect_err("below min should be invalid");
+        let below =
+            AppearanceSettings::validate_max_filter_clauses(MIN_FILTER_CLAUSES.saturating_sub(1))
+                .expect_err("below min should be invalid");
         assert!(below.to_string().contains("invalid max filter clauses"));
 
-        let above = AppearanceSettings::validate_max_filter_clauses(
-            MAX_FILTER_CLAUSES.saturating_add(1),
-        )
-        .expect_err("above max should be invalid");
+        let above =
+            AppearanceSettings::validate_max_filter_clauses(MAX_FILTER_CLAUSES.saturating_add(1))
+                .expect_err("above max should be invalid");
         assert!(above.to_string().contains("invalid max filter clauses"));
     }
 

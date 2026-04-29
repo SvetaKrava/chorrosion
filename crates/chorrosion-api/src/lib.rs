@@ -10,6 +10,7 @@ pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use axum::{
     http::StatusCode,
+    http::{header, HeaderValue, Method},
     middleware as axum_middleware,
     routing::{get, post},
     Json, Router,
@@ -150,6 +151,9 @@ use middleware::metrics::{metrics_handler, metrics_middleware};
 use middleware::response_cache::response_cache_middleware;
 use middleware::tracing::request_tracing_middleware;
 use serde::Serialize;
+use std::path::PathBuf;
+use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
@@ -501,8 +505,46 @@ async fn metrics() -> axum::response::Response {
 )]
 struct ApiDoc;
 
+fn build_cors_layer(origins: &[String]) -> Option<CorsLayer> {
+    let allowed_origins: Vec<HeaderValue> = origins
+        .iter()
+        .filter_map(|origin| match origin.parse::<HeaderValue>() {
+            Ok(value) => Some(value),
+            Err(_) => {
+                warn!(target: "api", origin = %origin, "ignoring invalid CORS origin");
+                None
+            }
+        })
+        .collect();
+
+    if allowed_origins.is_empty() {
+        return None;
+    }
+
+    Some(
+        CorsLayer::new()
+            .allow_origin(allowed_origins)
+            .allow_credentials(true)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                header::ACCEPT,
+                header::CONTENT_TYPE,
+                header::AUTHORIZATION,
+                header::HeaderName::from_static("x-api-key"),
+            ]),
+    )
+}
+
 pub fn router(state: AppState) -> Router {
     info!(target: "api", "building router");
+    let web_config = state.config.web.clone();
 
     let api_v1 = Router::new()
         .route("/auth/api-keys", get(list_api_keys).post(create_api_key))
@@ -646,7 +688,7 @@ pub fn router(state: AppState) -> Router {
     let mut openapi = ApiDoc::openapi();
     openapi.info.version = APP_VERSION.to_string();
 
-    Router::new()
+    let mut app = Router::new()
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
         .nest(API_V1_BASE, api_v1)
@@ -656,7 +698,24 @@ pub fn router(state: AppState) -> Router {
             request_tracing_middleware,
         ))
         .route_layer(axum_middleware::from_fn(metrics_middleware))
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(cors_layer) = build_cors_layer(&web_config.allowed_origins) {
+        app = app.layer(cors_layer);
+    }
+
+    if web_config.serve_static_assets {
+        let static_dist_dir = PathBuf::from(&web_config.static_dist_dir);
+        let index_html = static_dist_dir.join("index.html");
+        info!(target: "api", static_dist_dir = %static_dist_dir.display(), "enabling static web asset serving");
+        app = app.fallback_service(
+            ServeDir::new(&static_dist_dir)
+                .append_index_html_on_directories(true)
+                .not_found_service(ServeFile::new(index_html)),
+        );
+    }
+
+    app
 }
 
 #[cfg(test)]
