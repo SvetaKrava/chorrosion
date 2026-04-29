@@ -6,6 +6,10 @@ ignore = [
   # (via warp 0.3) and sqlx 0.8; none of these code paths invoke rand from a logger.
   # Will be resolved when warp and sqlx upgrade to rand >=0.9.3.
   "RUSTSEC-2026-0097",
+  # paste is unmaintained (RUSTSEC-2024-0436) and is currently pulled transitively
+  # by lofty.  This is tracked in issue #42 while we monitor upstream replacement
+  # options and remove the dependency path when feasible.
+  "RUSTSEC-2024-0436",
 ]
 
 [bans]
