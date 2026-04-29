@@ -25,8 +25,9 @@
 		loginError = '';
 		busy = true;
 		try {
-			const response = await login(username.trim(), password);
-			handleLoginSuccess(response, username);
+			const trimmedUsername = username.trim();
+			const response = await login(trimmedUsername, password);
+			handleLoginSuccess(response, trimmedUsername);
 			password = '';
 			// Redirect to dashboard after successful login
 			await goto('/dashboard');

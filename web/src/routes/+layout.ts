@@ -1,21 +1,19 @@
-// Authentication hook for protected routes
-// If not authenticated, redirect to login
+// Root layout: initialize auth state only. Route guards live in (app)/+layout.ts.
 import type { LayoutLoad } from './$types';
-import { redirect } from '@sveltejs/kit';
 import { authStore, initializeAuth } from '$lib/auth';
 import { get } from 'svelte/store';
+import { browser } from '$app/environment';
 
-export const load: LayoutLoad = async ({ url }) => {
-  // Initialize auth state from persistent storage
-  initializeAuth();
-  
-  const auth = get(authStore);
-  
-  // If not authenticated and not on login page, redirect to login
-  if (!auth.isAuthenticated && url.pathname !== '/') {
-    throw redirect(303, '/');
+// Disable SSR for this SPA — sessionStorage and auth guards are browser-only.
+export const ssr = false;
+
+export const load: LayoutLoad = async () => {
+  if (browser) {
+    initializeAuth();
   }
-  
+
+  const auth = get(authStore);
+
   return {
     isAuthenticated: auth.isAuthenticated,
     username: auth.username

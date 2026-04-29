@@ -15,6 +15,7 @@
 	let settings = $state<AppearanceSettings | null>(null);
 	let settingsError = $state('');
 	let settingsSaved = $state('');
+	let saving = $state(false);
 
 	let queue = $state<GenericListResponse | null>(null);
 	let processing = $state<GenericListResponse | null>(null);
@@ -117,7 +118,8 @@
 	}
 
 	async function saveSettings(): Promise<void> {
-		if (!settings) return;
+		if (!settings || saving) return;
+		saving = true;
 		settingsSaved = '';
 		settingsError = '';
 		try {
@@ -125,6 +127,8 @@
 			settingsSaved = 'Appearance settings saved.';
 		} catch (error) {
 			settingsError = apiErrorMessage(error);
+		} finally {
+			saving = false;
 		}
 	}
 
@@ -211,8 +215,8 @@
 				<label><input bind:checked={settings.filter_history_enabled} type="checkbox" /> Filter history</label>
 			</div>
 
-			<button class="primary" type="button" onclick={saveSettings}>
-				Save Settings
+			<button class="primary" type="button" onclick={saveSettings} disabled={saving}>
+				{saving ? 'Saving…' : 'Save Settings'}
 			</button>
 		{:else}
 			<p>Loading settings…</p>

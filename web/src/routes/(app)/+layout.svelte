@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { authStore, clearAuthState } from '$lib/auth';
-	import { ApiError, logout } from '$lib/api';
+	import { logout } from '$lib/api';
 
 	let busy = $state(false);
 	let { children } = $props();
@@ -15,8 +15,11 @@
 			// Best-effort logout; local state must still reset
 		}
 		clearAuthState();
-		await goto('/');
-		busy = false;
+		try {
+			await goto('/');
+		} finally {
+			busy = false;
+		}
 	}
 
 	const navItems = [

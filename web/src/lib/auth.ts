@@ -16,14 +16,29 @@ export const authStore = writable<AuthState>({
 
 // Initialize auth state from session storage (persists across page reloads)
 export function initializeAuth(): void {
-  const stored = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('auth_state') : null;
-  if (stored) {
-    try {
-      const state = JSON.parse(stored);
-      authStore.set(state);
-    } catch (e) {
-      console.error('Failed to parse stored auth state:', e);
+  if (typeof sessionStorage === 'undefined') return;
+  const stored = sessionStorage.getItem('auth_state');
+  if (!stored) return;
+  try {
+    const parsed = JSON.parse(stored);
+    // Validate shape and types before trusting the stored value
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      typeof parsed.isAuthenticated === 'boolean' &&
+      (parsed.username === null || typeof parsed.username === 'string') &&
+      (parsed.token === null || typeof parsed.token === 'string')
+    ) {
+      authStore.set(parsed as AuthState);
+    } else {
+      console.warn('Stored auth state has invalid shape; clearing.');
+      sessionStorage.removeItem('auth_state');
+      authStore.set({ isAuthenticated: false, username: null, token: null });
     }
+  } catch (e) {
+    console.error('Failed to parse stored auth state:', e);
+    sessionStorage.removeItem('auth_state');
+    authStore.set({ isAuthenticated: false, username: null, token: null });
   }
 }
 
