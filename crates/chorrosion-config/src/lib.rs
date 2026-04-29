@@ -118,11 +118,57 @@ pub enum PermissionLevel {
     Admin,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
     pub basic_username: Option<String>,
     pub basic_password: Option<String>,
     pub basic_permission_level: PermissionLevel,
+    /// Controls whether the forms session cookie is marked `Secure`.
+    ///
+    /// Keep this `true` in production. For localhost HTTP development,
+    /// set `CHORROSION_AUTH__FORMS_COOKIE_SECURE=false`.
+    pub forms_cookie_secure: bool,
+}
+
+impl AuthConfig {
+    pub fn forms_cookie_secure(&self) -> bool {
+        self.forms_cookie_secure
+    }
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            basic_username: None,
+            basic_password: None,
+            basic_permission_level: PermissionLevel::default(),
+            forms_cookie_secure: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebConfig {
+    /// Browser origins allowed by API CORS policy.
+    /// Env override: `CHORROSION_WEB__ALLOWED_ORIGINS` with comma-separated values.
+    pub allowed_origins: Vec<String>,
+    /// Serves static frontend assets from `static_dist_dir` when enabled.
+    pub serve_static_assets: bool,
+    /// Frontend static build directory resolved from the process working directory.
+    pub static_dist_dir: String,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            allowed_origins: vec![
+                "http://127.0.0.1:5173".to_string(),
+                "http://localhost:5173".to_string(),
+            ],
+            serve_static_assets: false,
+            static_dist_dir: "web/build".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -394,6 +440,7 @@ pub struct AppConfig {
     pub notifications: NotificationsConfig,
     pub lists: ListsConfig,
     pub activity: ActivityConfig,
+    pub web: WebConfig,
 }
 
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).

@@ -55,6 +55,57 @@ Once running:
 - Swagger UI: <http://127.0.0.1:5150/docs>
 - Health check: <http://127.0.0.1:5150/health>
 
+## Web UI (Phase 11)
+
+The repository now includes a SvelteKit frontend in `web/` with the initial
+control surface for:
+
+- Forms login/logout
+- Realtime dashboard cards (SSE-backed queue/import/job status)
+- Appearance settings editor (`/api/v1/settings/appearance`)
+
+### Frontend Development (Bun)
+
+```powershell
+cd web
+bun install
+bun run dev
+```
+
+Optional frontend env file:
+
+```text
+VITE_CHORROSION_API_BASE=http://127.0.0.1:5150
+```
+
+### Backend Web Config (Env)
+
+- `CHORROSION_WEB__ALLOWED_ORIGINS` (comma-separated origins)
+- `CHORROSION_WEB__SERVE_STATIC_ASSETS` (`true`/`false`)
+- `CHORROSION_WEB__STATIC_DIST_DIR` (default: `web/build`)
+- `CHORROSION_AUTH__FORMS_COOKIE_SECURE` (`true` in prod, `false` for localhost HTTP)
+
+Example local dev setup:
+
+```powershell
+$env:CHORROSION_WEB__ALLOWED_ORIGINS="http://127.0.0.1:5173,http://localhost:5173"
+$env:CHORROSION_AUTH__FORMS_COOKIE_SECURE="false"
+cargo run -p chorrosion-cli
+```
+
+### Production Static Serving
+
+Build the frontend and let Axum serve the generated static files:
+
+```powershell
+cd web
+bun run build
+cd ..
+$env:CHORROSION_WEB__SERVE_STATIC_ASSETS="true"
+$env:CHORROSION_WEB__STATIC_DIST_DIR="web/build"
+cargo run -p chorrosion-cli
+```
+
 ## Releases
 
 - Tagged releases (`vX.Y.Z`) automatically build cross-platform archives.
@@ -70,6 +121,7 @@ Once running:
 - `CHORROSION_DATABASE__URL=sqlite://data/chorrosion.db`
 - `CHORROSION_HTTP__HOST=127.0.0.1`
 - `CHORROSION_SCHEDULER__MAX_CONCURRENT_JOBS=4`
+- `CHORROSION_WEB__ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173`
 
 PostgreSQL-only pool tuning settings:
 

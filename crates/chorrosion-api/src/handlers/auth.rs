@@ -153,14 +153,16 @@ pub(crate) async fn validate_api_key_and_touch(key: &str) -> Option<PermissionLe
     }
 }
 
-fn build_form_session_cookie(token: &str) -> String {
+fn build_form_session_cookie(token: &str, secure: bool) -> String {
+    let secure_directive = if secure { "; Secure" } else { "" };
     format!(
-        "chorrosion_session={token}; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age={SESSION_TTL_SECONDS}"
+        "chorrosion_session={token}; HttpOnly; Path=/; SameSite=Lax{secure_directive}; Max-Age={SESSION_TTL_SECONDS}"
     )
 }
 
-fn clear_form_session_cookie() -> &'static str {
-    "chorrosion_session=; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=0"
+fn clear_form_session_cookie(secure: bool) -> String {
+    let secure_directive = if secure { "; Secure" } else { "" };
+    format!("chorrosion_session=; HttpOnly; Path=/; SameSite=Lax{secure_directive}; Max-Age=0")
 }
 
 /// Matches the middleware's credential comparison including the same `MAX_CREDENTIAL_BYTES`
@@ -330,6 +332,7 @@ pub async fn forms_login(
 
     let token = format!("cs_{}", Uuid::new_v4());
     let permission_level = state.config.auth.basic_permission_level;
+    let secure_cookie = state.config.auth.forms_cookie_secure();
     let record = FormSessionRecord {
         token: token.clone(),
         permission_level,
@@ -339,7 +342,10 @@ pub async fn forms_login(
     form_session_store().write().await.push(record);
 
     Ok((
-        AppendHeaders([(header::SET_COOKIE, build_form_session_cookie(&token))]),
+        AppendHeaders([(
+            header::SET_COOKIE,
+            build_form_session_cookie(&token, secure_cookie),
+        )]),
         Json(FormsLoginResponse {
             authenticated: true,
             username: request.username,
@@ -357,9 +363,10 @@ pub async fn forms_login(
     tag = "auth"
 )]
 pub async fn forms_logout(
+    State(state): State<AppState>,
     headers: HeaderMap,
 ) -> (
-    AppendHeaders<[(header::HeaderName, &'static str); 1]>,
+    AppendHeaders<[(header::HeaderName, String); 1]>,
     Json<FormsLogoutResponse>,
 ) {
     let revoked = if let Some(token) = extract_form_session_token(&headers) {
@@ -367,9 +374,10 @@ pub async fn forms_logout(
     } else {
         false
     };
+    let secure_cookie = state.config.auth.forms_cookie_secure();
 
     (
-        AppendHeaders([(header::SET_COOKIE, clear_form_session_cookie())]),
+        AppendHeaders([(header::SET_COOKIE, clear_form_session_cookie(secure_cookie))]),
         Json(FormsLogoutResponse {
             logged_out: revoked,
         }),
@@ -640,7 +648,7 @@ mod tests {
         let state = make_test_state_with_config(config).await;
 
         let login = forms_login(
-            State(state),
+            State(state.clone()),
             Form(FormsLoginRequest {
                 username: "user".to_string(),
                 password: "pass".to_string(),
@@ -674,9 +682,41 @@ mod tests {
             Some(PermissionLevel::Admin)
         );
 
-        let (_, Json(logout_body)) = forms_logout(headers).await;
+        let (_, Json(logout_body)) = forms_logout(State(state), headers).await;
         assert!(logout_body.logged_out);
         assert_eq!(validate_form_session_and_touch(&token).await, None);
+    }
+
+    #[tokio::test]
+    async fn forms_login_respects_cookie_secure_config() {
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
+
+        let mut config = AppConfig::default();
+        config.auth.basic_username = Some("user".to_string());
+        config.auth.basic_password = Some("pass".to_string());
+        config.auth.forms_cookie_secure = false;
+        let state = make_test_state_with_config(config).await;
+
+        let login = forms_login(
+            State(state),
+            Form(FormsLoginRequest {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+        )
+        .await
+        .expect("forms login should succeed");
+
+        let set_cookie = login
+            .0
+             .0
+            .iter()
+            .find(|(name, _)| *name == header::SET_COOKIE)
+            .map(|(_, value)| value.clone())
+            .expect("set-cookie header");
+
+        assert!(!set_cookie.contains("; Secure"));
     }
 
     #[tokio::test]
