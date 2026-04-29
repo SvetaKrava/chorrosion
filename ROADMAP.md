@@ -81,7 +81,7 @@ _(See design: [Matching Strategy](DESIGN.md#matching-strategy-musicbrainz))_
       - [x] Optional ffmpeg-support feature flag ✓
       - [x] OGG Vorbis, Opus, WavPack, APE, DSF, M4A, AAC support ✓
       - [x] Graceful fallback when FFmpeg unavailable ✓
-    - [ ] Embed fingerprint in audio file tags (part of Phase 5.4)
+    - [x] Embed fingerprint in audio file tags (part of Phase 5.4) ✓
     - [x] Embedded tags extraction interface ✓
     - [x] Filename heuristics parsing with regex patterns ✓
     - [x] Matching fallback chain documentation ✓
@@ -531,5 +531,5 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ---
 
 **Last Updated:** 2026-04-29  
-**Current Phase:** Phase 10: Optional Enhancements  
-**Next Milestone:** Phase 10 complete / community contributions
+**Current Phase:** All phases complete 🎉  
+**Status:** Roadmap complete — ready for v1.0 release planning and community contributions
