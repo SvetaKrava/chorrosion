@@ -69,13 +69,25 @@ export async function login(username: string, password: string): Promise<FormsLo
 		body: payload.toString()
 	});
 
-	const body = (await response.json()) as FormsLoginResponse | { error: string };
+	let body: unknown;
+	const text = await response.text();
+	if (text.length > 0) {
+		try {
+			body = JSON.parse(text);
+		} catch {
+			body = text;
+		}
+	}
+
 	if (!response.ok) {
-		const errorMessage = 'error' in body ? body.error : `Login failed (${response.status})`;
+		const errorMessage =
+			typeof body === 'object' && body !== null && 'error' in body
+				? String((body as { error: unknown }).error)
+				: `Login failed (${response.status})`;
 		throw new ApiError(errorMessage, response.status, body);
 	}
 
-	return body as FormsLoginResponse;
+	return (body ?? {}) as FormsLoginResponse;
 }
 
 export async function logout(): Promise<FormsLogoutResponse> {

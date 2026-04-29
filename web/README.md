@@ -1,42 +1,70 @@
-# sv
+# Chorrosion Web UI
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit frontend for Chorrosion, built with [Bun](https://bun.sh) and [SvelteKit](https://kit.svelte.dev).
 
-## Creating a project
+## Prerequisites
 
-If you're seeing this, you've probably already done this step. Congrats!
+- [Bun](https://bun.sh) (package manager and runtime)
+- Chorrosion backend running at `http://127.0.0.1:5150` (or configure via env)
+
+## Setup
+
+Install dependencies:
 
 ```sh
-# create a new project
-npx sv create my-app
+bun install
 ```
 
-To recreate this project with the same configuration:
+Copy the env example and edit as needed:
 
 ```sh
-# recreate this project
-npx sv@0.15.2 create --template minimal --types ts --no-install web
+cp .env.example .env
+```
+
+The only variable required for local development:
+
+```text
+VITE_CHORROSION_API_BASE=http://127.0.0.1:5150
 ```
 
 ## Developing
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Start the Vite dev server (proxies API calls to the running Rust backend):
 
 ```sh
-npm run dev
+bun run dev
+```
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+The dev server starts at `http://localhost:5173`. Make sure the Rust backend is also running:
+
+```sh
+# from the repo root
+CHORROSION_AUTH__FORMS_COOKIE_SECURE=false cargo run -p chorrosion-cli
 ```
 
 ## Building
 
-To create a production version of your app:
+Create the production static build (output goes to `build/`):
 
 ```sh
-npm run build
+bun run build
 ```
 
-You can preview the production build with `npm run preview`.
+The output can be served directly by the Rust backend — see the root README for
+`CHORROSION_WEB__SERVE_STATIC_ASSETS` configuration.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Type-checking
+
+```sh
+bun run check
+```
+
+## Production with Rust backend
+
+Build the frontend and configure the backend to serve it:
+
+```sh
+bun run build
+# then from the repo root:
+CHORROSION_WEB__SERVE_STATIC_ASSETS=true CHORROSION_WEB__STATIC_DIST_DIR=web/build cargo run -p chorrosion-cli
+```

@@ -4,7 +4,8 @@ use std::path::Path;
 use anyhow::Result;
 use figment::{
     providers::{Env, Format, Serialized, Toml},
-    Figment,
+    value::{Dict, Map, Value},
+    Figment, Metadata, Profile, Provider,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -150,7 +151,9 @@ impl Default for AuthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebConfig {
     /// Browser origins allowed by API CORS policy.
-    /// Env override: `CHORROSION_WEB__ALLOWED_ORIGINS` with comma-separated values.
+    /// Env override: `CHORROSION_WEB__ALLOWED_ORIGINS` accepts either a
+    /// comma-separated string (`http://a,http://b`) or a JSON array
+    /// (`["http://a","http://b"]`).
     pub allowed_origins: Vec<String>,
     /// Serves static frontend assets from `static_dist_dir` when enabled.
     pub serve_static_assets: bool,
@@ -443,6 +446,55 @@ pub struct AppConfig {
     pub web: WebConfig,
 }
 
+/// Custom Figment provider that reads `CHORROSION_WEB__ALLOWED_ORIGINS` from the
+/// environment and, when the value is a plain comma-separated string (not a JSON
+/// array), splits it into a `Vec<String>` so callers can write:
+///
+/// ```text
+/// CHORROSION_WEB__ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+/// ```
+///
+/// JSON-array values (`["http://a","http://b"]`) are left for the standard
+/// Figment Env provider to parse as-is.
+struct CommaSplitAllowedOrigins;
+
+impl Provider for CommaSplitAllowedOrigins {
+    fn metadata(&self) -> Metadata {
+        Metadata::named("CHORROSION_WEB__ALLOWED_ORIGINS (comma-split)")
+    }
+
+    fn data(&self) -> Result<Map<Profile, Dict>, figment::Error> {
+        const ENV_KEY: &str = "CHORROSION_WEB__ALLOWED_ORIGINS";
+        let raw = match std::env::var(ENV_KEY) {
+            Ok(v) => v,
+            Err(_) => return Ok(Map::new()),
+        };
+
+        // If the value already looks like a JSON array, let the regular Env
+        // provider handle it; we only intervene for plain comma-separated lists.
+        if raw.trim_start().starts_with('[') {
+            return Ok(Map::new());
+        }
+
+        let origins: Vec<Value> = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| Value::from(s.to_string()))
+            .collect();
+
+        let mut web_dict = Dict::new();
+        web_dict.insert("allowed_origins".to_string(), Value::from(origins));
+
+        let mut root_dict = Dict::new();
+        root_dict.insert("web".to_string(), Value::from(web_dict));
+
+        let mut map = Map::new();
+        map.insert(Profile::Default, root_dict);
+        Ok(map)
+    }
+}
+
 /// Load configuration from defaults, optional TOML file, and environment overrides (prefix: CHORROSION_).
 pub fn load(config_path: Option<&Path>) -> Result<AppConfig> {
     let mut figment = Figment::from(Serialized::defaults(AppConfig::default()));
@@ -451,7 +503,9 @@ pub fn load(config_path: Option<&Path>) -> Result<AppConfig> {
         figment = figment.merge(Toml::file(path));
     }
 
-    figment = figment.merge(Env::prefixed("CHORROSION_").split("__"));
+    figment = figment
+        .merge(Env::prefixed("CHORROSION_").split("__"))
+        .merge(CommaSplitAllowedOrigins);
 
     let config: AppConfig = figment.extract()?;
     info!(target: "config", "configuration loaded");

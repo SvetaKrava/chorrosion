@@ -151,6 +151,7 @@ use middleware::metrics::{metrics_handler, metrics_middleware};
 use middleware::response_cache::response_cache_middleware;
 use middleware::tracing::request_tracing_middleware;
 use serde::Serialize;
+use std::path::PathBuf;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
@@ -704,12 +705,13 @@ pub fn router(state: AppState) -> Router {
     }
 
     if web_config.serve_static_assets {
-        let static_dist_dir = web_config.static_dist_dir.clone();
-        info!(target: "api", static_dist_dir = %static_dist_dir, "enabling static web asset serving");
+        let static_dist_dir = PathBuf::from(&web_config.static_dist_dir);
+        let index_html = static_dist_dir.join("index.html");
+        info!(target: "api", static_dist_dir = %static_dist_dir.display(), "enabling static web asset serving");
         app = app.fallback_service(
             ServeDir::new(&static_dist_dir)
                 .append_index_html_on_directories(true)
-                .not_found_service(ServeFile::new(format!("{static_dist_dir}/index.html"))),
+                .not_found_service(ServeFile::new(index_html)),
         );
     }
 
