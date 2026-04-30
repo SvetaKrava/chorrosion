@@ -1,13 +1,15 @@
 import type {
 	AppearanceErrorResponse,
 	AppearanceSettings,
+	ActivityListResponse,
 	Artist,
 	Album,
 	Track,
 	FormsLoginResponse,
 	FormsLogoutResponse,
 	GenericListResponse,
-	PaginatedResponse
+	PaginatedResponse,
+	SystemTasksResponse
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_CHORROSION_API_BASE ?? 'http://127.0.0.1:5150').replace(
@@ -111,16 +113,16 @@ export async function updateAppearanceSettings(
 	});
 }
 
-export async function getQueueSnapshot(): Promise<GenericListResponse> {
-	return request<GenericListResponse>('/api/v1/activity/queue');
+export async function getQueueSnapshot(): Promise<ActivityListResponse> {
+	return request<ActivityListResponse>('/api/v1/activity/queue');
 }
 
-export async function getProcessingSnapshot(): Promise<GenericListResponse> {
-	return request<GenericListResponse>('/api/v1/activity/processing');
+export async function getProcessingSnapshot(): Promise<ActivityListResponse> {
+	return request<ActivityListResponse>('/api/v1/activity/processing');
 }
 
-export async function getTasksSnapshot(): Promise<GenericListResponse> {
-	return request<GenericListResponse>('/api/v1/system/tasks');
+export async function getTasksSnapshot(): Promise<SystemTasksResponse> {
+	return request<SystemTasksResponse>('/api/v1/system/tasks');
 }
 
 export async function getArtists(params?: {
