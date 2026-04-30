@@ -97,6 +97,7 @@
     "nocapture",
     "noconfirm",
     "nohup",
+    "oneshot",
     "pacman",
     "pipefail",
     "playcount",
