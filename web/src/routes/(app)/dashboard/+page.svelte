@@ -42,6 +42,7 @@
 	type StreamKey = 'events' | 'queue' | 'processing' | 'tasks';
 
 	const ALL_STREAM_KEYS: StreamKey[] = ['events', 'queue', 'processing', 'tasks'];
+	const PULSE_EVENT_NAMES = ['download_progress', 'import_progress', 'job_status'] as const;
 
 	let streamStates = $state<Record<StreamKey, StreamConnectionState>>({
 		events: 'disconnected',
@@ -111,7 +112,7 @@
 				reconnectAttempts[key] = 0;
 				streamStates[key] = 'connected';
 			});
-			for (const evtName of ['download_progress', 'import_progress', 'job_status']) {
+			for (const evtName of PULSE_EVENT_NAMES) {
 				es.addEventListener(evtName, (event) => {
 					const payload = safeParse((event as MessageEvent).data) as {
 						status?: string;
