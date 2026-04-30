@@ -9,6 +9,14 @@
 		sseUrl,
 		updateAppearanceSettings
 	} from '$lib/api';
+	import {
+		ALL_STREAM_KEYS,
+		aggregateStreamState,
+		backoffMs as calcBackoffMs,
+		formatAge as formatAgeHelper,
+		isStale as isStaleHelper
+	} from '$lib/dashboard';
+	import type { StreamConnectionState, StreamKey } from '$lib/dashboard';
 	import type {
 		ActivityItem,
 		ActivityListResponse,
@@ -39,10 +47,6 @@
 	let pulse = $state('idle');
 	let pulseTick = $state(0);
 
-	type StreamConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
-	type StreamKey = 'events' | 'queue' | 'processing' | 'tasks';
-
-	const ALL_STREAM_KEYS: StreamKey[] = ['events', 'queue', 'processing', 'tasks'];
 	const PULSE_EVENT_NAMES = ['download_progress', 'import_progress', 'job_status'] as const;
 
 	let streamStates = $state<Record<StreamKey, StreamConnectionState>>({
@@ -52,22 +56,11 @@
 		tasks: 'disconnected'
 	});
 
-	let streamState = $derived.by(() => {
-		const states = ALL_STREAM_KEYS.map((k) => streamStates[k]);
-		if (states.every((s) => s === 'connected')) return 'connected' as const;
-		if (states.every((s) => s === 'disconnected')) return 'disconnected' as const;
-		if (states.some((s) => s === 'reconnecting')) return 'reconnecting' as const;
-		if (states.some((s) => s === 'connecting')) return 'connecting' as const;
-		return 'reconnecting' as const;
-	});
+	let streamState = $derived(aggregateStreamState(streamStates));
 
 	let eventStreams: Partial<Record<StreamKey, EventSource>> = {};
 	let reconnectTimers: Partial<Record<StreamKey, ReturnType<typeof setTimeout>>> = {};
 	let reconnectAttempts: Partial<Record<StreamKey, number>> = {};
-
-	const RECONNECT_BASE_MS = 1000;
-	const RECONNECT_MAX_MS = 30_000;
-	const STALE_THRESHOLD_MS = 60_000;
 
 	let now = $state(Date.now());
 	let clockInterval: ReturnType<typeof setInterval> | null = null;
@@ -87,8 +80,7 @@
 	}
 
 	function backoffMs(key: StreamKey): number {
-		const attempts = reconnectAttempts[key] ?? 0;
-		return Math.min(RECONNECT_BASE_MS * 2 ** attempts, RECONNECT_MAX_MS);
+		return calcBackoffMs(reconnectAttempts[key] ?? 0);
 	}
 
 	function setStreamConnectionState(key: StreamKey, value: StreamConnectionState): void {
@@ -275,18 +267,11 @@
 	});
 
 	function formatAge(date: Date | null): string {
-		if (!date) return 'never';
-		const secs = Math.floor((now - date.getTime()) / 1000);
-		if (secs < 5) return 'just now';
-		if (secs < 60) return `${secs}s ago`;
-		const mins = Math.floor(secs / 60);
-		if (mins < 60) return `${mins}m ago`;
-		return `${Math.floor(mins / 60)}h ago`;
+		return formatAgeHelper(date, now);
 	}
 
 	function isStale(date: Date | null): boolean {
-		if (!date) return true;
-		return now - date.getTime() > STALE_THRESHOLD_MS;
+		return isStaleHelper(date, now);
 	}
 
 	function stateColor(state: string): string {
