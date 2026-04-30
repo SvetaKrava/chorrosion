@@ -31,7 +31,7 @@ export interface AppearanceErrorResponse {
 	error: string;
 }
 
-export interface SseMessage<T> {
+export interface SseMessage<T = unknown> {
 	sequence?: number;
 	tick?: number;
 	status?: string;
@@ -45,6 +45,32 @@ export interface GenericListResponse {
 	total: number;
 	limit?: number;
 	offset?: number;
+}
+
+export interface ActivityItem {
+	id: string;
+	name: string;
+	state: string;
+	progress_percent: number;
+}
+
+export interface ActivityListResponse {
+	items: ActivityItem[];
+	total: number;
+}
+
+export interface SystemTask {
+	id: string;
+	name: string;
+	schedule_seconds: number;
+	enabled: boolean;
+	status: string;
+}
+
+export interface SystemTasksResponse {
+	items: SystemTask[];
+	total: number;
+	max_concurrent_jobs: number;
 }
 
 export interface PaginatedResponse<T> {
