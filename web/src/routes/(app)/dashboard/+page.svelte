@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import {
 		ApiError,
 		getAppearanceSettings,
@@ -58,9 +59,9 @@
 		return 'reconnecting' as const;
 	});
 
-	let eventStreams = $state<Partial<Record<StreamKey, EventSource>>>({});
-	let reconnectTimers = $state<Partial<Record<StreamKey, ReturnType<typeof setTimeout>>>>({});
-	let reconnectAttempts = $state<Partial<Record<StreamKey, number>>>({});
+	let eventStreams: Partial<Record<StreamKey, EventSource>> = {};
+	let reconnectTimers: Partial<Record<StreamKey, ReturnType<typeof setTimeout>>> = {};
+	let reconnectAttempts: Partial<Record<StreamKey, number>> = {};
 
 	const RECONNECT_BASE_MS = 1000;
 	const RECONNECT_MAX_MS = 30_000;
@@ -88,11 +89,15 @@
 		return Math.min(RECONNECT_BASE_MS * 2 ** attempts, RECONNECT_MAX_MS);
 	}
 
+	function setStreamConnectionState(key: StreamKey, value: StreamConnectionState): void {
+		streamStates = { ...streamStates, [key]: value };
+	}
+
 	function scheduleReconnect(key: StreamKey): void {
 		clearTimeout(reconnectTimers[key]);
 		const delay = backoffMs(key);
 		reconnectAttempts[key] = (reconnectAttempts[key] ?? 0) + 1;
-		streamStates[key] = 'reconnecting';
+		setStreamConnectionState(key, 'reconnecting');
 		reconnectTimers[key] = setTimeout(() => attachStream(key), delay);
 	}
 
@@ -102,7 +107,7 @@
 
 	function attachStream(key: StreamKey): void {
 		eventStreams[key]?.close();
-		streamStates[key] = 'connecting';
+		setStreamConnectionState(key, 'connecting');
 
 		let es: EventSource;
 
@@ -110,7 +115,7 @@
 			es = openStream('/api/v1/events');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
-				streamStates[key] = 'connected';
+				setStreamConnectionState(key, 'connected');
 			});
 			for (const evtName of PULSE_EVENT_NAMES) {
 				es.addEventListener(evtName, (event) => {
@@ -126,7 +131,7 @@
 			es = openStream('/api/v1/events/download-progress');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
-				streamStates[key] = 'connected';
+				setStreamConnectionState(key, 'connected');
 			});
 			es.addEventListener('download_queue_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -142,7 +147,7 @@
 			es = openStream('/api/v1/events/import-progress');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
-				streamStates[key] = 'connected';
+				setStreamConnectionState(key, 'connected');
 			});
 			es.addEventListener('import_progress_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -158,7 +163,7 @@
 			es = openStream('/api/v1/events/job-status');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
-				streamStates[key] = 'connected';
+				setStreamConnectionState(key, 'connected');
 			});
 			es.addEventListener('job_status_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -188,20 +193,23 @@
 		}
 	}
 
-	function detachSse(): void {
+	function detachSse(resetState = true): void {
 		for (const key of ALL_STREAM_KEYS) {
 			clearTimeout(reconnectTimers[key]);
 			eventStreams[key]?.close();
 		}
-		eventStreams = {};
-		reconnectTimers = {};
-		reconnectAttempts = {};
-		streamStates = {
-			events: 'disconnected',
-			queue: 'disconnected',
-			processing: 'disconnected',
-			tasks: 'disconnected'
-		};
+
+		if (resetState) {
+			eventStreams = {};
+			reconnectTimers = {};
+			reconnectAttempts = {};
+			streamStates = {
+				events: 'disconnected',
+				queue: 'disconnected',
+				processing: 'disconnected',
+				tasks: 'disconnected'
+			};
+		}
 	}
 
 	async function hydrateData(): Promise<void> {
@@ -245,14 +253,16 @@
 		}
 	}
 
-	$effect(() => {
-		hydrateData();
+	onMount(() => {
+		void hydrateData();
 		attachSse();
 		clockInterval = setInterval(() => {
 			now = Date.now();
 		}, 5000);
+
 		return () => {
-			detachSse();
+			// During teardown, only close network resources; avoid state writes.
+			detachSse(false);
 			if (clockInterval) clearInterval(clockInterval);
 		};
 	});
