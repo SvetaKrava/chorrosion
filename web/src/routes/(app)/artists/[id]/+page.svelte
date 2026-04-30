@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getArtist, getArtistAlbums } from '$lib/api';
@@ -7,18 +6,19 @@
 
 	let artist = $state<Artist | null>(null);
 	let albums: Album[] = $state([]);
+	let albumTotal = $state(0);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	async function load() {
+	async function load(id: string | undefined) {
 		loading = true;
 		error = null;
-		const id = $page.params.id;
 		if (!id) { error = 'Invalid artist ID'; loading = false; return; }
 		try {
-			const [a, albumsRes] = await Promise.all([getArtist(id), getArtistAlbums(id)]);
+			const [a, albumsRes] = await Promise.all([getArtist(id), getArtistAlbums(id, { limit: 200 })]);
 			artist = a;
 			albums = albumsRes.items;
+			albumTotal = albumsRes.total;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load artist';
 		} finally {
@@ -26,7 +26,9 @@
 		}
 	}
 
-	onMount(() => load());
+	$effect(() => {
+		void load($page.params.id);
+	});
 </script>
 
 <div class="detail-page">
@@ -53,7 +55,10 @@
 		</header>
 
 		<section class="albums-section">
-			<h2>Albums <span class="count">({albums.length})</span></h2>
+			<h2>Albums <span class="count">({albumTotal})</span></h2>
+			{#if albumTotal > albums.length}
+				<p class="truncation-note">Showing {albums.length} of {albumTotal}</p>
+			{/if}
 			{#if albums.length === 0}
 				<div class="state-message">No albums found for this artist.</div>
 			{:else}
@@ -140,7 +145,13 @@
 	.albums-section h2 {
 		font-size: 1.3rem;
 		font-weight: 700;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.truncation-note {
+		font-size: 0.82rem;
+		color: var(--text-secondary);
+		margin: 0 0 1rem;
 	}
 
 	.count {

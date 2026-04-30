@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getAlbum, getAlbumTracks, getArtist } from '$lib/api';
@@ -8,6 +7,7 @@
 	let album = $state<Album | null>(null);
 	let artist = $state<Artist | null>(null);
 	let tracks: Track[] = $state([]);
+	let trackTotal = $state(0);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -19,17 +19,17 @@
 		return `${min}:${String(sec).padStart(2, '0')}`;
 	}
 
-	async function load() {
+	async function load(id: string | undefined) {
 		loading = true;
 		error = null;
-		const id = $page.params.id;
 		if (!id) { error = 'Invalid album ID'; loading = false; return; }
 		try {
-			const [a, tracksRes] = await Promise.all([getAlbum(id), getAlbumTracks(id)]);
+			const [a, tracksRes] = await Promise.all([getAlbum(id), getAlbumTracks(id, { limit: 200 })]);
 			album = a;
 			tracks = tracksRes.items.sort(
 				(a, b) => (a.track_number ?? 9999) - (b.track_number ?? 9999)
 			);
+			trackTotal = tracksRes.total;
 			// Fetch the artist name for the back-link breadcrumb
 			if (a.artist_id) {
 				try {
@@ -45,7 +45,9 @@
 		}
 	}
 
-	onMount(() => load());
+	$effect(() => {
+		void load($page.params.id);
+	});
 </script>
 
 <div class="detail-page">
@@ -81,7 +83,10 @@
 		</header>
 
 		<section class="tracks-section">
-			<h2>Tracks <span class="count">({tracks.length})</span></h2>
+			<h2>Tracks <span class="count">({trackTotal})</span></h2>
+			{#if trackTotal > tracks.length}
+				<p class="truncation-note">Showing {tracks.length} of {trackTotal}</p>
+			{/if}
 			{#if tracks.length === 0}
 				<div class="state-message">No tracks found for this album.</div>
 			{:else}
@@ -102,9 +107,9 @@
 								<td class="col-duration">{formatDuration(track.duration_ms)}</td>
 								<td class="col-file">
 									{#if track.has_file}
-										<span class="file-indicator has">✓</span>
+										<span class="file-indicator has" aria-label="Has file" title="Has file">✓</span>
 									{:else}
-										<span class="file-indicator missing">✗</span>
+										<span class="file-indicator missing" aria-label="Missing file" title="Missing file">✗</span>
 									{/if}
 								</td>
 							</tr>
@@ -173,7 +178,13 @@
 	.tracks-section h2 {
 		font-size: 1.3rem;
 		font-weight: 700;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.truncation-note {
+		font-size: 0.82rem;
+		color: var(--text-secondary);
+		margin: 0 0 1rem;
 	}
 
 	.count {

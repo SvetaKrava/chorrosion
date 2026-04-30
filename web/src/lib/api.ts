@@ -138,9 +138,16 @@ export async function getArtist(id: string): Promise<Artist> {
 	return request<Artist>(`/api/v1/artists/${encodeURIComponent(id)}`);
 }
 
-export async function getArtistAlbums(artistId: string): Promise<PaginatedResponse<Album>> {
+export async function getArtistAlbums(
+	artistId: string,
+	params?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<Album>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
 	return request<PaginatedResponse<Album>>(
-		`/api/v1/artists/${encodeURIComponent(artistId)}/albums`
+		`/api/v1/artists/${encodeURIComponent(artistId)}/albums${qs ? `?${qs}` : ''}`
 	);
 }
 
@@ -159,8 +166,15 @@ export async function getAlbum(id: string): Promise<Album> {
 	return request<Album>(`/api/v1/albums/${encodeURIComponent(id)}`);
 }
 
-export async function getAlbumTracks(albumId: string): Promise<PaginatedResponse<Track>> {
+export async function getAlbumTracks(
+	albumId: string,
+	params?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<Track>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
 	return request<PaginatedResponse<Track>>(
-		`/api/v1/albums/${encodeURIComponent(albumId)}/tracks`
+		`/api/v1/albums/${encodeURIComponent(albumId)}/tracks${qs ? `?${qs}` : ''}`
 	);
 }

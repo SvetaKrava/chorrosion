@@ -12,7 +12,6 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let search = $state('');
-	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 	let filtered: Artist[] = $derived(
 		search.trim()
@@ -33,13 +32,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function onSearchInput() {
-		if (searchDebounce) clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => {
-			offset = 0;
-		}, 300);
 	}
 
 	function prevPage() {
@@ -64,7 +56,6 @@
 			type="search"
 			placeholder="Filter artists…"
 			bind:value={search}
-			oninput={onSearchInput}
 			aria-label="Filter artists"
 		/>
 	</div>
