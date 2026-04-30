@@ -46,3 +46,42 @@ export interface GenericListResponse {
 	limit?: number;
 	offset?: number;
 }
+
+export interface PaginatedResponse<T> {
+	items: T[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface Artist {
+	id: string;
+	name: string;
+	foreign_artist_id: string | null;
+	status: string;
+	monitored: boolean;
+	path: string | null;
+}
+
+export interface Album {
+	id: string;
+	artist_id: string;
+	foreign_album_id: string | null;
+	title: string;
+	release_date: string | null;
+	album_type: string | null;
+	status: string;
+	monitored: boolean;
+}
+
+export interface Track {
+	id: string;
+	album_id: string;
+	artist_id: string;
+	foreign_track_id: string | null;
+	title: string;
+	track_number: number | null;
+	duration_ms: number | null;
+	has_file: boolean;
+	monitored: boolean;
+}

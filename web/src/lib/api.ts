@@ -1,9 +1,13 @@
 import type {
 	AppearanceErrorResponse,
 	AppearanceSettings,
+	Artist,
+	Album,
+	Track,
 	FormsLoginResponse,
 	FormsLogoutResponse,
-	GenericListResponse
+	GenericListResponse,
+	PaginatedResponse
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_CHORROSION_API_BASE ?? 'http://127.0.0.1:5150').replace(
@@ -117,4 +121,60 @@ export async function getProcessingSnapshot(): Promise<GenericListResponse> {
 
 export async function getTasksSnapshot(): Promise<GenericListResponse> {
 	return request<GenericListResponse>('/api/v1/system/tasks');
+}
+
+export async function getArtists(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<PaginatedResponse<Artist>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<PaginatedResponse<Artist>>(`/api/v1/artists${qs ? `?${qs}` : ''}`);
+}
+
+export async function getArtist(id: string): Promise<Artist> {
+	return request<Artist>(`/api/v1/artists/${encodeURIComponent(id)}`);
+}
+
+export async function getArtistAlbums(
+	artistId: string,
+	params?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<Album>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<PaginatedResponse<Album>>(
+		`/api/v1/artists/${encodeURIComponent(artistId)}/albums${qs ? `?${qs}` : ''}`
+	);
+}
+
+export async function getAlbums(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<PaginatedResponse<Album>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<PaginatedResponse<Album>>(`/api/v1/albums${qs ? `?${qs}` : ''}`);
+}
+
+export async function getAlbum(id: string): Promise<Album> {
+	return request<Album>(`/api/v1/albums/${encodeURIComponent(id)}`);
+}
+
+export async function getAlbumTracks(
+	albumId: string,
+	params?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<Track>> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<PaginatedResponse<Track>>(
+		`/api/v1/albums/${encodeURIComponent(albumId)}/tracks${qs ? `?${qs}` : ''}`
+	);
 }
