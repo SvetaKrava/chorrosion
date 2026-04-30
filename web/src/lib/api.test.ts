@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ApiError, sseUrl } from '$lib/api';
 
 describe('ApiError', () => {
@@ -27,11 +27,6 @@ describe('ApiError', () => {
 });
 
 describe('sseUrl', () => {
-	beforeEach(() => {
-		// Reset the module's API_BASE by clearing env override
-		vi.unstubAllEnvs();
-	});
-
 	it('appends path to default API base', () => {
 		const url = sseUrl('/api/v1/events');
 		expect(url).toBe('http://127.0.0.1:5150/api/v1/events');
