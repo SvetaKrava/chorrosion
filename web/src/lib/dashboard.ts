@@ -5,14 +5,14 @@
  */
 
 export type StreamConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
-export type StreamKey = 'events' | 'queue' | 'processing' | 'tasks';
 
-export const ALL_STREAM_KEYS: StreamKey[] = ['events', 'queue', 'processing', 'tasks'];
+export const ALL_STREAM_KEYS = ['events', 'queue', 'processing', 'tasks'] as const;
+export type StreamKey = (typeof ALL_STREAM_KEYS)[number];
 
 /** Collapse per-stream states into a single aggregate status for the UI pill. */
 export function aggregateStreamState(
 	states: Record<StreamKey, StreamConnectionState>
-): 'connected' | 'disconnected' | 'reconnecting' | 'connecting' {
+): StreamConnectionState {
 	const values = ALL_STREAM_KEYS.map((k) => states[k]);
 	if (values.every((s) => s === 'connected')) return 'connected';
 	if (values.every((s) => s === 'disconnected')) return 'disconnected';
