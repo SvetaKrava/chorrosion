@@ -7,7 +7,6 @@ import type {
 	Track,
 	FormsLoginResponse,
 	FormsLogoutResponse,
-	GenericListResponse,
 	PaginatedResponse,
 	SystemTasksResponse
 } from './types';

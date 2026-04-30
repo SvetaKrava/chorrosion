@@ -37,11 +37,26 @@
 
 	let pulse = $state('idle');
 	let pulseTick = $state(0);
-	let streamState = $state<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>(
-		'disconnected'
-	);
 
+	type StreamConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 	type StreamKey = 'events' | 'queue' | 'processing' | 'tasks';
+
+	const ALL_STREAM_KEYS: StreamKey[] = ['events', 'queue', 'processing', 'tasks'];
+
+	let streamStates = $state<Record<StreamKey, StreamConnectionState>>({
+		events: 'disconnected',
+		queue: 'disconnected',
+		processing: 'disconnected',
+		tasks: 'disconnected'
+	});
+
+	let streamState = $derived.by(() => {
+		const states = ALL_STREAM_KEYS.map((k) => streamStates[k]);
+		if (states.every((s) => s === 'connected')) return 'connected' as const;
+		if (states.every((s) => s === 'disconnected')) return 'disconnected' as const;
+		return 'reconnecting' as const;
+	});
+
 	let eventStreams = $state<Partial<Record<StreamKey, EventSource>>>({});
 	let reconnectTimers = $state<Partial<Record<StreamKey, ReturnType<typeof setTimeout>>>>({});
 	let reconnectAttempts = $state<Partial<Record<StreamKey, number>>>({});
@@ -76,7 +91,7 @@
 		clearTimeout(reconnectTimers[key]);
 		const delay = backoffMs(key);
 		reconnectAttempts[key] = (reconnectAttempts[key] ?? 0) + 1;
-		streamState = 'reconnecting';
+		streamStates[key] = 'reconnecting';
 		reconnectTimers[key] = setTimeout(() => attachStream(key), delay);
 	}
 
@@ -86,6 +101,7 @@
 
 	function attachStream(key: StreamKey): void {
 		eventStreams[key]?.close();
+		streamStates[key] = 'connecting';
 
 		let es: EventSource;
 
@@ -93,17 +109,23 @@
 			es = openStream('/api/v1/events');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
-				streamState = 'connected';
+				streamStates[key] = 'connected';
 			});
-			es.onmessage = (event) => {
-				const payload = safeParse(event.data) as { status?: string; tick?: number } | null;
-				if (payload?.status) pulse = payload.status;
-				if (payload?.tick !== undefined) pulseTick = payload.tick;
-			};
+			for (const evtName of ['download_progress', 'import_progress', 'job_status']) {
+				es.addEventListener(evtName, (event) => {
+					const payload = safeParse((event as MessageEvent).data) as {
+						status?: string;
+						tick?: number;
+					} | null;
+					if (payload?.status) pulse = payload.status;
+					if (payload?.tick !== undefined) pulseTick = payload.tick;
+				});
+			}
 		} else if (key === 'queue') {
 			es = openStream('/api/v1/events/download-progress');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
+				streamStates[key] = 'connected';
 			});
 			es.addEventListener('download_queue_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -119,6 +141,7 @@
 			es = openStream('/api/v1/events/import-progress');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
+				streamStates[key] = 'connected';
 			});
 			es.addEventListener('import_progress_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -134,6 +157,7 @@
 			es = openStream('/api/v1/events/job-status');
 			es.addEventListener('connected', () => {
 				reconnectAttempts[key] = 0;
+				streamStates[key] = 'connected';
 			});
 			es.addEventListener('job_status_snapshot', (event) => {
 				const payload = safeParse((event as MessageEvent).data) as {
@@ -158,21 +182,25 @@
 	}
 
 	function attachSse(): void {
-		streamState = 'connecting';
-		for (const key of ['events', 'queue', 'processing', 'tasks'] as StreamKey[]) {
+		for (const key of ALL_STREAM_KEYS) {
 			attachStream(key);
 		}
 	}
 
 	function detachSse(): void {
-		for (const key of ['events', 'queue', 'processing', 'tasks'] as StreamKey[]) {
+		for (const key of ALL_STREAM_KEYS) {
 			clearTimeout(reconnectTimers[key]);
 			eventStreams[key]?.close();
 		}
 		eventStreams = {};
 		reconnectTimers = {};
 		reconnectAttempts = {};
-		streamState = 'disconnected';
+		streamStates = {
+			events: 'disconnected',
+			queue: 'disconnected',
+			processing: 'disconnected',
+			tasks: 'disconnected'
+		};
 	}
 
 	async function hydrateData(): Promise<void> {
