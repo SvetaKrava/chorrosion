@@ -56,6 +56,8 @@
 		const states = ALL_STREAM_KEYS.map((k) => streamStates[k]);
 		if (states.every((s) => s === 'connected')) return 'connected' as const;
 		if (states.every((s) => s === 'disconnected')) return 'disconnected' as const;
+		if (states.some((s) => s === 'reconnecting')) return 'reconnecting' as const;
+		if (states.some((s) => s === 'connecting')) return 'connecting' as const;
 		return 'reconnecting' as const;
 	});
 
@@ -177,6 +179,11 @@
 				}
 			});
 		}
+
+		es.onopen = () => {
+			reconnectAttempts[key] = 0;
+			setStreamConnectionState(key, 'connected');
+		};
 
 		es.onerror = () => {
 			es.close();
@@ -313,6 +320,7 @@
 			<span
 				class="pill"
 				class:connected={streamState === 'connected'}
+				class:connecting={streamState === 'connecting'}
 				class:reconnecting={streamState === 'reconnecting'}
 				class:disconnected={streamState === 'disconnected'}
 			>
@@ -539,6 +547,12 @@
 		background: rgba(var(--success-rgb), 0.1);
 		border-color: var(--success);
 		color: var(--success);
+	}
+
+	.pill.connecting {
+		background: rgba(var(--accent-rgb), 0.1);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	.pill.reconnecting {
