@@ -14,7 +14,10 @@
 		aggregateStreamState,
 		backoffMs as calcBackoffMs,
 		formatAge as formatAgeHelper,
-		isStale as isStaleHelper
+		isStale as isStaleHelper,
+		needsReconnect,
+		STREAM_LABELS,
+		streamHealthClass
 	} from '$lib/dashboard';
 	import type { StreamConnectionState, StreamKey } from '$lib/dashboard';
 	import type {
@@ -59,6 +62,7 @@
 	});
 
 	let streamState = $derived(aggregateStreamState(streamStates));
+	let streamSick = $derived(needsReconnect(streamStates));
 
 	let eventStreams: Partial<Record<StreamKey, EventSource>> = {};
 	let reconnectTimers: Partial<Record<StreamKey, ReturnType<typeof setTimeout>>> = {};
@@ -194,6 +198,19 @@
 		}
 	}
 
+	function reconnectStream(key: StreamKey): void {
+		clearTimeout(reconnectTimers[key]);
+		delete reconnectTimers[key];
+		reconnectAttempts[key] = 0;
+		attachStream(key);
+	}
+
+	function reconnectAll(): void {
+		for (const key of ALL_STREAM_KEYS) {
+			reconnectStream(key);
+		}
+	}
+
 	function detachSse(resetState = true): void {
 		for (const key of ALL_STREAM_KEYS) {
 			clearTimeout(reconnectTimers[key]);
@@ -321,8 +338,39 @@
 	</header>
 
 	{#if streamState === 'disconnected'}
-		<div class="degraded-banner">
-			Realtime feed disconnected — data may be out of date.
+		<div class="degraded-banner" role="alert">
+			<span>Realtime feed disconnected — data may be out of date.</span>
+			<button class="reconnect-btn" onclick={reconnectAll}>Reconnect</button>
+		</div>
+	{:else if streamSick}
+		<div class="degraded-banner degraded-banner--warning" role="status">
+			<span>One or more streams are reconnecting…</span>
+			<button class="reconnect-btn" onclick={reconnectAll}>Reconnect All</button>
+		</div>
+	{/if}
+
+	<!-- Per-stream health row (shown when any stream is unhealthy) -->
+	{#if streamSick}
+		<div class="stream-health-row" aria-label="Stream health">
+			{#each ALL_STREAM_KEYS as key (key)}
+				<div class="stream-health-item">
+					<span
+						class="pill pill--sm {streamHealthClass(streamStates[key])}"
+						title="Stream: {STREAM_LABELS[key]} — {streamStates[key]}"
+					>
+						{STREAM_LABELS[key]}
+					</span>
+					{#if streamStates[key] === 'reconnecting' || streamStates[key] === 'disconnected'}
+						<button
+							class="reconnect-btn reconnect-btn--sm"
+							onclick={() => reconnectStream(key)}
+							aria-label="Reconnect {STREAM_LABELS[key]} stream"
+						>
+							↺
+						</button>
+					{/if}
+				</div>
+			{/each}
 		</div>
 	{/if}
 
@@ -339,6 +387,12 @@
 			<div class="panel-header">
 				<h3>Download Queue</h3>
 				<span class="count-badge">{queueTotal}</span>
+				{#if streamStates.queue !== 'connected'}
+					<span
+						class="pill pill--sm {streamHealthClass(streamStates.queue)}"
+						title="Stream: {streamStates.queue}"
+					>{streamStates.queue}</span>
+				{/if}
 			</div>
 			{#if queueUpdated}
 				<p class="updated-at" class:stale-text={isStale(queueUpdated)}>
@@ -376,6 +430,12 @@
 			<div class="panel-header">
 				<h3>Import Processing</h3>
 				<span class="count-badge">{processingTotal}</span>
+				{#if streamStates.processing !== 'connected'}
+					<span
+						class="pill pill--sm {streamHealthClass(streamStates.processing)}"
+						title="Stream: {streamStates.processing}"
+					>{streamStates.processing}</span>
+				{/if}
 			</div>
 			{#if processingUpdated}
 				<p class="updated-at" class:stale-text={isStale(processingUpdated)}>
@@ -413,6 +473,12 @@
 			<div class="panel-header">
 				<h3>Scheduled Tasks</h3>
 				<span class="count-badge">{taskTotal}</span>
+				{#if streamStates.tasks !== 'connected'}
+					<span
+						class="pill pill--sm {streamHealthClass(streamStates.tasks)}"
+						title="Stream: {streamStates.tasks}"
+					>{streamStates.tasks}</span>
+				{/if}
 				{#if maxConcurrentJobs > 0}
 					<span class="concurrency-label">max {maxConcurrentJobs} concurrent</span>
 				{/if}
@@ -591,6 +657,57 @@
 		color: var(--error);
 		font-size: 0.875rem;
 		font-weight: 500;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.degraded-banner--warning {
+		background: rgba(var(--warning-rgb), 0.08);
+		border-color: var(--warning);
+		color: var(--warning);
+	}
+
+	.stream-health-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.stream-health-item {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.pill--sm {
+		padding: 0.15rem 0.5rem;
+		font-size: 0.65rem;
+	}
+
+	.reconnect-btn {
+		padding: 0.35rem 0.85rem;
+		border: 1px solid currentColor;
+		border-radius: 6px;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		font-size: 0.825rem;
+		white-space: nowrap;
+		transition: opacity 0.12s;
+	}
+
+	.reconnect-btn:hover {
+		opacity: 0.75;
+	}
+
+	.reconnect-btn--sm {
+		padding: 0.1rem 0.4rem;
+		font-size: 0.75rem;
+		border-radius: 4px;
 	}
 
 	.error-banner {

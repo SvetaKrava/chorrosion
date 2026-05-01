@@ -48,3 +48,26 @@ export function formatAge(date: Date | null, now: number): string {
 	if (mins < 60) return `${mins}m ago`;
 	return `${Math.floor(mins / 60)}h ago`;
 }
+
+/** CSS class suffix for a stream connection state (matches `.pill.<class>` selectors). */
+export function streamHealthClass(state: StreamConnectionState): string {
+	return state; // 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
+}
+
+/**
+ * Returns true when any stream is not in a healthy/progressing state and the
+ * operator may benefit from a manual reconnect option.
+ */
+export function needsReconnect(states: Record<StreamKey, StreamConnectionState>): boolean {
+	return ALL_STREAM_KEYS.some(
+		(k) => states[k] === 'reconnecting' || states[k] === 'disconnected'
+	);
+}
+
+/** Human-readable label per stream key for use in health indicators. */
+export const STREAM_LABELS: Record<StreamKey, string> = {
+	events: 'Events',
+	queue: 'Download Queue',
+	processing: 'Import',
+	tasks: 'Tasks'
+};
