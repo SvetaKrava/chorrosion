@@ -4,7 +4,10 @@ import {
 	aggregateStreamState,
 	backoffMs,
 	formatAge,
-	isStale
+	isStale,
+	needsReconnect,
+	STREAM_LABELS,
+	streamHealthClass
 } from '$lib/dashboard';
 import type { StreamConnectionState, StreamKey } from '$lib/dashboard';
 
@@ -125,5 +128,49 @@ describe('formatAge', () => {
 
 	it('returns hours label', () => {
 		expect(formatAge(new Date(now - 3_600_000 * 2), now)).toBe('2h ago');
+	});
+});
+
+describe('streamHealthClass', () => {
+	it('returns the state string unchanged for each state', () => {
+		const states: StreamConnectionState[] = ['connected', 'connecting', 'reconnecting', 'disconnected'];
+		for (const s of states) {
+			expect(streamHealthClass(s)).toBe(s);
+		}
+	});
+});
+
+describe('needsReconnect', () => {
+	it('returns false when all streams are connected', () => {
+		expect(needsReconnect(allStates('connected'))).toBe(false);
+	});
+
+	it('returns false when all streams are connecting', () => {
+		expect(needsReconnect(allStates('connecting'))).toBe(false);
+	});
+
+	it('returns true when any stream is reconnecting', () => {
+		const states = allStates('connected');
+		states.queue = 'reconnecting';
+		expect(needsReconnect(states)).toBe(true);
+	});
+
+	it('returns true when any stream is disconnected', () => {
+		const states = allStates('connected');
+		states.events = 'disconnected';
+		expect(needsReconnect(states)).toBe(true);
+	});
+
+	it('returns true when all streams are disconnected', () => {
+		expect(needsReconnect(allStates('disconnected'))).toBe(true);
+	});
+});
+
+describe('STREAM_LABELS', () => {
+	it('has a label for every stream key', () => {
+		for (const key of ALL_STREAM_KEYS) {
+			expect(typeof STREAM_LABELS[key]).toBe('string');
+			expect(STREAM_LABELS[key].length).toBeGreaterThan(0);
+		}
 	});
 });
