@@ -31,6 +31,8 @@
 	let settingsError = $state('');
 	let settingsSaved = $state('');
 	let saving = $state(false);
+	let hydrating = $state(true);
+	let hydrateError = $state<string | null>(null);
 
 	let queueItems = $state<ActivityItem[]>([]);
 	let queueTotal = $state(0);
@@ -212,7 +214,7 @@
 	}
 
 	async function hydrateData(): Promise<void> {
-		settingsError = '';
+		hydrateError = null;
 		settingsSaved = '';
 		try {
 			const [appearance, queueSnapshot, processingSnapshot, tasksSnapshot] = await Promise.all([
@@ -233,7 +235,9 @@
 			maxConcurrentJobs = tasksSnapshot.max_concurrent_jobs;
 			tasksUpdated = new Date();
 		} catch (error) {
-			settingsError = apiErrorMessage(error);
+			hydrateError = apiErrorMessage(error);
+		} finally {
+			hydrating = false;
 		}
 	}
 
@@ -321,6 +325,13 @@
 		</div>
 	{/if}
 
+	{#if hydrateError}
+		<div class="error-banner" role="alert">
+			<span>Failed to load dashboard data: {hydrateError}</span>
+			<button class="retry-btn" onclick={() => void hydrateData()}>Retry</button>
+		</div>
+	{/if}
+
 	<section class="activity-grid">
 		<!-- Download Queue -->
 		<article class="panel activity-panel" class:stale={isStale(queueUpdated)}>
@@ -333,8 +344,10 @@
 					Updated {formatAge(queueUpdated)}
 				</p>
 			{/if}
-			{#if queueItems.length === 0}
-				<p class="empty-state">No active downloads</p>
+			{#if hydrating && !queueUpdated}
+				<p class="state-message">Loading…</p>
+			{:else if queueItems.length === 0}
+				<p class="state-message">Download queue is idle — no active downloads.</p>
 			{:else}
 				<ul class="item-list">
 					{#each queueItems as item (item.id)}
@@ -366,8 +379,10 @@
 					Updated {formatAge(processingUpdated)}
 				</p>
 			{/if}
-			{#if processingItems.length === 0}
-				<p class="empty-state">No active imports</p>
+			{#if hydrating && !processingUpdated}
+				<p class="state-message">Loading…</p>
+			{:else if processingItems.length === 0}
+				<p class="state-message">No imports in progress — all clear.</p>
 			{:else}
 				<ul class="item-list">
 					{#each processingItems as item (item.id)}
@@ -402,8 +417,10 @@
 					Updated {formatAge(tasksUpdated)}
 				</p>
 			{/if}
-			{#if taskItems.length === 0}
-				<p class="empty-state">No scheduled tasks</p>
+			{#if hydrating && !tasksUpdated}
+				<p class="state-message">Loading…</p>
+			{:else if taskItems.length === 0}
+				<p class="state-message">No scheduled tasks configured.</p>
 			{:else}
 				<ul class="task-list">
 					{#each taskItems as task (task.id)}
@@ -565,6 +582,44 @@
 		color: var(--error);
 		font-size: 0.875rem;
 		font-weight: 500;
+	}
+
+	.error-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		padding: 0.75rem 1rem;
+		background: rgba(var(--error-rgb), 0.08);
+		border: 1px solid var(--error);
+		border-radius: 0.375rem;
+		color: var(--error);
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.state-message {
+		padding: 1.5rem 0;
+		text-align: center;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+	}
+
+	.retry-btn {
+		padding: 0.35rem 0.85rem;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 0.825rem;
+		white-space: nowrap;
+		transition: background 0.12s;
+	}
+
+	.retry-btn:hover {
+		background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
 	}
 
 	/* Activity grid — 3 columns on wide, stack on mobile */

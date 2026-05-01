@@ -63,9 +63,18 @@
 	{#if loading}
 		<div class="state-message">Loading artists…</div>
 	{:else if error}
-		<div class="state-message error">{error}</div>
+		<div class="state-message error">
+			<p>{error}</p>
+			<button class="retry-btn" onclick={() => load(0)}>Try again</button>
+		</div>
 	{:else if filtered.length === 0}
-		<div class="state-message">No artists found.</div>
+		<div class="state-message">
+			{#if search.trim()}
+				No artists match "{search.trim()}".
+			{:else}
+				No artists found. Add an artist to start building your library.
+			{/if}
+		</div>
 	{:else}
 		<ul class="catalog-list" role="list">
 			{#each filtered as artist (artist.id)}
@@ -149,6 +158,22 @@
 
 	.state-message.error {
 		color: var(--error);
+	}
+
+	.retry-btn {
+		margin-top: 0.75rem;
+		padding: 0.45rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.12s;
+	}
+
+	.retry-btn:hover {
+		background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
 	}
 
 	.catalog-list {
