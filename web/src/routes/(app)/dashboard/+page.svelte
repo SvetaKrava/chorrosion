@@ -351,7 +351,7 @@
 
 	<!-- Per-stream health row (shown when any stream is unhealthy) -->
 	{#if streamSick}
-		<div class="stream-health-row" aria-label="Stream health">
+		<div class="stream-health-row" role="group" aria-label="Stream health">
 			{#each ALL_STREAM_KEYS as key (key)}
 				<div class="stream-health-item">
 					<span
