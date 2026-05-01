@@ -214,6 +214,7 @@
 	}
 
 	async function hydrateData(): Promise<void> {
+		hydrating = true;
 		hydrateError = null;
 		settingsSaved = '';
 		try {
@@ -346,6 +347,8 @@
 			{/if}
 			{#if hydrating && !queueUpdated}
 				<p class="state-message">Loading…</p>
+			{:else if hydrateError && !queueUpdated}
+				<p class="state-message error-state">Failed to load — use the Retry button above.</p>
 			{:else if queueItems.length === 0}
 				<p class="state-message">Download queue is idle — no active downloads.</p>
 			{:else}
@@ -381,6 +384,8 @@
 			{/if}
 			{#if hydrating && !processingUpdated}
 				<p class="state-message">Loading…</p>
+			{:else if hydrateError && !processingUpdated}
+				<p class="state-message error-state">Failed to load — use the Retry button above.</p>
 			{:else if processingItems.length === 0}
 				<p class="state-message">No imports in progress — all clear.</p>
 			{:else}
@@ -419,6 +424,8 @@
 			{/if}
 			{#if hydrating && !tasksUpdated}
 				<p class="state-message">Loading…</p>
+			{:else if hydrateError && !tasksUpdated}
+				<p class="state-message error-state">Failed to load — use the Retry button above.</p>
 			{:else if taskItems.length === 0}
 				<p class="state-message">No scheduled tasks configured.</p>
 			{:else}
@@ -492,6 +499,8 @@
 			<button class="primary" type="button" onclick={saveSettings} disabled={saving}>
 				{saving ? 'Saving…' : 'Save Settings'}
 			</button>
+		{:else if hydrateError}
+			<p class="error">Failed to load settings — use the Retry button above.</p>
 		{:else}
 			<p>Loading settings…</p>
 		{/if}
@@ -604,6 +613,10 @@
 		text-align: center;
 		color: var(--text-secondary);
 		font-size: 0.9rem;
+	}
+
+	.state-message.error-state {
+		color: var(--danger, #e53e3e);
 	}
 
 	.retry-btn {
