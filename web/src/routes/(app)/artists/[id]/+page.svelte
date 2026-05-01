@@ -35,7 +35,10 @@
 	{#if loading}
 		<div class="state-message">Loading…</div>
 	{:else if error}
-		<div class="state-message error">{error}</div>
+		<div class="state-message error">
+			<p>{error}</p>
+			<button class="retry-btn" onclick={() => load($page.params.id)}>Try again</button>
+		</div>
 	{:else if artist}
 		<div class="back-nav">
 			<button onclick={() => goto('/artists')} class="back-btn">← Artists</button>
@@ -60,7 +63,7 @@
 				<p class="truncation-note">Showing {albums.length} of {albumTotal}</p>
 			{/if}
 			{#if albums.length === 0}
-				<div class="state-message">No albums found for this artist.</div>
+				<div class="state-message">No albums have been added for this artist yet.</div>
 			{:else}
 				<ul class="catalog-list" role="list">
 					{#each albums as album (album.id)}
@@ -168,6 +171,22 @@
 
 	.state-message.error {
 		color: var(--error);
+	}
+
+	.retry-btn {
+		margin-top: 0.75rem;
+		padding: 0.45rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.12s;
+	}
+
+	.retry-btn:hover {
+		background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
 	}
 
 	.catalog-list {
