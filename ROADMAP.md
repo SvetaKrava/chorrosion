@@ -479,6 +479,29 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
+## Phase 12: UI Production Readiness (Q2-Q3 2026)
+
+- Related issues: #444, #445, #446, #447, #448
+
+### 12.1 UX Hardening
+
+- [ ] Robust loading/empty/error states across core routes (Issue #444)
+- [ ] Connection-health UX and manual reconnect controls (Issue #447)
+
+### 12.2 Accessibility
+
+- [ ] Accessibility pass for keyboard, landmarks, labels, and focus management (Issue #445)
+
+### 12.3 UI Reliability Testing
+
+- [ ] Playwright smoke E2E for auth, navigation, and realtime dashboard (Issue #446)
+
+### 12.4 UI-State Maintainability
+
+- [ ] Consolidate dashboard presentation logic into tested UI-state helpers (Issue #448)
+
+---
+
 ## Success Metrics
 
 ### Feature Parity Goals
@@ -530,6 +553,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-29  
-**Current Phase:** All phases complete 🎉  
-**Status:** Roadmap complete — ready for v1.0 release planning and community contributions
+**Last Updated:** 2026-04-30  
+**Current Phase:** Phase 12: UI Production Readiness  
+**Status:** Active UI hardening and reliability work for v1.0 readiness
