@@ -71,3 +71,34 @@ export const STREAM_LABELS: Record<StreamKey, string> = {
 	processing: 'Import',
 	tasks: 'Tasks'
 };
+
+/**
+ * Maps an activity-item or task state string to its CSS class suffix.
+ * Returned class should be applied as `state-badge <class>` in templates.
+ */
+export function stateColor(state: string): string {
+	switch (state) {
+		case 'downloading':
+			return 'state-active';
+		case 'queued':
+			return 'state-queued';
+		case 'paused':
+			return 'state-paused';
+		case 'completed':
+			return 'state-done';
+		case 'error':
+			return 'state-error';
+		default:
+			return 'state-unknown';
+	}
+}
+
+/**
+ * Human-readable summary of a recurring schedule interval.
+ * @param seconds — interval duration in whole seconds
+ */
+export function scheduleSummary(seconds: number): string {
+	if (seconds < 60) return `Every ${seconds}s`;
+	if (seconds < 3600) return `Every ${Math.round(seconds / 60)}m`;
+	return `Every ${Math.round(seconds / 3600)}h`;
+}

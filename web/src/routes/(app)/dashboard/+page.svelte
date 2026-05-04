@@ -16,7 +16,9 @@
 		formatAge as formatAgeHelper,
 		isStale as isStaleHelper,
 		needsReconnect,
+		scheduleSummary,
 		STREAM_LABELS,
+		stateColor,
 		streamHealthClass
 	} from '$lib/dashboard';
 	import type { StreamConnectionState, StreamKey } from '$lib/dashboard';
@@ -296,28 +298,7 @@
 		return isStaleHelper(date, now);
 	}
 
-	function stateColor(state: string): string {
-		switch (state) {
-			case 'downloading':
-				return 'state-active';
-			case 'queued':
-				return 'state-queued';
-			case 'paused':
-				return 'state-paused';
-			case 'completed':
-				return 'state-done';
-			case 'error':
-				return 'state-error';
-			default:
-				return 'state-unknown';
-		}
-	}
 
-	function scheduleSummary(seconds: number): string {
-		if (seconds < 60) return `Every ${seconds}s`;
-		if (seconds < 3600) return `Every ${Math.round(seconds / 60)}m`;
-		return `Every ${Math.round(seconds / 3600)}h`;
-	}
 </script>
 
 <section class="dashboard-section">
