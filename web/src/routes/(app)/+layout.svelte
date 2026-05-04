@@ -56,7 +56,7 @@
 			</nav>
 			<div class="header-actions">
 				<span class="username" aria-label="Logged in as {$authStore.username || 'User'}">{$authStore.username || 'User'}</span>
-				<button class="logout-btn" onclick={onLogout} disabled={busy} aria-label="Log out">
+				<button class="logout-btn" onclick={onLogout} disabled={busy} aria-label={busy ? 'Logging Out' : 'Log Out'}>
 					{busy ? 'Logging Out…' : 'Log Out'}
 				</button>
 			</div>
@@ -252,7 +252,7 @@
 		color: white;
 		padding: 8px;
 		text-decoration: none;
-		z-index: 100;
+		z-index: 200;
 	}
 
 	.skip-link:focus {

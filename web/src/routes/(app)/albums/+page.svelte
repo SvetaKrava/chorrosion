@@ -108,7 +108,7 @@
 		{#if !search.trim()}
 			<div class="pagination" role="navigation" aria-label="Albums pagination">
 				<button onclick={prevPage} disabled={offset === 0} aria-label="Previous page">← Previous</button>
-				<span aria-current="page">{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
+				<span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
 				<button onclick={nextPage} disabled={offset + PAGE_SIZE >= total} aria-label="Next page">Next →</button>
 			</div>
 		{/if}
