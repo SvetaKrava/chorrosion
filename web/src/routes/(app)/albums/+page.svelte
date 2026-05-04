@@ -48,24 +48,25 @@
 <div class="catalog-page">
 	<header class="catalog-header">
 		<h1>Albums</h1>
-		<span class="total-badge">{total} total</span>
+		<span class="total-badge" aria-label="{total} total albums">{total} total</span>
 	</header>
 
 	<div class="search-bar">
 		<input
+			id="album-search"
 			type="search"
 			placeholder="Filter albums…"
 			bind:value={search}
-			aria-label="Filter albums"
+			aria-label="Filter albums by title"
 		/>
 	</div>
 
 	{#if loading}
-		<div class="state-message">Loading albums…</div>
+		<div class="state-message" role="status" aria-live="polite">Loading albums…</div>
 	{:else if error}
-		<div class="state-message error">
+		<div class="state-message error" role="alert" aria-live="assertive">
 			<p>{error}</p>
-			<button class="retry-btn" onclick={() => load(0)}>Try again</button>
+			<button class="retry-btn" onclick={() => load(0)} aria-label="Try loading albums again">Try again</button>
 		</div>
 	{:else if filtered.length === 0}
 		<div class="state-message">
@@ -105,10 +106,10 @@
 		</ul>
 
 		{#if !search.trim()}
-			<div class="pagination">
-				<button onclick={prevPage} disabled={offset === 0}>← Previous</button>
+			<div class="pagination" role="navigation" aria-label="Albums pagination">
+				<button onclick={prevPage} disabled={offset === 0} aria-label="Previous page">← Previous</button>
 				<span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-				<button onclick={nextPage} disabled={offset + PAGE_SIZE >= total}>Next →</button>
+				<button onclick={nextPage} disabled={offset + PAGE_SIZE >= total} aria-label="Next page">Next →</button>
 			</div>
 		{/if}
 	{/if}

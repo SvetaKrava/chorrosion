@@ -35,31 +35,35 @@
 </script>
 
 <div class="app-shell">
+	<!-- Skip link for keyboard users -->
+	<a href="#main-content" class="skip-link">Skip to main content</a>
+
 	<header class="app-header">
 		<div class="header-content">
 			<h1 class="logo">Chorrosion</h1>
-			<nav class="main-nav">
+			<nav class="main-nav" aria-label="Main navigation">
 				{#each navItems as item}
 					<a
 						href={item.href}
 						class="nav-link"
 						class:active={isActive(item.href)}
 						data-sveltekit-noscroll
+						aria-current={isActive(item.href) ? 'page' : undefined}
 					>
 						{item.label}
 					</a>
 				{/each}
 			</nav>
 			<div class="header-actions">
-				<span class="username">{$authStore.username || 'User'}</span>
-				<button class="logout-btn" onclick={onLogout} disabled={busy}>
+				<span class="username" aria-label="Logged in as {$authStore.username || 'User'}">{$authStore.username || 'User'}</span>
+				<button class="logout-btn" onclick={onLogout} disabled={busy} aria-label={busy ? 'Logging Out' : 'Log Out'}>
 					{busy ? 'Logging Out…' : 'Log Out'}
 				</button>
 			</div>
 		</div>
 	</header>
 
-	<main class="app-main">
+	<main class="app-main" id="main-content">
 		{@render children()}
 	</main>
 
@@ -237,5 +241,21 @@
 		.app-main {
 			padding: 1rem;
 		}
+	}
+
+	/* Skip link for keyboard navigation */
+	.skip-link {
+		position: absolute;
+		top: -40px;
+		left: 0;
+		background: var(--accent);
+		color: white;
+		padding: 8px;
+		text-decoration: none;
+		z-index: 200;
+	}
+
+	.skip-link:focus {
+		top: 0;
 	}
 </style>

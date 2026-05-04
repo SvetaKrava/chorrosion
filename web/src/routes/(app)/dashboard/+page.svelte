@@ -338,25 +338,26 @@
 	</header>
 
 	{#if streamState === 'disconnected'}
-		<div class="degraded-banner" role="alert">
+		<div class="degraded-banner" role="alert" aria-live="assertive">
 			<span>Realtime feed disconnected — data may be out of date.</span>
-			<button class="reconnect-btn" onclick={reconnectAll}>Reconnect</button>
+			<button class="reconnect-btn" onclick={reconnectAll} aria-label="Reconnect to all realtime streams">Reconnect</button>
 		</div>
 	{:else if streamSick}
-		<div class="degraded-banner degraded-banner--warning" role="status">
+		<div class="degraded-banner degraded-banner--warning" role="status" aria-live="polite">
 			<span>One or more streams are reconnecting…</span>
-			<button class="reconnect-btn" onclick={reconnectAll}>Reconnect All</button>
+			<button class="reconnect-btn" onclick={reconnectAll} aria-label="Reconnect all realtime streams">Reconnect All</button>
 		</div>
 	{/if}
 
 	<!-- Per-stream health row (shown when any stream is unhealthy) -->
 	{#if streamSick}
-		<div class="stream-health-row" role="group" aria-label="Stream health">
+		<div class="stream-health-row" role="group" aria-label="Stream health status and reconnect controls">
 			{#each ALL_STREAM_KEYS as key (key)}
 				<div class="stream-health-item">
 					<span
 						class="pill pill--sm {streamHealthClass(streamStates[key])}"
 						title="Stream: {STREAM_LABELS[key]} — {streamStates[key]}"
+						role="status"
 					>
 						{STREAM_LABELS[key]}
 					</span>
@@ -375,9 +376,9 @@
 	{/if}
 
 	{#if hydrateError}
-		<div class="error-banner" role="alert">
+		<div class="error-banner" role="alert" aria-live="assertive">
 			<span>Failed to load dashboard data: {hydrateError}</span>
-			<button class="retry-btn" onclick={() => void hydrateData()}>Retry</button>
+			<button class="retry-btn" onclick={() => void hydrateData()} aria-label="Retry loading dashboard data">Retry</button>
 		</div>
 	{/if}
 
@@ -519,33 +520,33 @@
 		<h2>Appearance Settings</h2>
 		{#if settings}
 			<div class="settings-grid">
-				<label>
+				<label for="theme_mode">
 					<span>Theme Mode</span>
-					<select bind:value={settings.theme_mode}>
+					<select id="theme_mode" bind:value={settings.theme_mode}>
 						<option value="system">System</option>
 						<option value="dark">Dark</option>
 						<option value="light">Light</option>
 					</select>
 				</label>
-				<label>
+				<label for="mobile_breakpoint_px">
 					<span>Mobile Breakpoint (px)</span>
-					<input bind:value={settings.mobile_breakpoint_px} type="number" min="320" max="1440" />
+					<input id="mobile_breakpoint_px" bind:value={settings.mobile_breakpoint_px} type="number" min="320" max="1440" />
 				</label>
-				<label>
+				<label for="bulk_selection_limit">
 					<span>Bulk Selection Limit</span>
-					<input bind:value={settings.bulk_selection_limit} type="number" min="10" max="1000" />
+					<input id="bulk_selection_limit" bind:value={settings.bulk_selection_limit} type="number" min="10" max="1000" />
 				</label>
-				<label>
+				<label for="max_filter_clauses">
 					<span>Max Filter Clauses</span>
-					<input bind:value={settings.max_filter_clauses} type="number" min="2" max="50" />
+					<input id="max_filter_clauses" bind:value={settings.max_filter_clauses} type="number" min="2" max="50" />
 				</label>
-				<label>
+				<label for="filter_history_limit">
 					<span>Filter History Limit</span>
-					<input bind:value={settings.filter_history_limit} type="number" min="1" max="100" />
+					<input id="filter_history_limit" bind:value={settings.filter_history_limit} type="number" min="1" max="100" />
 				</label>
-				<label>
+				<label for="default_filter_operator">
 					<span>Default Filter Operator</span>
-					<select bind:value={settings.default_filter_operator}>
+					<select id="default_filter_operator" bind:value={settings.default_filter_operator}>
 						<option value="and">AND</option>
 						<option value="or">OR</option>
 					</select>
@@ -553,16 +554,16 @@
 			</div>
 
 			<div class="toggles">
-				<label><input bind:checked={settings.mobile_compact_layout} type="checkbox" /> Compact mobile layout</label>
-				<label><input bind:checked={settings.touch_targets_optimized} type="checkbox" /> Optimized touch targets</label>
-				<label><input bind:checked={settings.keyboard_shortcuts_enabled} type="checkbox" /> Keyboard shortcuts</label>
-				<label><input bind:checked={settings.bulk_operations_enabled} type="checkbox" /> Bulk operations</label>
-				<label><input bind:checked={settings.bulk_action_confirmation} type="checkbox" /> Bulk action confirmation</label>
-				<label><input bind:checked={settings.advanced_filtering_enabled} type="checkbox" /> Advanced filtering</label>
-				<label><input bind:checked={settings.filter_history_enabled} type="checkbox" /> Filter history</label>
+				<label for="mobile_compact_layout"><input id="mobile_compact_layout" bind:checked={settings.mobile_compact_layout} type="checkbox" /> Compact mobile layout</label>
+				<label for="touch_targets_optimized"><input id="touch_targets_optimized" bind:checked={settings.touch_targets_optimized} type="checkbox" /> Optimized touch targets</label>
+				<label for="keyboard_shortcuts_enabled"><input id="keyboard_shortcuts_enabled" bind:checked={settings.keyboard_shortcuts_enabled} type="checkbox" /> Keyboard shortcuts</label>
+				<label for="bulk_operations_enabled"><input id="bulk_operations_enabled" bind:checked={settings.bulk_operations_enabled} type="checkbox" /> Bulk operations</label>
+				<label for="bulk_action_confirmation"><input id="bulk_action_confirmation" bind:checked={settings.bulk_action_confirmation} type="checkbox" /> Bulk action confirmation</label>
+				<label for="advanced_filtering_enabled"><input id="advanced_filtering_enabled" bind:checked={settings.advanced_filtering_enabled} type="checkbox" /> Advanced filtering</label>
+				<label for="filter_history_enabled"><input id="filter_history_enabled" bind:checked={settings.filter_history_enabled} type="checkbox" /> Filter history</label>
 			</div>
 
-			<button class="primary" type="button" onclick={saveSettings} disabled={saving}>
+			<button class="primary" id="save_settings" type="button" onclick={saveSettings} disabled={saving} aria-label={saving ? 'Saving settings…' : 'Save appearance settings'}>
 				{saving ? 'Saving…' : 'Save Settings'}
 			</button>
 		{:else if hydrateError}
@@ -572,10 +573,10 @@
 		{/if}
 
 		{#if settingsSaved}
-			<p class="success">{settingsSaved}</p>
+			<p class="success" aria-live="polite" aria-label="Settings saved successfully">{settingsSaved}</p>
 		{/if}
 		{#if settingsError}
-			<p class="error">{settingsError}</p>
+			<p class="error" aria-live="polite" aria-label="Error saving settings">{settingsError}</p>
 		{/if}
 	</section>
 </section>

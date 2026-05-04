@@ -48,24 +48,25 @@
 <div class="catalog-page">
 	<header class="catalog-header">
 		<h1>Artists</h1>
-		<span class="total-badge">{total} total</span>
+		<span class="total-badge" aria-label="{total} total artists">{total} total</span>
 	</header>
 
 	<div class="search-bar">
 		<input
+			id="artist-search"
 			type="search"
 			placeholder="Filter artists…"
 			bind:value={search}
-			aria-label="Filter artists"
+			aria-label="Filter artists by name"
 		/>
 	</div>
 
 	{#if loading}
-		<div class="state-message">Loading artists…</div>
+		<div class="state-message" role="status" aria-live="polite">Loading artists…</div>
 	{:else if error}
-		<div class="state-message error">
+		<div class="state-message error" role="alert" aria-live="assertive">
 			<p>{error}</p>
-			<button class="retry-btn" onclick={() => load(0)}>Try again</button>
+			<button class="retry-btn" onclick={() => load(0)} aria-label="Try loading artists again">Try again</button>
 		</div>
 	{:else if filtered.length === 0}
 		<div class="state-message">
@@ -82,7 +83,7 @@
 					<button
 						class="catalog-row"
 						onclick={() => goto(`/artists/${artist.id}`)}
-						aria-label="View {artist.name}"
+						aria-label="View artist {artist.name}"
 					>
 						<span class="item-name">{artist.name}</span>
 						<span class="item-meta">
@@ -97,10 +98,10 @@
 		</ul>
 
 		{#if !search.trim()}
-			<div class="pagination">
-				<button onclick={prevPage} disabled={offset === 0}>← Previous</button>
+			<div class="pagination" role="navigation" aria-label="Artists pagination">
+				<button onclick={prevPage} disabled={offset === 0} aria-label="Previous page">← Previous</button>
 				<span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-				<button onclick={nextPage} disabled={offset + PAGE_SIZE >= total}>Next →</button>
+				<button onclick={nextPage} disabled={offset + PAGE_SIZE >= total} aria-label="Next page">Next →</button>
 			</div>
 		{/if}
 	{/if}
