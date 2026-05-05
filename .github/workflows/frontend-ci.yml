@@ -49,3 +49,9 @@ jobs:
 
       - name: Production build
         run: bun run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: E2E smoke tests (Playwright)
+        run: bun run test:e2e
