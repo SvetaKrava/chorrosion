@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { injectAuth, mockApiRoutes, MOCK_USER } from './helpers';
+import { injectAuth, mockApiRoutes, MOCK_USER, API_BASE } from './helpers';
 
 test.describe('Authentication', () => {
 	test('shows the login form at the root path', async ({ page }) => {
@@ -13,7 +13,7 @@ test.describe('Authentication', () => {
 
 	test('shows an error message on failed login', async ({ page }) => {
 		// Override the default stub to return 401
-		await page.route('http://127.0.0.1:5150/api/v1/auth/forms/login', (route) =>
+		await page.route(`${API_BASE}/api/v1/auth/forms/login`, (route) =>
 			route.fulfill({
 				status: 401,
 				contentType: 'application/json',

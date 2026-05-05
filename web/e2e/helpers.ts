@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 /** The mock API base — matches the default VITE_CHORROSION_API_BASE. */
-const API_BASE = 'http://127.0.0.1:5150';
+export const API_BASE = 'http://127.0.0.1:5150';
 
 export const MOCK_USER = {
 	isAuthenticated: true,

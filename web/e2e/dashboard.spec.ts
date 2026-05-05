@@ -9,7 +9,7 @@ test.describe('Dashboard — realtime stream status', () => {
 		await page.goto('/dashboard');
 		const pill = page.locator('.section-header .pill').first();
 		await expect(pill).toBeVisible();
-		await expect(pill).toHaveText(/connecting|connected|reconnecting|disconnected/i);
+		await expect(pill).toHaveText('connecting');
 	});
 
 	test('stream pill shows "connected" after SSE fires connected event', async ({ page }) => {
