@@ -6,7 +6,9 @@ import {
 	formatAge,
 	isStale,
 	needsReconnect,
+	scheduleSummary,
 	STREAM_LABELS,
+	stateColor,
 	streamHealthClass
 } from '$lib/dashboard';
 import type { StreamConnectionState, StreamKey } from '$lib/dashboard';
@@ -172,5 +174,41 @@ describe('STREAM_LABELS', () => {
 			expect(typeof STREAM_LABELS[key]).toBe('string');
 			expect(STREAM_LABELS[key].length).toBeGreaterThan(0);
 		}
+	});
+});
+
+describe('stateColor', () => {
+	it('maps known states to expected CSS classes', () => {
+		expect(stateColor('downloading')).toBe('state-active');
+		expect(stateColor('queued')).toBe('state-queued');
+		expect(stateColor('paused')).toBe('state-paused');
+		expect(stateColor('completed')).toBe('state-done');
+		expect(stateColor('error')).toBe('state-error');
+	});
+
+	it('returns state-unknown for unrecognised states', () => {
+		expect(stateColor('pending')).toBe('state-unknown');
+		expect(stateColor('')).toBe('state-unknown');
+		expect(stateColor('DOWNLOADING')).toBe('state-unknown');
+	});
+});
+
+describe('scheduleSummary', () => {
+	it('renders seconds for intervals under 60s', () => {
+		expect(scheduleSummary(1)).toBe('Every 1s');
+		expect(scheduleSummary(30)).toBe('Every 30s');
+		expect(scheduleSummary(59)).toBe('Every 59s');
+	});
+
+	it('renders minutes for intervals between 60s and 3600s', () => {
+		expect(scheduleSummary(60)).toBe('Every 1m');
+		expect(scheduleSummary(90)).toBe('Every 2m');
+		expect(scheduleSummary(3599)).toBe('Every 60m');
+	});
+
+	it('renders hours for intervals >= 3600s', () => {
+		expect(scheduleSummary(3600)).toBe('Every 1h');
+		expect(scheduleSummary(7200)).toBe('Every 2h');
+		expect(scheduleSummary(5400)).toBe('Every 2h');
 	});
 });
