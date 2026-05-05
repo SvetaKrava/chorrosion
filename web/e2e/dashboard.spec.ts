@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { injectAuth, injectConnectedEventSource, injectFailingEventSource, mockApiRoutes } from './helpers';
+import { injectAuth, injectConnectedEventSource, injectFailingEventSource, injectPendingEventSource, mockApiRoutes } from './helpers';
 
 test.describe('Dashboard — realtime stream status', () => {
 	test('shows a stream status pill in the header', async ({ page }) => {
 		await mockApiRoutes(page);
+		await injectPendingEventSource(page); // never fires → streams stay in 'connecting' state
 		await injectAuth(page);
-		// No EventSource mock → streams start in 'connecting' state (no real backend)
 		await page.goto('/dashboard');
 		const pill = page.locator('.section-header .pill').first();
 		await expect(pill).toBeVisible();

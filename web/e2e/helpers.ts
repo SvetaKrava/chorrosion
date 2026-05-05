@@ -57,6 +57,37 @@ export async function injectConnectedEventSource(page: Page): Promise<void> {
 }
 
 /**
+ * Inject a mock EventSource that never fires any events (no `onopen`, no
+ * `onerror`), keeping all streams permanently in the `connecting` state.
+ * Use this when you need to assert that the dashboard renders the initial
+ * `connecting` pill without the real EventSource racing to `reconnecting`.
+ * Must be called before `page.goto()`.
+ */
+export async function injectPendingEventSource(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		class PendingEventSource extends EventTarget {
+			static CONNECTING = 0;
+			static OPEN = 1;
+			static CLOSED = 2;
+			readyState = PendingEventSource.CONNECTING;
+			onopen: ((ev: Event) => void) | null = null;
+			onerror: ((ev: Event) => void) | null = null;
+
+			constructor(_url: string, _opts?: EventSourceInit) {
+				super();
+				// Intentionally fire nothing — stays in CONNECTING forever.
+			}
+
+			close() {
+				this.readyState = PendingEventSource.CLOSED;
+			}
+		}
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(window as any).EventSource = PendingEventSource;
+	});
+}
+
+/**
  * Inject a mock EventSource that immediately fires `onerror`, simulating a
  * backend that is unreachable. Must be called before `page.goto()`.
  */
