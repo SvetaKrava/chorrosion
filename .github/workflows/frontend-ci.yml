@@ -49,3 +49,24 @@ jobs:
 
       - name: Production build
         run: bun run build
+
+      - name: Install Playwright browsers (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright browsers (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npx playwright install chromium
+
+      - name: E2E smoke tests (Playwright)
+        run: bun run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 7
