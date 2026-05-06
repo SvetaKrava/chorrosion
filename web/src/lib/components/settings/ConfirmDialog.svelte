@@ -21,6 +21,8 @@
 		oncancel
 	}: Props = $props();
 
+	const dialogTitleId = `dialog-title-${crypto.randomUUID()}`;
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			oncancel();
@@ -34,18 +36,19 @@
 		class="dialog-backdrop"
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby="dialog-title"
+		aria-labelledby={dialogTitleId}
 		tabindex="-1"
 		onkeydown={handleKeydown}
 	>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div class="dialog-scrim" role="presentation" onclick={oncancel}></div>
 		<div class="dialog-panel">
-			<h3 class="dialog-title" id="dialog-title">{title}</h3>
+			<h3 class="dialog-title" id={dialogTitleId}>{title}</h3>
 			<p class="dialog-message">{message}</p>
 			<div class="dialog-actions">
-				<button class="btn-cancel" onclick={oncancel}>{cancelLabel}</button>
+				<button type="button" class="btn-cancel" onclick={oncancel}>{cancelLabel}</button>
 				<button
+					type="button"
 					class="btn-confirm"
 					class:destructive
 					onclick={onconfirm}

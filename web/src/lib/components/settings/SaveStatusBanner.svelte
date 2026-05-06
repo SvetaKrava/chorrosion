@@ -44,21 +44,21 @@
 	}
 
 	.saving {
-		background: rgba(15, 123, 108, 0.08);
+		background: rgba(var(--accent-rgb), 0.08);
 		color: var(--accent);
-		border: 1px solid rgba(15, 123, 108, 0.2);
+		border: 1px solid rgba(var(--accent-rgb), 0.2);
 	}
 
 	.saved {
-		background: rgba(17, 106, 63, 0.08);
+		background: rgba(var(--success-rgb), 0.08);
 		color: var(--success);
-		border: 1px solid rgba(17, 106, 63, 0.2);
+		border: 1px solid rgba(var(--success-rgb), 0.2);
 	}
 
 	.error {
-		background: rgba(182, 66, 46, 0.08);
+		background: rgba(var(--error-rgb), 0.08);
 		color: var(--error);
-		border: 1px solid rgba(182, 66, 46, 0.2);
+		border: 1px solid rgba(var(--error-rgb), 0.2);
 	}
 
 	.spinner {

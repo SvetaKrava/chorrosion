@@ -32,8 +32,8 @@
 		display: inline-block;
 		width: 1.5rem;
 		height: 1.5rem;
-		border: 2px solid rgba(15, 123, 108, 0.2);
-		border-top-color: var(--accent, #0f7b6c);
+		border: 2px solid rgba(var(--accent-rgb), 0.2);
+		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.6s linear infinite;
 	}

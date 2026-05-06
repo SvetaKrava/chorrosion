@@ -11,7 +11,7 @@
 <div class="empty-state" role="status">
 	<p class="message">{message}</p>
 	{#if actionLabel && onaction}
-		<button class="action-btn" onclick={onaction}>{actionLabel}</button>
+		<button type="button" class="action-btn" onclick={onaction}>{actionLabel}</button>
 	{/if}
 </div>
 

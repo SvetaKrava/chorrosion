@@ -11,7 +11,7 @@
 	<span class="icon" aria-hidden="true">⚠</span>
 	<p class="text">{message}</p>
 	{#if onretry}
-		<button class="retry-btn" onclick={onretry}>Try again</button>
+		<button type="button" class="retry-btn" onclick={onretry}>Try again</button>
 	{/if}
 </div>
 

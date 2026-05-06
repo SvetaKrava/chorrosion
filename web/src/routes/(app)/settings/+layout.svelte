@@ -86,13 +86,13 @@
 
 	.settings-nav-link:hover {
 		color: var(--text-primary);
-		background: rgba(0, 0, 0, 0.03);
+		background: rgba(var(--accent-rgb), 0.03);
 	}
 
 	.settings-nav-link.active {
 		color: var(--accent);
 		border-left-color: var(--accent);
-		background: rgba(15, 123, 108, 0.06);
+		background: rgba(var(--accent-rgb), 0.06);
 	}
 
 	.settings-content {

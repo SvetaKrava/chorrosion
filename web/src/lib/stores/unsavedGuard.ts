@@ -5,7 +5,7 @@
  *   import { createUnsavedGuard } from '$lib/stores/unsavedGuard';
  *
  *   // In a settings page component:
- *   const guard = createUnsavedGuard();
+ *   const guard = createUnsavedGuard(() => { showConfirmDialog = true; });
  *
  *   // Mark dirty when a field changes:
  *   guard.markDirty();
@@ -13,11 +13,11 @@
  *   // Clear after successful save:
  *   guard.markClean();
  *
- *   // Check before navigating:
- *   if (guard.isDirty) { ... show confirm dialog ... }
+ *   // Check state imperatively (e.g. to disable a Save button):
+ *   if (guard.isDirty) { ... }
  *
- *   // Wire into SvelteKit beforeNavigate:
- *   guard.beforeNavigate(navigate);  // cancels navigation if dirty and dialog is pending
+ *   // Navigation is blocked automatically via beforeNavigate; the optional
+ *   // onNavigateBlocked callback lets you open a confirm dialog in response.
  */
 
 import { beforeNavigate } from '$app/navigation';
@@ -38,7 +38,7 @@ export interface UnsavedGuard {
  *   use this to open your ConfirmDialog. Resolve by calling markClean() + goto().
  */
 export function createUnsavedGuard(onNavigateBlocked?: () => void): UnsavedGuard {
-	let dirty = $state(false);
+	let dirty = false;
 
 	beforeNavigate(({ cancel }) => {
 		if (dirty) {

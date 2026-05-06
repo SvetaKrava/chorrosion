@@ -5,10 +5,13 @@
 	--paper: #fffdf7;
 	--ink: #0f1a1f;
 	--accent: #0f7b6c;
+	--accent-rgb: 15, 123, 108;
 	--accent-2: #cf5a2f;
 	--soft: #d4c9b1;
 	--error: #b6422e;
+	--error-rgb: 182, 66, 46;
 	--success: #116a3f;
+	--success-rgb: 17, 106, 63;
 }
 
 * {
