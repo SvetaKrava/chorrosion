@@ -26,7 +26,7 @@
 		{ label: 'Dashboard', href: '/dashboard' },
 		{ label: 'Artists', href: '/artists' },
 		{ label: 'Albums', href: '/albums' },
-		{ label: 'Appearance', href: '/appearance' }
+		{ label: 'Settings', href: '/settings' }
 	];
 
 	function isActive(href: string): boolean {
