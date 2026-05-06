@@ -4,11 +4,29 @@ import type {
 	ActivityListResponse,
 	Artist,
 	Album,
+	CreateDownloadClientRequest,
+	CreateIndexerRequest,
+	CreateMetadataProfileRequest,
+	CreateQualityProfileRequest,
+	DownloadClient,
+	Indexer,
+	ListDownloadClientsResponse,
+	ListIndexersResponse,
+	ListMetadataProfilesResponse,
+	ListQualityProfilesResponse,
+	MetadataProfile,
 	Track,
 	FormsLoginResponse,
 	FormsLogoutResponse,
 	PaginatedResponse,
-	SystemTasksResponse
+	QualityProfile,
+	SystemTasksResponse,
+	TestIndexerRequest,
+	TestIndexerResponse,
+	UpdateDownloadClientRequest,
+	UpdateIndexerRequest,
+	UpdateMetadataProfileRequest,
+	UpdateQualityProfileRequest
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_CHORROSION_API_BASE ?? 'http://127.0.0.1:5150').replace(
@@ -109,6 +127,177 @@ export async function updateAppearanceSettings(
 	return request<AppearanceSettings>('/api/v1/settings/appearance', {
 		method: 'PUT',
 		body: JSON.stringify(settings)
+	});
+}
+
+export async function getDownloadClients(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<ListDownloadClientsResponse> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<ListDownloadClientsResponse>(
+		`/api/v1/settings/download-clients${qs ? `?${qs}` : ''}`
+	);
+}
+
+export async function getDownloadClient(id: string): Promise<DownloadClient> {
+	return request<DownloadClient>(`/api/v1/settings/download-clients/${encodeURIComponent(id)}`);
+}
+
+export async function createDownloadClient(
+	payload: CreateDownloadClientRequest
+): Promise<DownloadClient> {
+	return request<DownloadClient>('/api/v1/settings/download-clients', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function updateDownloadClient(
+	id: string,
+	payload: UpdateDownloadClientRequest
+): Promise<DownloadClient> {
+	return request<DownloadClient>(`/api/v1/settings/download-clients/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function deleteDownloadClient(id: string): Promise<void> {
+	await request<unknown>(`/api/v1/settings/download-clients/${encodeURIComponent(id)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function getIndexers(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<ListIndexersResponse> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<ListIndexersResponse>(`/api/v1/settings/indexers${qs ? `?${qs}` : ''}`);
+}
+
+export async function getIndexer(id: string): Promise<Indexer> {
+	return request<Indexer>(`/api/v1/settings/indexers/${encodeURIComponent(id)}`);
+}
+
+export async function createIndexer(payload: CreateIndexerRequest): Promise<Indexer> {
+	return request<Indexer>('/api/v1/settings/indexers', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function updateIndexer(
+	id: string,
+	payload: UpdateIndexerRequest
+): Promise<Indexer> {
+	return request<Indexer>(`/api/v1/settings/indexers/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function deleteIndexer(id: string): Promise<void> {
+	await request<unknown>(`/api/v1/settings/indexers/${encodeURIComponent(id)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function testIndexer(payload: TestIndexerRequest): Promise<TestIndexerResponse> {
+	return request<TestIndexerResponse>('/api/v1/indexers/test', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function getQualityProfiles(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<ListQualityProfilesResponse> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<ListQualityProfilesResponse>(
+		`/api/v1/settings/quality-profiles${qs ? `?${qs}` : ''}`
+	);
+}
+
+export async function getQualityProfile(id: string): Promise<QualityProfile> {
+	return request<QualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`);
+}
+
+export async function createQualityProfile(
+	payload: CreateQualityProfileRequest
+): Promise<QualityProfile> {
+	return request<QualityProfile>('/api/v1/settings/quality-profiles', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function updateQualityProfile(
+	id: string,
+	payload: UpdateQualityProfileRequest
+): Promise<QualityProfile> {
+	return request<QualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function deleteQualityProfile(id: string): Promise<void> {
+	await request<unknown>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function getMetadataProfiles(params?: {
+	limit?: number;
+	offset?: number;
+}): Promise<ListMetadataProfilesResponse> {
+	const query = new URLSearchParams();
+	if (params?.limit !== undefined) query.set('limit', String(params.limit));
+	if (params?.offset !== undefined) query.set('offset', String(params.offset));
+	const qs = query.toString();
+	return request<ListMetadataProfilesResponse>(
+		`/api/v1/settings/metadata-profiles${qs ? `?${qs}` : ''}`
+	);
+}
+
+export async function getMetadataProfile(id: string): Promise<MetadataProfile> {
+	return request<MetadataProfile>(`/api/v1/settings/metadata-profiles/${encodeURIComponent(id)}`);
+}
+
+export async function createMetadataProfile(
+	payload: CreateMetadataProfileRequest
+): Promise<MetadataProfile> {
+	return request<MetadataProfile>('/api/v1/settings/metadata-profiles', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function updateMetadataProfile(
+	id: string,
+	payload: UpdateMetadataProfileRequest
+): Promise<MetadataProfile> {
+	return request<MetadataProfile>(`/api/v1/settings/metadata-profiles/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function deleteMetadataProfile(id: string): Promise<void> {
+	await request<unknown>(`/api/v1/settings/metadata-profiles/${encodeURIComponent(id)}`, {
+		method: 'DELETE'
 	});
 }
 

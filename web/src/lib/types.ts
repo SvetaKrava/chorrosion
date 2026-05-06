@@ -31,6 +31,176 @@ export interface AppearanceErrorResponse {
 	error: string;
 }
 
+export interface DownloadClient {
+	id: string;
+	name: string;
+	client_type: string;
+	base_url: string;
+	username: string | null;
+	category: string | null;
+	enabled: boolean;
+	has_password: boolean;
+}
+
+export interface ListDownloadClientsResponse {
+	items: DownloadClient[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface CreateDownloadClientRequest {
+	name: string;
+	client_type: string;
+	base_url: string;
+	username?: string | null;
+	password?: string | null;
+	category?: string | null;
+	enabled?: boolean;
+}
+
+export interface UpdateDownloadClientRequest {
+	name?: string;
+	client_type?: string;
+	base_url?: string;
+	username?: string | null;
+	password?: string | null;
+	category?: string | null;
+	enabled?: boolean;
+}
+
+export interface DownloadClientErrorResponse {
+	error: string;
+}
+
+export interface Indexer {
+	id: string;
+	name: string;
+	base_url: string;
+	protocol: string;
+	enabled: boolean;
+	has_api_key: boolean;
+}
+
+export interface ListIndexersResponse {
+	items: Indexer[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface CreateIndexerRequest {
+	name: string;
+	base_url: string;
+	protocol: string;
+	api_key?: string | null;
+	enabled?: boolean;
+}
+
+export interface UpdateIndexerRequest {
+	name?: string;
+	base_url?: string;
+	protocol?: string;
+	api_key?: string | null;
+	enabled?: boolean;
+}
+
+export interface IndexerErrorResponse {
+	error: string;
+}
+
+export interface TestIndexerRequest {
+	name: string;
+	base_url: string;
+	protocol: string;
+	api_key?: string | null;
+}
+
+export interface IndexerCapabilities {
+	supports_search: boolean;
+	supports_rss: boolean;
+	supports_capabilities_detection: boolean;
+	supports_categories: boolean;
+	supported_categories: string[];
+}
+
+export interface TestIndexerResponse {
+	success: boolean;
+	message: string;
+	protocol: string;
+	capabilities: IndexerCapabilities;
+}
+
+export interface IndexerTestErrorResponse {
+	error: string;
+}
+
+export interface QualityProfile {
+	id: string;
+	name: string;
+	allowed_qualities: string[];
+	upgrade_allowed: boolean;
+	cutoff_quality: string | null;
+}
+
+export interface ListQualityProfilesResponse {
+	items: QualityProfile[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface CreateQualityProfileRequest {
+	name: string;
+	allowed_qualities: string[];
+	upgrade_allowed?: boolean;
+	cutoff_quality?: string | null;
+}
+
+export interface UpdateQualityProfileRequest {
+	name?: string;
+	allowed_qualities?: string[];
+	upgrade_allowed?: boolean;
+	cutoff_quality?: string | null;
+}
+
+export interface QualityProfileErrorResponse {
+	error: string;
+}
+
+export interface MetadataProfile {
+	id: string;
+	name: string;
+	primary_album_types: string[];
+	secondary_album_types: string[];
+	release_statuses: string[];
+}
+
+export interface ListMetadataProfilesResponse {
+	items: MetadataProfile[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface CreateMetadataProfileRequest {
+	name: string;
+	primary_album_types?: string[];
+	secondary_album_types?: string[];
+	release_statuses?: string[];
+}
+
+export interface UpdateMetadataProfileRequest {
+	name?: string;
+	primary_album_types?: string[];
+	secondary_album_types?: string[];
+	release_statuses?: string[];
+}
+
+export interface MetadataProfileErrorResponse {
+	error: string;
+}
+
 export interface SseMessage<T = unknown> {
 	sequence?: number;
 	tick?: number;
