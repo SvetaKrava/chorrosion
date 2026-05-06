@@ -485,12 +485,12 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 12.1 UX Hardening
 
-- [ ] Robust loading/empty/error states across core routes (Issue #444)
-- [ ] Connection-health UX and manual reconnect controls (Issue #447)
+- [x] Robust loading/empty/error states across core routes (Issue #444) ✓
+- [x] Connection-health UX and manual reconnect controls (Issue #447) ✓
 
 ### 12.2 Accessibility
 
-- [ ] Accessibility pass for keyboard, landmarks, labels, and focus management (Issue #445)
+- [x] Accessibility pass for keyboard, landmarks, labels, and focus management (Issue #445) ✓
 
 ### 12.3 UI Reliability Testing
 
@@ -498,7 +498,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 12.4 UI-State Maintainability
 
-- [ ] Consolidate dashboard presentation logic into tested UI-state helpers (Issue #448)
+- [x] Consolidate dashboard presentation logic into tested UI-state helpers (Issue #448) ✓
 
 ---
 
@@ -553,6 +553,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-04-30  
-**Current Phase:** Phase 12: UI Production Readiness  
-**Status:** Active UI hardening and reliability work for v1.0 readiness
+**Last Updated:** 2026-05-06  
+**Current Phase:** Phase 12: UI Production Readiness ✅ COMPLETE  
+**Status:** All Phase 12 UI production readiness items merged; project ready for v1.0 milestone planning
