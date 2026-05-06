@@ -494,7 +494,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ### 12.3 UI Reliability Testing
 
-- [ ] Playwright smoke E2E for auth, navigation, and realtime dashboard (Issue #446)
+- [x] Playwright smoke E2E for auth, navigation, and realtime dashboard (Issue #446) ✓
 
 ### 12.4 UI-State Maintainability
 
