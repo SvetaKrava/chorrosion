@@ -1,5 +1,5 @@
 import type {
-	AppearanceErrorResponse,
+	ApiErrorResponse,
 	AppearanceSettings,
 	ActivityListResponse,
 	Artist,
@@ -45,6 +45,14 @@ export class ApiError extends Error {
 	}
 }
 
+/** Extracts the error message from an API response body, falling back to `fallback`. */
+export function parseApiError(body: unknown, fallback: string): string {
+	if (typeof body === 'object' && body !== null && 'error' in body) {
+		return String((body as ApiErrorResponse).error);
+	}
+	return fallback;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	const response = await fetch(`${API_BASE}${path}`, {
 		...init,
@@ -67,11 +75,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 	if (!response.ok) {
 		const fallbackMessage = `Request failed with status ${response.status}`;
-		const apiMessage =
-			typeof body === 'object' && body !== null && 'error' in body
-				? String((body as AppearanceErrorResponse).error)
-				: fallbackMessage;
-		throw new ApiError(apiMessage, response.status, body);
+		throw new ApiError(parseApiError(body, fallbackMessage), response.status, body);
 	}
 
 	return (body ?? {}) as T;
@@ -103,10 +107,7 @@ export async function login(username: string, password: string): Promise<FormsLo
 	}
 
 	if (!response.ok) {
-		const errorMessage =
-			typeof body === 'object' && body !== null && 'error' in body
-				? String((body as { error: unknown }).error)
-				: `Login failed (${response.status})`;
+		const errorMessage = parseApiError(body, `Login failed (${response.status})`);
 		throw new ApiError(errorMessage, response.status, body);
 	}
 

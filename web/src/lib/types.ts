@@ -10,6 +10,30 @@ export interface FormsLogoutResponse {
 	logged_out: boolean;
 }
 
+/** Shared paginated response wrapper used for all list endpoints. */
+export interface PaginatedResponse<T> {
+	items: T[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+/** Shared API error response shape returned by all endpoints on failure. */
+export interface ApiErrorResponse {
+	error: string;
+}
+
+/** Field-level validation error detail (included in 400/422 responses). */
+export interface ApiValidationFieldError {
+	field: string;
+	message: string;
+}
+
+/** Extended error shape for validation failures that include per-field errors. */
+export interface ApiValidationError extends ApiErrorResponse {
+	fields?: ApiValidationFieldError[];
+}
+
 export interface AppearanceSettings {
 	theme_mode: 'system' | 'dark' | 'light';
 	mobile_breakpoint_px: number;
@@ -27,9 +51,7 @@ export interface AppearanceSettings {
 	filter_history_limit: number;
 }
 
-export interface AppearanceErrorResponse {
-	error: string;
-}
+export type AppearanceErrorResponse = ApiErrorResponse;
 
 export interface DownloadClient {
 	id: string;
@@ -42,12 +64,7 @@ export interface DownloadClient {
 	has_password: boolean;
 }
 
-export interface ListDownloadClientsResponse {
-	items: DownloadClient[];
-	total: number;
-	limit: number;
-	offset: number;
-}
+export type ListDownloadClientsResponse = PaginatedResponse<DownloadClient>;
 
 export interface CreateDownloadClientRequest {
 	name: string;
@@ -63,15 +80,13 @@ export interface UpdateDownloadClientRequest {
 	name?: string;
 	client_type?: string;
 	base_url?: string;
-	username?: string | null;
-	password?: string | null;
-	category?: string | null;
+	username?: string;
+	password?: string;
+	category?: string;
 	enabled?: boolean;
 }
 
-export interface DownloadClientErrorResponse {
-	error: string;
-}
+export type DownloadClientErrorResponse = ApiErrorResponse;
 
 export interface Indexer {
 	id: string;
@@ -82,12 +97,7 @@ export interface Indexer {
 	has_api_key: boolean;
 }
 
-export interface ListIndexersResponse {
-	items: Indexer[];
-	total: number;
-	limit: number;
-	offset: number;
-}
+export type ListIndexersResponse = PaginatedResponse<Indexer>;
 
 export interface CreateIndexerRequest {
 	name: string;
@@ -101,13 +111,11 @@ export interface UpdateIndexerRequest {
 	name?: string;
 	base_url?: string;
 	protocol?: string;
-	api_key?: string | null;
+	api_key?: string;
 	enabled?: boolean;
 }
 
-export interface IndexerErrorResponse {
-	error: string;
-}
+export type IndexerErrorResponse = ApiErrorResponse;
 
 export interface TestIndexerRequest {
 	name: string;
@@ -131,9 +139,7 @@ export interface TestIndexerResponse {
 	capabilities: IndexerCapabilities;
 }
 
-export interface IndexerTestErrorResponse {
-	error: string;
-}
+export type IndexerTestErrorResponse = ApiErrorResponse;
 
 export interface QualityProfile {
 	id: string;
@@ -143,12 +149,7 @@ export interface QualityProfile {
 	cutoff_quality: string | null;
 }
 
-export interface ListQualityProfilesResponse {
-	items: QualityProfile[];
-	total: number;
-	limit: number;
-	offset: number;
-}
+export type ListQualityProfilesResponse = PaginatedResponse<QualityProfile>;
 
 export interface CreateQualityProfileRequest {
 	name: string;
@@ -161,12 +162,10 @@ export interface UpdateQualityProfileRequest {
 	name?: string;
 	allowed_qualities?: string[];
 	upgrade_allowed?: boolean;
-	cutoff_quality?: string | null;
+	cutoff_quality?: string;
 }
 
-export interface QualityProfileErrorResponse {
-	error: string;
-}
+export type QualityProfileErrorResponse = ApiErrorResponse;
 
 export interface MetadataProfile {
 	id: string;
@@ -176,12 +175,7 @@ export interface MetadataProfile {
 	release_statuses: string[];
 }
 
-export interface ListMetadataProfilesResponse {
-	items: MetadataProfile[];
-	total: number;
-	limit: number;
-	offset: number;
-}
+export type ListMetadataProfilesResponse = PaginatedResponse<MetadataProfile>;
 
 export interface CreateMetadataProfileRequest {
 	name: string;
@@ -197,9 +191,7 @@ export interface UpdateMetadataProfileRequest {
 	release_statuses?: string[];
 }
 
-export interface MetadataProfileErrorResponse {
-	error: string;
-}
+export type MetadataProfileErrorResponse = ApiErrorResponse;
 
 export interface SseMessage<T = unknown> {
 	sequence?: number;
@@ -241,13 +233,6 @@ export interface SystemTasksResponse {
 	items: SystemTask[];
 	total: number;
 	max_concurrent_jobs: number;
-}
-
-export interface PaginatedResponse<T> {
-	items: T[];
-	total: number;
-	limit: number;
-	offset: number;
 }
 
 export interface Artist {
