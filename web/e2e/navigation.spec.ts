@@ -13,7 +13,7 @@ test.describe('Navigation', () => {
 		await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
 		await expect(nav.getByRole('link', { name: 'Artists' })).toBeVisible();
 		await expect(nav.getByRole('link', { name: 'Albums' })).toBeVisible();
-		await expect(nav.getByRole('link', { name: 'Appearance' })).toBeVisible();
+		await expect(nav.getByRole('link', { name: 'Settings' })).toBeVisible();
 	});
 
 	test('active nav link has aria-current="page"', async ({ page }) => {
@@ -25,7 +25,7 @@ test.describe('Navigation', () => {
 	test('non-active nav links do not have aria-current', async ({ page }) => {
 		await page.goto('/dashboard');
 		const nav = page.getByRole('navigation', { name: 'Main navigation' });
-		for (const name of ['Artists', 'Albums', 'Appearance']) {
+		for (const name of ['Artists', 'Albums', 'Settings']) {
 			await expect(nav.getByRole('link', { name })).not.toHaveAttribute('aria-current');
 		}
 	});
@@ -44,10 +44,10 @@ test.describe('Navigation', () => {
 		await expect(page.getByRole('heading', { name: 'Albums' })).toBeVisible();
 	});
 
-	test('clicking Appearance navigates to /appearance', async ({ page }) => {
+	test('clicking Settings navigates to /settings', async ({ page }) => {
 		await page.goto('/dashboard');
-		await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Appearance' }).click();
-		await expect(page).toHaveURL('/appearance');
+		await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Settings' }).click();
+		await expect(page).toHaveURL(/\/settings/);
 	});
 
 	test('nav link aria-current tracks the active page', async ({ page }) => {
