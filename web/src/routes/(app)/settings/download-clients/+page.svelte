@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import SettingsSection from '$lib/components/settings/SettingsSection.svelte';
 	import EmptyState from '$lib/components/settings/EmptyState.svelte';
 	import LoadingSpinner from '$lib/components/settings/LoadingSpinner.svelte';
@@ -46,6 +46,21 @@
 	let deleteTarget = $state<DownloadClient | null>(null);
 	let deleteDialogOpen = $state(false);
 	let deleting = $state(false);
+
+	// banner auto-clear timer
+	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleBannerClear() {
+		if (saveStatusTimer !== null) clearTimeout(saveStatusTimer);
+		saveStatusTimer = setTimeout(() => {
+			saveStatus = 'idle';
+			saveStatusTimer = null;
+		}, 2500);
+	}
+
+	onDestroy(() => {
+		if (saveStatusTimer !== null) clearTimeout(saveStatusTimer);
+	});
 
 	// ── constants ──────────────────────────────────────────────────────────────
 	const CLIENT_TYPES = [
@@ -134,9 +149,9 @@
 					name: formName.trim(),
 					client_type: formClientType,
 					base_url: formBaseUrl.trim(),
-				username: formUsername.trim() || undefined,
-				password: formPassword || undefined,
-				category: formCategory.trim() || undefined,
+					username: formUsername.trim(),
+					password: formPassword || undefined,
+					category: formCategory.trim(),
 					enabled: formEnabled
 				};
 				const updated = await updateDownloadClient(editingClient.id, payload);
@@ -156,7 +171,7 @@
 			}
 			closeModal();
 			saveStatus = 'saved';
-			setTimeout(() => (saveStatus = 'idle'), 2500);
+			scheduleBannerClear();
 		} catch (err) {
 			saveError = err instanceof ApiError ? err.message : 'Save failed.';
 			saveStatus = 'error';
@@ -170,8 +185,9 @@
 		try {
 			const updated = await updateDownloadClient(client.id, { enabled: !client.enabled });
 			clients = clients.map((c) => (c.id === updated.id ? updated : c));
-		} catch {
-			// silently ignore; no optimistic update was applied
+		} catch (err) {
+			saveError = err instanceof ApiError ? err.message : 'Failed to update client.';
+			saveStatus = 'error';
 		}
 	}
 
@@ -188,7 +204,7 @@
 			await deleteDownloadClient(deleteTarget.id);
 			clients = clients.filter((c) => c.id !== deleteTarget!.id);
 			saveStatus = 'saved';
-			setTimeout(() => (saveStatus = 'idle'), 2500);
+			scheduleBannerClear();
 		} catch (err) {
 			saveError = err instanceof ApiError ? err.message : 'Delete failed.';
 			saveStatus = 'error';
@@ -267,6 +283,7 @@
 </SettingsSection>
 
 <!-- ── Add / Edit modal ─────────────────────────────────────────────────── -->
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && modalOpen) closeModal(); }} />
 {#if modalOpen}
 	<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -354,7 +371,7 @@
 <ConfirmDialog
 	open={deleteDialogOpen}
 	title="Delete Download Client"
-	message="Delete '{deleteTarget?.name}'? This cannot be undone."
+	message={`Delete "${deleteTarget?.name ?? ''}"? This cannot be undone.`}
 	confirmLabel={deleting ? 'Deleting…' : 'Delete'}
 	destructive
 	onconfirm={confirmDelete}
