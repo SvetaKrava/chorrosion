@@ -283,7 +283,7 @@
 </SettingsSection>
 
 <!-- ── Add / Edit modal ─────────────────────────────────────────────────── -->
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && modalOpen) closeModal(); }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && modalOpen) { e.preventDefault(); e.stopPropagation(); closeModal(); } }} />
 {#if modalOpen}
 	<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
