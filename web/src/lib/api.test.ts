@@ -29,11 +29,11 @@ describe('ApiError', () => {
 describe('sseUrl', () => {
 	it('appends path to default API base', () => {
 		const url = sseUrl('/api/v1/events');
-		expect(url).toBe('http://127.0.0.1:5150/api/v1/events');
+		expect(url).toBe('/api/v1/events');
 	});
 
 	it('appends a nested SSE path', () => {
 		const url = sseUrl('/api/v1/events/job-status');
-		expect(url).toBe('http://127.0.0.1:5150/api/v1/events/job-status');
+		expect(url).toBe('/api/v1/events/job-status');
 	});
 });
