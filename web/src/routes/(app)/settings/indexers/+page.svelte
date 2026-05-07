@@ -143,6 +143,10 @@
 		return Object.keys(errors).length === 0;
 	}
 
+	function testRequiresApiKey(): boolean {
+		return !!editingIndexer?.has_api_key && !formApiKey.trim();
+	}
+
 	async function saveForm() {
 		if (!validateForm()) return;
 		formSaving = true;
@@ -183,7 +187,7 @@
 
 	async function runTest() {
 		if (!validateForm()) return;
-		if (editingIndexer?.has_api_key && !formApiKey.trim()) {
+		if (testRequiresApiKey()) {
 			testStatus = 'error';
 			testResult = null;
 			testError = 'Enter the API key to test this indexer.';
@@ -396,7 +400,7 @@
 						type="button"
 						class="btn-secondary"
 						onclick={runTest}
-						disabled={testStatus === 'testing' || (!!editingIndexer?.has_api_key && !formApiKey.trim())}
+						disabled={testStatus === 'testing' || testRequiresApiKey()}
 					>
 						{testStatus === 'testing' ? 'Testing…' : 'Test'}
 					</button>
