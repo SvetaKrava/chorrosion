@@ -29,10 +29,7 @@ import type {
 	UpdateQualityProfileRequest
 } from './types';
 
-const API_BASE = (import.meta.env.VITE_CHORROSION_API_BASE ?? 'http://127.0.0.1:5150').replace(
-	/\/$/,
-	''
-);
+const API_BASE = (import.meta.env.VITE_CHORROSION_API_BASE ?? '').replace(/\/$/, '');
 
 export class ApiError extends Error {
 	status: number;
