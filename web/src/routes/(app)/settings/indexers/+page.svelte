@@ -183,6 +183,12 @@
 
 	async function runTest() {
 		if (!validateForm()) return;
+		if (editingIndexer?.has_api_key && !formApiKey.trim()) {
+			testStatus = 'error';
+			testResult = null;
+			testError = 'Enter the API key to test this indexer.';
+			return;
+		}
 		testStatus = 'testing';
 		testResult = null;
 		testError = '';
@@ -367,7 +373,10 @@
 				{#if testStatus === 'success' && testResult}
 					<div class="test-result success">
 						<strong>Connection successful</strong> — {testResult.message}
-						{#if testResult.capabilities.supports_search || testResult.capabilities.supports_rss}
+						{#if
+							testResult.capabilities.supports_search ||
+							testResult.capabilities.supports_rss ||
+							testResult.capabilities.supports_categories}
 							<ul class="capabilities">
 								{#if testResult.capabilities.supports_search}<li>Search</li>{/if}
 								{#if testResult.capabilities.supports_rss}<li>RSS</li>{/if}
@@ -387,7 +396,7 @@
 						type="button"
 						class="btn-secondary"
 						onclick={runTest}
-						disabled={testStatus === 'testing'}
+						disabled={testStatus === 'testing' || (!!editingIndexer?.has_api_key && !formApiKey.trim())}
 					>
 						{testStatus === 'testing' ? 'Testing…' : 'Test'}
 					</button>
