@@ -10,6 +10,30 @@ export interface FormsLogoutResponse {
 	logged_out: boolean;
 }
 
+/** Shared paginated response wrapper used for all list endpoints. */
+export interface PaginatedResponse<T> {
+	items: T[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+/** Shared API error response shape returned by all endpoints on failure. */
+export interface ApiErrorResponse {
+	error: string;
+}
+
+/** Field-level validation error detail (included in 400/422 responses). */
+export interface ApiValidationFieldError {
+	field: string;
+	message: string;
+}
+
+/** Extended error shape for validation failures that include per-field errors. */
+export interface ApiValidationError extends ApiErrorResponse {
+	fields?: ApiValidationFieldError[];
+}
+
 export interface AppearanceSettings {
 	theme_mode: 'system' | 'dark' | 'light';
 	mobile_breakpoint_px: number;
@@ -27,9 +51,147 @@ export interface AppearanceSettings {
 	filter_history_limit: number;
 }
 
-export interface AppearanceErrorResponse {
-	error: string;
+export type AppearanceErrorResponse = ApiErrorResponse;
+
+export interface DownloadClient {
+	id: string;
+	name: string;
+	client_type: string;
+	base_url: string;
+	username: string | null;
+	category: string | null;
+	enabled: boolean;
+	has_password: boolean;
 }
+
+export type ListDownloadClientsResponse = PaginatedResponse<DownloadClient>;
+
+export interface CreateDownloadClientRequest {
+	name: string;
+	client_type: string;
+	base_url: string;
+	username?: string | null;
+	password?: string | null;
+	category?: string | null;
+	enabled?: boolean;
+}
+
+export interface UpdateDownloadClientRequest {
+	name?: string;
+	client_type?: string;
+	base_url?: string;
+	username?: string;
+	password?: string;
+	category?: string;
+	enabled?: boolean;
+}
+
+export type DownloadClientErrorResponse = ApiErrorResponse;
+
+export interface Indexer {
+	id: string;
+	name: string;
+	base_url: string;
+	protocol: string;
+	enabled: boolean;
+	has_api_key: boolean;
+}
+
+export type ListIndexersResponse = PaginatedResponse<Indexer>;
+
+export interface CreateIndexerRequest {
+	name: string;
+	base_url: string;
+	protocol: string;
+	api_key?: string | null;
+	enabled?: boolean;
+}
+
+export interface UpdateIndexerRequest {
+	name?: string;
+	base_url?: string;
+	protocol?: string;
+	api_key?: string;
+	enabled?: boolean;
+}
+
+export type IndexerErrorResponse = ApiErrorResponse;
+
+export interface TestIndexerRequest {
+	name: string;
+	base_url: string;
+	protocol: string;
+	api_key?: string | null;
+}
+
+export interface IndexerCapabilities {
+	supports_search: boolean;
+	supports_rss: boolean;
+	supports_capabilities_detection: boolean;
+	supports_categories: boolean;
+	supported_categories: string[];
+}
+
+export interface TestIndexerResponse {
+	success: boolean;
+	message: string;
+	protocol: string;
+	capabilities: IndexerCapabilities;
+}
+
+export type IndexerTestErrorResponse = ApiErrorResponse;
+
+export interface QualityProfile {
+	id: string;
+	name: string;
+	allowed_qualities: string[];
+	upgrade_allowed: boolean;
+	cutoff_quality: string | null;
+}
+
+export type ListQualityProfilesResponse = PaginatedResponse<QualityProfile>;
+
+export interface CreateQualityProfileRequest {
+	name: string;
+	allowed_qualities: string[];
+	upgrade_allowed?: boolean;
+	cutoff_quality?: string | null;
+}
+
+export interface UpdateQualityProfileRequest {
+	name?: string;
+	allowed_qualities?: string[];
+	upgrade_allowed?: boolean;
+	cutoff_quality?: string;
+}
+
+export type QualityProfileErrorResponse = ApiErrorResponse;
+
+export interface MetadataProfile {
+	id: string;
+	name: string;
+	primary_album_types: string[];
+	secondary_album_types: string[];
+	release_statuses: string[];
+}
+
+export type ListMetadataProfilesResponse = PaginatedResponse<MetadataProfile>;
+
+export interface CreateMetadataProfileRequest {
+	name: string;
+	primary_album_types?: string[];
+	secondary_album_types?: string[];
+	release_statuses?: string[];
+}
+
+export interface UpdateMetadataProfileRequest {
+	name?: string;
+	primary_album_types?: string[];
+	secondary_album_types?: string[];
+	release_statuses?: string[];
+}
+
+export type MetadataProfileErrorResponse = ApiErrorResponse;
 
 export interface SseMessage<T = unknown> {
 	sequence?: number;
@@ -71,13 +233,6 @@ export interface SystemTasksResponse {
 	items: SystemTask[];
 	total: number;
 	max_concurrent_jobs: number;
-}
-
-export interface PaginatedResponse<T> {
-	items: T[];
-	total: number;
-	limit: number;
-	offset: number;
 }
 
 export interface Artist {
