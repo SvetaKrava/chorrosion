@@ -65,6 +65,7 @@ pub struct UpdateQualityProfileRequest {
     pub name: Option<String>,
     pub allowed_qualities: Option<Vec<String>>,
     pub upgrade_allowed: Option<bool>,
+    /// Outer Option tracks field presence; inner Option allows explicit null to clear cutoff.
     pub cutoff_quality: Option<Option<String>>,
 }
 
