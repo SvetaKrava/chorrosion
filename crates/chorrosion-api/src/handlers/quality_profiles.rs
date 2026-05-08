@@ -65,7 +65,7 @@ pub struct UpdateQualityProfileRequest {
     pub name: Option<String>,
     pub allowed_qualities: Option<Vec<String>>,
     pub upgrade_allowed: Option<bool>,
-    pub cutoff_quality: Option<String>,
+    pub cutoff_quality: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -327,7 +327,7 @@ pub async fn update_quality_profile(
         profile.upgrade_allowed = upgrade_allowed;
     }
     if let Some(cutoff_quality) = request.cutoff_quality {
-        profile.cutoff_quality = Some(cutoff_quality);
+        profile.cutoff_quality = cutoff_quality;
     }
 
     match state.quality_profile_repository.update(profile).await {
@@ -653,6 +653,42 @@ mod tests {
                     .await
                     .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn update_quality_profile_allows_clearing_cutoff_quality_with_null() {
+            let state = make_test_state().await;
+            let mut profile = create_test_profile(&state).await;
+            profile.cutoff_quality = Some("FLAC".to_string());
+            let profile = state
+                .quality_profile_repository
+                .update(profile)
+                .await
+                .expect("update test quality profile");
+
+            let request = UpdateQualityProfileRequest {
+                name: None,
+                allowed_qualities: None,
+                upgrade_allowed: None,
+                cutoff_quality: Some(None),
+            };
+
+            let response = update_quality_profile(
+                State(state.clone()),
+                Path(profile.id.to_string()),
+                Json(request),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let fetched = state
+                .quality_profile_repository
+                .get_by_id(&profile.id.to_string())
+                .await
+                .expect("fetch updated quality profile")
+                .expect("quality profile should exist");
+            assert_eq!(fetched.cutoff_quality, None);
         }
 
         // --- delete_quality_profile ---

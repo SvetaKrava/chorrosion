@@ -34,6 +34,21 @@
 		'Opus 320',
 		'Opus 256'
 	];
+	const PRESET_QUALITY_SET = new Set(PRESET_QUALITIES);
+
+	function sortedCustomQualities(values: Iterable<string>): string[] {
+		return [...new Set(values)]
+			.filter((q) => q.trim().length > 0 && !PRESET_QUALITY_SET.has(q))
+			.sort((a, b) => a.localeCompare(b));
+	}
+
+	function orderedAllowedQualities(values: Iterable<string>): string[] {
+		const selected = new Set(values);
+		return [
+			...PRESET_QUALITIES.filter((q) => selected.has(q)),
+			...sortedCustomQualities(selected)
+		];
+	}
 
 	// ── state ──────────────────────────────────────────────────────────────────
 	let profiles = $state<QualityProfile[]>([]);
@@ -56,12 +71,12 @@
 	let formSaving = $state(false);
 
 	// derived: sorted list of all qualities to show in the modal
-	// (presets + any custom ones from the profile being edited)
+	// (all presets + any custom ones in form state or the profile being edited)
 	let allModalQualities = $derived((() => {
-		const extras =
-			editingProfile?.allowed_qualities.filter((q) => !PRESET_QUALITIES.includes(q)) ?? [];
-		return [...PRESET_QUALITIES, ...extras];
+		const extras = editingProfile?.allowed_qualities ?? [];
+		return [...PRESET_QUALITIES, ...sortedCustomQualities([...formAllowedQualities, ...extras])];
 	})());
+	let orderedFormAllowedQualities = $derived(orderedAllowedQualities(formAllowedQualities));
 
 	// delete state
 	let deleteTarget = $state<QualityProfile | null>(null);
@@ -114,10 +129,14 @@
 	function openEdit(profile: QualityProfile) {
 		editingProfile = profile;
 		formName = profile.name;
-		formAllowedQualities = new Set(profile.allowed_qualities);
+		const allowedQualities = new Set(profile.allowed_qualities);
+		formAllowedQualities = allowedQualities;
 		formCustomQuality = '';
 		formUpgradeAllowed = profile.upgrade_allowed;
-		formCutoffQuality = profile.cutoff_quality ?? '';
+		formCutoffQuality =
+			profile.cutoff_quality && allowedQualities.has(profile.cutoff_quality)
+				? profile.cutoff_quality
+				: '';
 		formErrors = {};
 		modalOpen = true;
 	}
@@ -158,14 +177,16 @@
 		formSaving = true;
 		saveStatus = 'saving';
 		saveError = '';
-		const qualities = [...formAllowedQualities];
+		const qualities = orderedAllowedQualities(formAllowedQualities);
+		const cutoffQuality =
+			formCutoffQuality && formAllowedQualities.has(formCutoffQuality) ? formCutoffQuality : '';
 		try {
 			if (editingProfile) {
 				const payload: UpdateQualityProfileRequest = {
 					name: formName.trim(),
 					allowed_qualities: qualities,
 					upgrade_allowed: formUpgradeAllowed,
-					cutoff_quality: formCutoffQuality || undefined
+					cutoff_quality: cutoffQuality || null
 				};
 				const updated = await updateQualityProfile(editingProfile.id, payload);
 				profiles = profiles.map((p) => (p.id === updated.id ? updated : p));
@@ -174,7 +195,7 @@
 					name: formName.trim(),
 					allowed_qualities: qualities,
 					upgrade_allowed: formUpgradeAllowed,
-					cutoff_quality: formCutoffQuality || null
+					cutoff_quality: cutoffQuality || null
 				};
 				const created = await createQualityProfile(payload);
 				profiles = [...profiles, created];
@@ -341,7 +362,7 @@
 					<label for="qp-cutoff">Cutoff Quality</label>
 					<select id="qp-cutoff" bind:value={formCutoffQuality}>
 						<option value="">— None —</option>
-						{#each [...formAllowedQualities] as q}
+						{#each orderedFormAllowedQualities as q}
 							<option value={q}>{q}</option>
 						{/each}
 					</select>
