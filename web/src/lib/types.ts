@@ -162,7 +162,7 @@ export interface UpdateQualityProfileRequest {
 	name?: string;
 	allowed_qualities?: string[];
 	upgrade_allowed?: boolean;
-	cutoff_quality?: string;
+	cutoff_quality?: string | null;
 }
 
 export type QualityProfileErrorResponse = ApiErrorResponse;
