@@ -219,10 +219,10 @@
 				const created = await createIndexer(payload);
 				indexers = [...indexers, created];
 			}
-			closeModal();
 			unsavedGuard.markClean();
 			formDirty = false;
 			initialFormSnapshot = getFormSnapshot();
+			closeModal();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
@@ -424,7 +424,7 @@
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
 
-				<div class="field">
+				<div class="field" class:has-error={!!formErrors.protocol}>
 					<label for="idx-protocol">Protocol</label>
 					<select
 						id="idx-protocol"
@@ -438,6 +438,7 @@
 							<option value={p.value}>{p.label}</option>
 						{/each}
 					</select>
+					{#if formErrors.protocol}<span class="field-error">{formErrors.protocol}</span>{/if}
 				</div>
 
 				<div class="field" class:has-error={!!formErrors.base_url}>

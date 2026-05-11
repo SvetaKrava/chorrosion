@@ -216,10 +216,10 @@
 				const created = await createDownloadClient(payload);
 				clients = [...clients, created];
 			}
-			closeModal();
 			unsavedGuard.markClean();
 			formDirty = false;
 			initialFormSnapshot = getFormSnapshot();
+			closeModal();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
@@ -290,6 +290,8 @@
 
 	function confirmLeave() {
 		leaveDialogOpen = false;
+		modalOpen = false;
+		editingClient = null;
 		void unsavedGuard.confirmNavigation();
 	}
 
@@ -389,7 +391,7 @@
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
 
-				<div class="field">
+				<div class="field" class:has-error={!!formErrors.client_type}>
 					<label for="dc-type">Client Type</label>
 					<select
 						id="dc-type"
@@ -403,6 +405,7 @@
 							<option value={type.value}>{type.label}</option>
 						{/each}
 					</select>
+					{#if formErrors.client_type}<span class="field-error">{formErrors.client_type}</span>{/if}
 				</div>
 
 				<div class="field" class:has-error={!!formErrors.base_url}>

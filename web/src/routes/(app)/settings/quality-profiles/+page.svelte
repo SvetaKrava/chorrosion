@@ -199,7 +199,7 @@
 			next.add(q);
 		}
 		formAllowedQualities = next;
-		clearFieldError('allowed_qualities');
+		clearFieldError('qualities');
 		syncDirtyState();
 	}
 
@@ -208,7 +208,7 @@
 		if (!q) return;
 		formAllowedQualities = new Set([...formAllowedQualities, q]);
 		formCustomQuality = '';
-		clearFieldError('allowed_qualities');
+		clearFieldError('qualities');
 		syncDirtyState();
 	}
 
@@ -248,22 +248,24 @@
 				const created = await createQualityProfile(payload);
 				profiles = [...profiles, created];
 			}
-			closeModal();
 			unsavedGuard.markClean();
 			formDirty = false;
 			initialFormSnapshot = getFormSnapshot();
+			closeModal();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
 			const classified = classifyFormError(err, [
 				{ field: 'name', messages: ['name cannot be empty', 'already exists'] },
-				{
-					field: 'allowed_qualities',
-					messages: ['allowed_qualities must contain at least one non-empty value']
-				}
+				{ field: 'qualities', messages: ['allowed_qualities must contain at least one non-empty value'] }
 			]);
-			if (Object.keys(classified.fieldErrors).length > 0) {
-				formErrors = { ...formErrors, ...classified.fieldErrors };
+			const normalizedFieldErrors = { ...classified.fieldErrors };
+			if (normalizedFieldErrors.allowed_qualities && !normalizedFieldErrors.qualities) {
+				normalizedFieldErrors.qualities = normalizedFieldErrors.allowed_qualities;
+				delete normalizedFieldErrors.allowed_qualities;
+			}
+			if (Object.keys(normalizedFieldErrors).length > 0) {
+				formErrors = { ...formErrors, ...normalizedFieldErrors };
 				saveStatus = 'idle';
 				saveError = '';
 			} else {
@@ -432,7 +434,7 @@
 							bind:value={formCustomQuality}
 							placeholder="Custom quality…"
 							oninput={() => {
-								clearFieldError('allowed_qualities');
+								clearFieldError('qualities');
 								syncDirtyState();
 							}}
 							onkeydown={(e) => {

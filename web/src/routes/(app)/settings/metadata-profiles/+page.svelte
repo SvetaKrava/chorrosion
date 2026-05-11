@@ -268,10 +268,10 @@
 				profiles = [...profiles, created];
 			}
 
-			closeModal();
 			unsavedGuard.markClean();
 			formDirty = false;
 			initialFormSnapshot = getFormSnapshot();
+			closeModal();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
