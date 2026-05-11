@@ -14,6 +14,8 @@
 		deleteQualityProfile,
 		ApiError
 	} from '$lib/api';
+	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
+	import { classifyFormError } from '$lib/settingsValidation';
 	import type {
 		QualityProfile,
 		CreateQualityProfileRequest,
@@ -56,6 +58,9 @@
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
 	let saveError = $state('');
+	let formDirty = $state(false);
+	let leaveDialogOpen = $state(false);
+	let initialFormSnapshot = '';
 
 	// modal state
 	let modalOpen = $state(false);
@@ -85,6 +90,34 @@
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+	const unsavedGuard = useUnsavedGuard(() => {
+		leaveDialogOpen = true;
+	});
+
+	function getFormSnapshot(): string {
+		return JSON.stringify({
+			name: formName.trim(),
+			allowedQualities: orderedAllowedQualities(formAllowedQualities),
+			cutoffQuality: formCutoffQuality,
+			upgradeAllowed: formUpgradeAllowed
+		});
+	}
+
+	function syncDirtyState() {
+		formDirty = getFormSnapshot() !== initialFormSnapshot;
+		if (formDirty) {
+			unsavedGuard.markDirty();
+		} else {
+			unsavedGuard.markClean();
+		}
+	}
+
+	function clearFieldError(field: string) {
+		if (formErrors[field]) {
+			const { [field]: _removed, ...rest } = formErrors;
+			formErrors = rest;
+		}
+	}
 
 	function scheduleBannerClear() {
 		if (saveStatusTimer !== null) clearTimeout(saveStatusTimer);
@@ -123,7 +156,10 @@
 		formUpgradeAllowed = true;
 		formCutoffQuality = '';
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function openEdit(profile: QualityProfile) {
@@ -138,10 +174,18 @@
 				? profile.cutoff_quality
 				: '';
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function closeModal() {
+		if (formDirty) {
+			leaveDialogOpen = true;
+			return;
+		}
+		unsavedGuard.discardNavigation();
 		modalOpen = false;
 		editingProfile = null;
 	}
@@ -155,6 +199,8 @@
 			next.add(q);
 		}
 		formAllowedQualities = next;
+		clearFieldError('allowed_qualities');
+		syncDirtyState();
 	}
 
 	function addCustomQuality() {
@@ -162,6 +208,8 @@
 		if (!q) return;
 		formAllowedQualities = new Set([...formAllowedQualities, q]);
 		formCustomQuality = '';
+		clearFieldError('allowed_qualities');
+		syncDirtyState();
 	}
 
 	function validateForm(): boolean {
@@ -201,11 +249,27 @@
 				profiles = [...profiles, created];
 			}
 			closeModal();
+			unsavedGuard.markClean();
+			formDirty = false;
+			initialFormSnapshot = getFormSnapshot();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
-			saveError = err instanceof ApiError ? err.message : 'Save failed.';
-			saveStatus = 'error';
+			const classified = classifyFormError(err, [
+				{ field: 'name', messages: ['name cannot be empty', 'already exists'] },
+				{
+					field: 'allowed_qualities',
+					messages: ['allowed_qualities must contain at least one non-empty value']
+				}
+			]);
+			if (Object.keys(classified.fieldErrors).length > 0) {
+				formErrors = { ...formErrors, ...classified.fieldErrors };
+				saveStatus = 'idle';
+				saveError = '';
+			} else {
+				saveError = classified.bannerMessage || 'Save failed.';
+				saveStatus = 'error';
+			}
 		} finally {
 			formSaving = false;
 		}
@@ -238,6 +302,18 @@
 	function cancelDelete() {
 		deleteDialogOpen = false;
 		deleteTarget = null;
+	}
+
+	function confirmLeave() {
+		leaveDialogOpen = false;
+		modalOpen = false;
+		editingProfile = null;
+		void unsavedGuard.confirmNavigation();
+	}
+
+	function cancelLeave() {
+		leaveDialogOpen = false;
+		unsavedGuard.discardNavigation();
 	}
 </script>
 
@@ -323,7 +399,16 @@
 			>
 				<div class="field" class:has-error={!!formErrors.name}>
 					<label for="qp-name">Name <span aria-hidden="true">*</span></label>
-					<input id="qp-name" type="text" bind:value={formName} placeholder="My Quality Profile" />
+					<input
+						id="qp-name"
+						type="text"
+						bind:value={formName}
+						placeholder="My Quality Profile"
+						oninput={() => {
+							clearFieldError('name');
+							syncDirtyState();
+						}}
+					/>
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
 
@@ -346,6 +431,10 @@
 							type="text"
 							bind:value={formCustomQuality}
 							placeholder="Custom quality…"
+							oninput={() => {
+								clearFieldError('allowed_qualities');
+								syncDirtyState();
+							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter') {
 									e.preventDefault();
@@ -360,7 +449,14 @@
 
 				<div class="field">
 					<label for="qp-cutoff">Cutoff Quality</label>
-					<select id="qp-cutoff" bind:value={formCutoffQuality}>
+					<select
+						id="qp-cutoff"
+						bind:value={formCutoffQuality}
+						onchange={() => {
+							clearFieldError('cutoff_quality');
+							syncDirtyState();
+						}}
+					>
 						<option value="">— None —</option>
 						{#each orderedFormAllowedQualities as q}
 							<option value={q}>{q}</option>
@@ -371,12 +467,20 @@
 
 				<div class="field field-inline">
 					<label for="qp-upgrade">Upgrade Allowed</label>
-					<input id="qp-upgrade" type="checkbox" bind:checked={formUpgradeAllowed} />
+					<input
+						id="qp-upgrade"
+						type="checkbox"
+						bind:checked={formUpgradeAllowed}
+						onchange={() => {
+							clearFieldError('upgrade_allowed');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<div class="modal-actions">
 					<button type="button" class="btn-cancel" onclick={closeModal}>Cancel</button>
-					<button type="submit" class="btn-primary" disabled={formSaving}>
+					<button type="submit" class="btn-primary" disabled={formSaving || !formDirty}>
 						{formSaving ? 'Saving…' : editingProfile ? 'Save Changes' : 'Add Profile'}
 					</button>
 				</div>
@@ -384,6 +488,16 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	open={leaveDialogOpen}
+	title="Leave with unsaved changes?"
+	message="You have unsaved changes. Leave anyway?"
+	confirmLabel="Leave"
+	destructive
+	onconfirm={confirmLeave}
+	oncancel={cancelLeave}
+/>
 
 <!-- ── Delete confirmation ──────────────────────────────────────────────── -->
 <ConfirmDialog

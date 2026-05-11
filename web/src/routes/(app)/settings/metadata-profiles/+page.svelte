@@ -14,6 +14,8 @@
 		deleteMetadataProfile,
 		ApiError
 	} from '$lib/api';
+	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
+	import { classifyFormError } from '$lib/settingsValidation';
 	import type {
 		MetadataProfile,
 		CreateMetadataProfileRequest,
@@ -66,6 +68,9 @@
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
 	let saveError = $state('');
+	let formDirty = $state(false);
+	let leaveDialogOpen = $state(false);
+	let initialFormSnapshot = '';
 
 	let modalOpen = $state(false);
 	let editingProfile = $state<MetadataProfile | null>(null);
@@ -85,6 +90,34 @@
 	let deleting = $state(false);
 
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+	const unsavedGuard = useUnsavedGuard(() => {
+		leaveDialogOpen = true;
+	});
+
+	function getFormSnapshot(): string {
+		return JSON.stringify({
+			name: formName.trim(),
+			primaryAlbumTypes: orderedValues(formPrimaryTypes, PRIMARY_ALBUM_TYPE_PRESETS),
+			secondaryAlbumTypes: orderedValues(formSecondaryTypes, SECONDARY_ALBUM_TYPE_PRESETS),
+			releaseStatuses: orderedValues(formReleaseStatuses, RELEASE_STATUS_PRESETS)
+		});
+	}
+
+	function syncDirtyState() {
+		formDirty = getFormSnapshot() !== initialFormSnapshot;
+		if (formDirty) {
+			unsavedGuard.markDirty();
+		} else {
+			unsavedGuard.markClean();
+		}
+	}
+
+	function clearFieldError(field: string) {
+		if (formErrors[field]) {
+			const { [field]: _removed, ...rest } = formErrors;
+			formErrors = rest;
+		}
+	}
 
 	let primaryTypeOptions = $derived(
 		allOptions(
@@ -142,7 +175,10 @@
 		formCustomSecondaryType = '';
 		formCustomReleaseStatus = '';
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function openEdit(profile: MetadataProfile) {
@@ -155,10 +191,18 @@
 		formCustomSecondaryType = '';
 		formCustomReleaseStatus = '';
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function closeModal() {
+		if (formDirty) {
+			leaveDialogOpen = true;
+			return;
+		}
+		unsavedGuard.discardNavigation();
 		modalOpen = false;
 		editingProfile = null;
 	}
@@ -183,6 +227,7 @@
 		if (!trimmed) return;
 		setSet(new Set([...currentSet, trimmed]));
 		setField('');
+		syncDirtyState();
 	}
 
 	function validateForm(): boolean {
@@ -224,11 +269,23 @@
 			}
 
 			closeModal();
+			unsavedGuard.markClean();
+			formDirty = false;
+			initialFormSnapshot = getFormSnapshot();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
-			saveError = err instanceof ApiError ? err.message : 'Save failed.';
-			saveStatus = 'error';
+			const classified = classifyFormError(err, [
+				{ field: 'name', messages: ['name cannot be empty', 'already exists'] }
+			]);
+			if (Object.keys(classified.fieldErrors).length > 0) {
+				formErrors = { ...formErrors, ...classified.fieldErrors };
+				saveStatus = 'idle';
+				saveError = '';
+			} else {
+				saveError = classified.bannerMessage || 'Save failed.';
+				saveStatus = 'error';
+			}
 		} finally {
 			formSaving = false;
 		}
@@ -260,6 +317,18 @@
 			deleteDialogOpen = false;
 			deleteTarget = null;
 		}
+	}
+
+	function confirmLeave() {
+		leaveDialogOpen = false;
+		modalOpen = false;
+		editingProfile = null;
+		void unsavedGuard.confirmNavigation();
+	}
+
+	function cancelLeave() {
+		leaveDialogOpen = false;
+		unsavedGuard.discardNavigation();
 	}
 </script>
 
@@ -349,6 +418,10 @@
 						type="text"
 						bind:value={formName}
 						placeholder="MusicBrainz Default"
+						oninput={() => {
+							clearFieldError('name');
+							syncDirtyState();
+						}}
 					/>
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
@@ -361,7 +434,11 @@
 								<input
 									type="checkbox"
 									checked={formPrimaryTypes.has(value)}
-									onchange={() => (formPrimaryTypes = toggleSelection(formPrimaryTypes, value))}
+									onchange={() => {
+									formPrimaryTypes = toggleSelection(formPrimaryTypes, value);
+									clearFieldError('primary_album_types');
+									syncDirtyState();
+								}}
 								/>
 								{value}
 							</label>
@@ -372,6 +449,10 @@
 							type="text"
 							bind:value={formCustomPrimaryType}
 							placeholder="Custom primary type"
+							oninput={() => {
+								clearFieldError('primary_album_types');
+								syncDirtyState();
+							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter') {
 									e.preventDefault();
@@ -408,8 +489,11 @@
 								<input
 									type="checkbox"
 									checked={formSecondaryTypes.has(value)}
-									onchange={() =>
-										(formSecondaryTypes = toggleSelection(formSecondaryTypes, value))}
+									onchange={() => {
+									formSecondaryTypes = toggleSelection(formSecondaryTypes, value);
+									clearFieldError('secondary_album_types');
+									syncDirtyState();
+								}}
 								/>
 								{value}
 							</label>
@@ -420,6 +504,10 @@
 							type="text"
 							bind:value={formCustomSecondaryType}
 							placeholder="Custom secondary type"
+							oninput={() => {
+								clearFieldError('secondary_album_types');
+								syncDirtyState();
+							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter') {
 									e.preventDefault();
@@ -456,8 +544,11 @@
 								<input
 									type="checkbox"
 									checked={formReleaseStatuses.has(value)}
-									onchange={() =>
-										(formReleaseStatuses = toggleSelection(formReleaseStatuses, value))}
+									onchange={() => {
+									formReleaseStatuses = toggleSelection(formReleaseStatuses, value);
+									clearFieldError('release_statuses');
+									syncDirtyState();
+								}}
 								/>
 								{value}
 							</label>
@@ -468,6 +559,10 @@
 							type="text"
 							bind:value={formCustomReleaseStatus}
 							placeholder="Custom release status"
+							oninput={() => {
+								clearFieldError('release_statuses');
+								syncDirtyState();
+							}}
 							onkeydown={(e) => {
 								if (e.key === 'Enter') {
 									e.preventDefault();
@@ -498,7 +593,7 @@
 
 				<div class="modal-actions">
 					<button type="button" class="btn-cancel" onclick={closeModal}>Cancel</button>
-					<button type="submit" class="btn-primary" disabled={formSaving}>
+					<button type="submit" class="btn-primary" disabled={formSaving || !formDirty}>
 						{formSaving ? 'Saving...' : editingProfile ? 'Save Changes' : 'Add Profile'}
 					</button>
 				</div>
@@ -506,6 +601,16 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	open={leaveDialogOpen}
+	title="Leave with unsaved changes?"
+	message="You have unsaved changes. Leave anyway?"
+	confirmLabel="Leave"
+	destructive
+	onconfirm={confirmLeave}
+	oncancel={cancelLeave}
+/>
 
 <ConfirmDialog
 	open={deleteDialogOpen}

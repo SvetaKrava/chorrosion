@@ -15,6 +15,8 @@
 		testIndexer,
 		ApiError
 	} from '$lib/api';
+	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
+	import { classifyFormError } from '$lib/settingsValidation';
 	import type {
 		Indexer,
 		CreateIndexerRequest,
@@ -28,6 +30,9 @@
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
 	let saveError = $state('');
+	let formDirty = $state(false);
+	let leaveDialogOpen = $state(false);
+	let initialFormSnapshot = '';
 
 	// modal state
 	let modalOpen = $state(false);
@@ -54,6 +59,35 @@
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+	const unsavedGuard = useUnsavedGuard(() => {
+		leaveDialogOpen = true;
+	});
+
+	function getFormSnapshot(): string {
+		return JSON.stringify({
+			name: formName.trim(),
+			protocol: formProtocol,
+			baseUrl: formBaseUrl.trim(),
+			apiKey: formApiKey,
+			enabled: formEnabled
+		});
+	}
+
+	function syncDirtyState() {
+		formDirty = getFormSnapshot() !== initialFormSnapshot;
+		if (formDirty) {
+			unsavedGuard.markDirty();
+		} else {
+			unsavedGuard.markClean();
+		}
+	}
+
+	function clearFieldError(field: string) {
+		if (formErrors[field]) {
+			const { [field]: _removed, ...rest } = formErrors;
+			formErrors = rest;
+		}
+	}
 
 	function scheduleBannerClear() {
 		if (saveStatusTimer !== null) clearTimeout(saveStatusTimer);
@@ -102,7 +136,10 @@
 		testStatus = 'idle';
 		testResult = null;
 		testError = '';
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function openEdit(indexer: Indexer) {
@@ -116,10 +153,18 @@
 		testStatus = 'idle';
 		testResult = null;
 		testError = '';
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function closeModal() {
+		if (formDirty) {
+			leaveDialogOpen = true;
+			return;
+		}
+		unsavedGuard.discardNavigation();
 		modalOpen = false;
 		editingIndexer = null;
 	}
@@ -175,11 +220,31 @@
 				indexers = [...indexers, created];
 			}
 			closeModal();
+			unsavedGuard.markClean();
+			formDirty = false;
+			initialFormSnapshot = getFormSnapshot();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
-			saveError = err instanceof ApiError ? err.message : 'Save failed.';
-			saveStatus = 'error';
+			const classified = classifyFormError(err, [
+				{ field: 'name', messages: ['name cannot be empty', 'already exists'] },
+				{
+					field: 'base_url',
+					messages: [
+						'base_url must be a valid http or https URL with a host',
+						'Indexer base_url must be a valid http or https URL with a host'
+					]
+				},
+				{ field: 'protocol', messages: ['unsupported protocol', 'invalid value'] }
+			]);
+			if (Object.keys(classified.fieldErrors).length > 0) {
+				formErrors = { ...formErrors, ...classified.fieldErrors };
+				saveStatus = 'idle';
+				saveError = '';
+			} else {
+				saveError = classified.bannerMessage || 'Save failed.';
+				saveStatus = 'error';
+			}
 		} finally {
 			formSaving = false;
 		}
@@ -254,6 +319,18 @@
 
 	function protocolLabel(protocol: string): string {
 		return PROTOCOLS.find((p) => p.value === protocol)?.label ?? protocol;
+	}
+
+	function confirmLeave() {
+		leaveDialogOpen = false;
+		modalOpen = false;
+		editingIndexer = null;
+		void unsavedGuard.confirmNavigation();
+	}
+
+	function cancelLeave() {
+		leaveDialogOpen = false;
+		unsavedGuard.discardNavigation();
 	}
 </script>
 
@@ -334,13 +411,29 @@
 			>
 				<div class="field" class:has-error={!!formErrors.name}>
 					<label for="idx-name">Name <span aria-hidden="true">*</span></label>
-					<input id="idx-name" type="text" bind:value={formName} placeholder="My Indexer" />
+					<input
+						id="idx-name"
+						type="text"
+						bind:value={formName}
+						placeholder="My Indexer"
+						oninput={() => {
+							clearFieldError('name');
+							syncDirtyState();
+						}}
+					/>
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
 
 				<div class="field">
 					<label for="idx-protocol">Protocol</label>
-					<select id="idx-protocol" bind:value={formProtocol}>
+					<select
+						id="idx-protocol"
+						bind:value={formProtocol}
+						onchange={() => {
+							clearFieldError('protocol');
+							syncDirtyState();
+						}}
+					>
 						{#each PROTOCOLS as p}
 							<option value={p.value}>{p.label}</option>
 						{/each}
@@ -354,6 +447,10 @@
 						type="url"
 						bind:value={formBaseUrl}
 						placeholder="http://localhost:9117"
+						oninput={() => {
+							clearFieldError('base_url');
+							syncDirtyState();
+						}}
 					/>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
@@ -365,12 +462,29 @@
 							<span class="hint">(leave blank to keep existing)</span>
 						{/if}
 					</label>
-					<input id="idx-apikey" type="password" bind:value={formApiKey} autocomplete="off" />
+					<input
+						id="idx-apikey"
+						type="password"
+						bind:value={formApiKey}
+						autocomplete="off"
+						oninput={() => {
+							clearFieldError('api_key');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<div class="field field-inline">
 					<label for="idx-enabled">Enabled</label>
-					<input id="idx-enabled" type="checkbox" bind:checked={formEnabled} />
+					<input
+						id="idx-enabled"
+						type="checkbox"
+						bind:checked={formEnabled}
+						onchange={() => {
+							clearFieldError('enabled');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<!-- Test result banner -->
@@ -404,7 +518,7 @@
 					>
 						{testStatus === 'testing' ? 'Testing…' : 'Test'}
 					</button>
-					<button type="submit" class="btn-primary" disabled={formSaving}>
+					<button type="submit" class="btn-primary" disabled={formSaving || !formDirty}>
 						{formSaving ? 'Saving…' : editingIndexer ? 'Save Changes' : 'Add Indexer'}
 					</button>
 				</div>
@@ -412,6 +526,16 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	open={leaveDialogOpen}
+	title="Leave with unsaved changes?"
+	message="You have unsaved changes. Leave anyway?"
+	confirmLabel="Leave"
+	destructive
+	onconfirm={confirmLeave}
+	oncancel={cancelLeave}
+/>
 
 <!-- ── Delete confirmation ──────────────────────────────────────────────── -->
 <ConfirmDialog
