@@ -308,7 +308,7 @@
 		selectedIds = new Set(profiles.map((profile) => profile.id));
 	}
 
-	async function runBulkAction(action: 'enable' | 'disable' | 'delete') {
+	async function runBulkAction(action: 'delete') {
 		if (selectedIds.size === 0) return;
 
 		const ids = [...selectedIds];
@@ -419,12 +419,6 @@
 		<SaveStatusBanner status={saveStatus} errorMessage={saveError} />
 		{#if hasSelection}
 			<div class="bulk-toolbar">
-				<button class="btn-secondary" onclick={() => runBulkAction('enable')} disabled={bulkActing}>
-					Enable Selected
-				</button>
-				<button class="btn-secondary" onclick={() => runBulkAction('disable')} disabled={bulkActing}>
-					Disable Selected
-				</button>
 				<button class="btn-icon destructive" onclick={openBulkDelete} disabled={bulkActing}>
 					Delete Selected
 				</button>
@@ -654,16 +648,6 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
-	}
-
-	.btn-secondary {
-		padding: 0.45rem 0.8rem;
-		background: transparent;
-		border: 1px solid var(--border-color, rgba(15, 26, 31, 0.2));
-		border-radius: 6px;
-		font-size: 0.82rem;
-		cursor: pointer;
-		color: var(--text-primary, #0f1a1f);
 	}
 
 	.profile-item {

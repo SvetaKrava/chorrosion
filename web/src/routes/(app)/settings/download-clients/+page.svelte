@@ -315,7 +315,9 @@
 						(client) => !selectedSet.has(client.id) || failedSet.has(client.id)
 					);
 				} else {
-					clients = clients.map((client) => originalById.get(client.id) ?? client);
+					clients = clients.map((client) =>
+						failedSet.has(client.id) ? (originalById.get(client.id) ?? client) : client
+					);
 				}
 
 				selectedIds = failedSet;

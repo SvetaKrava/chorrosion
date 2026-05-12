@@ -436,11 +436,11 @@ pub async fn bulk_metadata_profiles(
             .into_response();
     }
 
-    if !matches!(request.action.as_str(), "enable" | "disable" | "delete") {
+    if !matches!(request.action.as_str(), "delete") {
         return (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "action must be one of: enable, disable, delete".to_string(),
+                error: "action must be one of: delete".to_string(),
             }),
         )
             .into_response();
@@ -461,11 +461,6 @@ pub async fn bulk_metadata_profiles(
                     success: false,
                     error: Some(format!("failed to delete metadata profile: {error}")),
                 },
-            },
-            "enable" | "disable" => MetadataProfileBulkItemResult {
-                id,
-                success: false,
-                error: Some("enable/disable is not supported for metadata profiles".to_string()),
             },
             _ => unreachable!(),
         };
@@ -775,6 +770,111 @@ mod tests {
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        // --- bulk_metadata_profiles ---
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_delete_returns_200_on_success() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_metadata_profiles(
+                State(state.clone()),
+                Json(MetadataProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let fetched = state
+                .metadata_profile_repository
+                .get_by_id(&profile.id.to_string())
+                .await
+                .expect("get_by_id");
+            assert!(fetched.is_none(), "profile should be deleted");
+        }
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_rejects_empty_ids() {
+            let state = make_test_state().await;
+            let response = bulk_metadata_profiles(
+                State(state),
+                Json(MetadataProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_rejects_invalid_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_metadata_profiles(
+                State(state),
+                Json(MetadataProfileBulkRequest {
+                    action: "frobulate".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_rejects_enable_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_metadata_profiles(
+                State(state),
+                Json(MetadataProfileBulkRequest {
+                    action: "enable".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_rejects_disable_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_metadata_profiles(
+                State(state),
+                Json(MetadataProfileBulkRequest {
+                    action: "disable".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_metadata_profiles_returns_207_for_partial_failure() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let missing_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response = bulk_metadata_profiles(
+                State(state),
+                Json(MetadataProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![profile.id.to_string(), missing_id],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::MULTI_STATUS);
         }
     }
 }

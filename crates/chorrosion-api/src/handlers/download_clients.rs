@@ -1033,4 +1033,135 @@ mod tests {
         .into_response();
         assert_eq!(second.status(), StatusCode::CONFLICT);
     }
+
+    #[tokio::test]
+    async fn bulk_download_clients_disables_selected_items() {
+        let state = make_test_state().await;
+        let client = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "active-client",
+                "qbittorrent",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create client");
+        assert!(client.enabled);
+
+        let response = bulk_download_clients(
+            State(state.clone()),
+            Json(DownloadClientBulkRequest {
+                action: "disable".to_string(),
+                ids: vec![client.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = state
+            .download_client_definition_repository
+            .get_by_id(&client.id.to_string())
+            .await
+            .expect("fetch updated")
+            .expect("exists");
+        assert!(!updated.enabled);
+    }
+
+    #[tokio::test]
+    async fn bulk_download_clients_deletes_selected_items() {
+        let state = make_test_state().await;
+        let client = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "to-delete",
+                "qbittorrent",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create client");
+
+        let response = bulk_download_clients(
+            State(state.clone()),
+            Json(DownloadClientBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![client.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let fetched = state
+            .download_client_definition_repository
+            .get_by_id(&client.id.to_string())
+            .await
+            .expect("get_by_id");
+        assert!(fetched.is_none(), "client should be deleted");
+    }
+
+    #[tokio::test]
+    async fn bulk_download_clients_rejects_empty_ids() {
+        let state = make_test_state().await;
+        let response = bulk_download_clients(
+            State(state),
+            Json(DownloadClientBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn bulk_download_clients_rejects_invalid_action() {
+        let state = make_test_state().await;
+        let client = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "test-client",
+                "qbittorrent",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create client");
+        let response = bulk_download_clients(
+            State(state),
+            Json(DownloadClientBulkRequest {
+                action: "frobulate".to_string(),
+                ids: vec![client.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn bulk_download_clients_returns_207_for_partial_failure() {
+        let state = make_test_state().await;
+        let client = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "real-client",
+                "qbittorrent",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create client");
+        let missing_id = "00000000-0000-0000-0000-000000000000".to_string();
+
+        let response = bulk_download_clients(
+            State(state.clone()),
+            Json(DownloadClientBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![client.id.to_string(), missing_id],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+    }
 }

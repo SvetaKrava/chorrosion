@@ -1010,4 +1010,148 @@ mod tests {
         .into_response();
         assert_eq!(second.status(), StatusCode::CONFLICT);
     }
+
+    // --- bulk_indexers ---
+
+    async fn create_test_indexer(state: &AppState) -> IndexerDefinition {
+        state
+            .indexer_definition_repository
+            .create(IndexerDefinition::new(
+                "Test Indexer",
+                "https://indexer.example",
+                "newznab",
+            ))
+            .await
+            .expect("create test indexer")
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_enables_selected_items() {
+        let state = make_test_state().await;
+        let mut indexer = create_test_indexer(&state).await;
+        indexer.enabled = false;
+        state
+            .indexer_definition_repository
+            .update(indexer.clone())
+            .await
+            .expect("disable indexer");
+
+        let response = bulk_indexers(
+            State(state.clone()),
+            Json(IndexerBulkRequest {
+                action: "enable".to_string(),
+                ids: vec![indexer.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = state
+            .indexer_definition_repository
+            .get_by_id(&indexer.id.to_string())
+            .await
+            .expect("get_by_id")
+            .expect("exists");
+        assert!(updated.enabled);
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_disables_selected_items() {
+        let state = make_test_state().await;
+        let indexer = create_test_indexer(&state).await;
+        assert!(indexer.enabled);
+
+        let response = bulk_indexers(
+            State(state.clone()),
+            Json(IndexerBulkRequest {
+                action: "disable".to_string(),
+                ids: vec![indexer.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = state
+            .indexer_definition_repository
+            .get_by_id(&indexer.id.to_string())
+            .await
+            .expect("get_by_id")
+            .expect("exists");
+        assert!(!updated.enabled);
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_deletes_selected_items() {
+        let state = make_test_state().await;
+        let indexer = create_test_indexer(&state).await;
+
+        let response = bulk_indexers(
+            State(state.clone()),
+            Json(IndexerBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![indexer.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let fetched = state
+            .indexer_definition_repository
+            .get_by_id(&indexer.id.to_string())
+            .await
+            .expect("get_by_id");
+        assert!(fetched.is_none(), "indexer should be deleted");
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_rejects_empty_ids() {
+        let state = make_test_state().await;
+        let response = bulk_indexers(
+            State(state),
+            Json(IndexerBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_rejects_invalid_action() {
+        let state = make_test_state().await;
+        let indexer = create_test_indexer(&state).await;
+        let response = bulk_indexers(
+            State(state),
+            Json(IndexerBulkRequest {
+                action: "frobulate".to_string(),
+                ids: vec![indexer.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn bulk_indexers_returns_207_for_partial_failure() {
+        let state = make_test_state().await;
+        let indexer = create_test_indexer(&state).await;
+        let missing_id = "00000000-0000-0000-0000-000000000000".to_string();
+
+        let response = bulk_indexers(
+            State(state),
+            Json(IndexerBulkRequest {
+                action: "delete".to_string(),
+                ids: vec![indexer.id.to_string(), missing_id],
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+    }
 }

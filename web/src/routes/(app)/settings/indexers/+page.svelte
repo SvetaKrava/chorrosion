@@ -348,7 +348,9 @@
 						(indexer) => !selectedSet.has(indexer.id) || failedSet.has(indexer.id)
 					);
 				} else {
-					indexers = indexers.map((indexer) => originalById.get(indexer.id) ?? indexer);
+					indexers = indexers.map((indexer) =>
+						failedSet.has(indexer.id) ? (originalById.get(indexer.id) ?? indexer) : indexer
+					);
 				}
 
 				selectedIds = failedSet;
