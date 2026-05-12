@@ -614,11 +614,14 @@ pub async fn bulk_indexers(
             },
             "enable" | "disable" => {
                 let enabled = request.action == "enable";
-                match state.indexer_definition_repository.get_by_id(&id).await {
+                let fetch_result = state.indexer_definition_repository.get_by_id(&id).await;
+                match fetch_result {
                     Ok(Some(mut indexer)) => {
                         indexer.enabled = enabled;
                         indexer.updated_at = Utc::now();
-                        match state.indexer_definition_repository.update(indexer).await {
+                        let update_result =
+                            state.indexer_definition_repository.update(indexer).await;
+                        match update_result {
                             Ok(_) => IndexerBulkItemResult {
                                 id,
                                 success: true,

@@ -650,19 +650,19 @@ pub async fn bulk_download_clients(
             },
             "enable" | "disable" => {
                 let enabled = request.action == "enable";
-                match state
+                let fetch_result = state
                     .download_client_definition_repository
                     .get_by_id(&id)
-                    .await
-                {
+                    .await;
+                match fetch_result {
                     Ok(Some(mut client)) => {
                         client.enabled = enabled;
                         client.updated_at = Utc::now();
-                        match state
+                        let update_result = state
                             .download_client_definition_repository
                             .update(client)
-                            .await
-                        {
+                            .await;
+                        match update_result {
                             Ok(_) => DownloadClientBulkItemResult {
                                 id,
                                 success: true,
