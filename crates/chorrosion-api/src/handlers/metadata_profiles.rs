@@ -75,6 +75,24 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MetadataProfileBulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MetadataProfileBulkItemResult {
+    pub id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MetadataProfileBulkResponse {
+    pub results: Vec<MetadataProfileBulkItemResult>,
+}
+
 fn validate_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if name.trim().is_empty() {
         Err((
@@ -391,6 +409,78 @@ pub async fn delete_metadata_profile(
         )
             .into_response(),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/metadata-profiles/bulk",
+    request_body = MetadataProfileBulkRequest,
+    responses(
+        (status = 200, description = "Bulk action completed", body = MetadataProfileBulkResponse),
+        (status = 207, description = "Bulk action partially succeeded", body = MetadataProfileBulkResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn bulk_metadata_profiles(
+    State(state): State<AppState>,
+    Json(request): Json<MetadataProfileBulkRequest>,
+) -> impl IntoResponse {
+    if request.ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "ids must contain at least one item".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if !matches!(request.action.as_str(), "enable" | "disable" | "delete") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "action must be one of: enable, disable, delete".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::with_capacity(request.ids.len());
+
+    for id in request.ids {
+        let result = match request.action.as_str() {
+            "delete" => match state.metadata_profile_repository.delete(&id).await {
+                Ok(_) => MetadataProfileBulkItemResult {
+                    id,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => MetadataProfileBulkItemResult {
+                    id,
+                    success: false,
+                    error: Some(format!("failed to delete metadata profile: {error}")),
+                },
+            },
+            "enable" | "disable" => MetadataProfileBulkItemResult {
+                id,
+                success: false,
+                error: Some("enable/disable is not supported for metadata profiles".to_string()),
+            },
+            _ => unreachable!(),
+        };
+
+        results.push(result);
+    }
+
+    let has_failures = results.iter().any(|r| !r.success);
+    let status = if has_failures {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+
+    (status, Json(MetadataProfileBulkResponse { results })).into_response()
 }
 
 #[cfg(test)]

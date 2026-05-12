@@ -89,6 +89,24 @@ pub struct DownloadClientErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DownloadClientBulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DownloadClientBulkItemResult {
+    pub id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DownloadClientBulkResponse {
+    pub results: Vec<DownloadClientBulkItemResult>,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -575,6 +593,118 @@ pub async fn delete_download_client(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/download-clients/bulk",
+    request_body = DownloadClientBulkRequest,
+    responses(
+        (status = 200, description = "Bulk action completed", body = DownloadClientBulkResponse),
+        (status = 207, description = "Bulk action partially succeeded", body = DownloadClientBulkResponse),
+        (status = 400, description = "Invalid request", body = DownloadClientErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn bulk_download_clients(
+    State(state): State<AppState>,
+    Json(request): Json<DownloadClientBulkRequest>,
+) -> impl IntoResponse {
+    if request.ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DownloadClientErrorResponse {
+                error: "ids must contain at least one item".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if !matches!(request.action.as_str(), "enable" | "disable" | "delete") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DownloadClientErrorResponse {
+                error: "action must be one of: enable, disable, delete".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::with_capacity(request.ids.len());
+
+    for id in request.ids {
+        let result = match request.action.as_str() {
+            "delete" => match state
+                .download_client_definition_repository
+                .delete(&id)
+                .await
+            {
+                Ok(_) => DownloadClientBulkItemResult {
+                    id,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => DownloadClientBulkItemResult {
+                    id,
+                    success: false,
+                    error: Some(format!("failed to delete download client: {error}")),
+                },
+            },
+            "enable" | "disable" => {
+                let enabled = request.action == "enable";
+                match state
+                    .download_client_definition_repository
+                    .get_by_id(&id)
+                    .await
+                {
+                    Ok(Some(mut client)) => {
+                        client.enabled = enabled;
+                        client.updated_at = Utc::now();
+                        match state
+                            .download_client_definition_repository
+                            .update(client)
+                            .await
+                        {
+                            Ok(_) => DownloadClientBulkItemResult {
+                                id,
+                                success: true,
+                                error: None,
+                            },
+                            Err(error) => DownloadClientBulkItemResult {
+                                id,
+                                success: false,
+                                error: Some(format!(
+                                    "failed to update download client state: {error}"
+                                )),
+                            },
+                        }
+                    }
+                    Ok(None) => DownloadClientBulkItemResult {
+                        id,
+                        success: false,
+                        error: Some("download client not found".to_string()),
+                    },
+                    Err(error) => DownloadClientBulkItemResult {
+                        id,
+                        success: false,
+                        error: Some(format!("failed to fetch download client: {error}")),
+                    },
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        results.push(result);
+    }
+
+    let has_failures = results.iter().any(|r| !r.success);
+    let status = if has_failures {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+
+    (status, Json(DownloadClientBulkResponse { results })).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,6 +947,55 @@ mod tests {
             .await
             .into_response();
         assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn bulk_download_clients_enables_selected_items() {
+        let state = make_test_state().await;
+        let first = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "first",
+                "qbittorrent",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create first");
+        let mut second = state
+            .download_client_definition_repository
+            .create(DownloadClientDefinition::new(
+                "second",
+                "transmission",
+                "https://downloads.example",
+            ))
+            .await
+            .expect("create second");
+        second.enabled = false;
+        state
+            .download_client_definition_repository
+            .update(second)
+            .await
+            .expect("disable second");
+
+        let response = bulk_download_clients(
+            State(state.clone()),
+            Json(DownloadClientBulkRequest {
+                action: "enable".to_string(),
+                ids: vec![first.id.to_string()],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = state
+            .download_client_definition_repository
+            .get_by_id(&first.id.to_string())
+            .await
+            .expect("fetch updated")
+            .expect("exists");
+        assert!(updated.enabled);
     }
 
     #[tokio::test]

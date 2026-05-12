@@ -55,11 +55,12 @@ use handlers::calendar::{
     CalendarResponse, __path_get_ical_feed, __path_list_upcoming_releases,
 };
 use handlers::download_clients::{
-    create_download_client, delete_download_client, get_download_client, list_download_clients,
-    update_download_client, CreateDownloadClientRequest, DownloadClientErrorResponse,
+    bulk_download_clients, create_download_client, delete_download_client, get_download_client,
+    list_download_clients, update_download_client, CreateDownloadClientRequest,
+    DownloadClientBulkRequest, DownloadClientBulkResponse, DownloadClientErrorResponse,
     DownloadClientResponse, ListDownloadClientsResponse, UpdateDownloadClientRequest,
-    __path_create_download_client, __path_delete_download_client, __path_get_download_client,
-    __path_list_download_clients, __path_update_download_client,
+    __path_bulk_download_clients, __path_create_download_client, __path_delete_download_client,
+    __path_get_download_client, __path_list_download_clients, __path_update_download_client,
 };
 use handlers::duplicates::{
     get_duplicate_group, list_duplicate_groups, resolve_duplicate_group, DuplicateFileResponse,
@@ -83,25 +84,28 @@ use handlers::imports::{
     ParsedMetadataResponse, __path_evaluate_import_candidate, __path_submit_manual_import_decision,
 };
 use handlers::indexers::{
-    create_indexer, delete_indexer, get_indexer, list_indexers, test_indexer_endpoint,
-    update_indexer, CreateIndexerRequest, IndexerCapabilitiesResponse, IndexerErrorResponse,
-    IndexerResponse, IndexerTestErrorResponse, ListIndexersResponse, TestIndexerRequest,
-    TestIndexerResponse, UpdateIndexerRequest, __path_create_indexer, __path_delete_indexer,
+    bulk_indexers, create_indexer, delete_indexer, get_indexer, list_indexers,
+    test_indexer_endpoint, update_indexer, CreateIndexerRequest, IndexerBulkRequest,
+    IndexerBulkResponse, IndexerCapabilitiesResponse, IndexerErrorResponse, IndexerResponse,
+    IndexerTestErrorResponse, ListIndexersResponse, TestIndexerRequest, TestIndexerResponse,
+    UpdateIndexerRequest, __path_bulk_indexers, __path_create_indexer, __path_delete_indexer,
     __path_get_indexer, __path_list_indexers, __path_test_indexer_endpoint, __path_update_indexer,
 };
 use handlers::metadata_profiles::{
-    create_metadata_profile, delete_metadata_profile, get_metadata_profile, list_metadata_profiles,
-    update_metadata_profile, CreateMetadataProfileRequest,
+    bulk_metadata_profiles, create_metadata_profile, delete_metadata_profile, get_metadata_profile,
+    list_metadata_profiles, update_metadata_profile, CreateMetadataProfileRequest,
     ErrorResponse as MetadataProfileErrorResponse, ListMetadataProfilesResponse,
-    MetadataProfileResponse, UpdateMetadataProfileRequest, __path_create_metadata_profile,
+    MetadataProfileBulkRequest, MetadataProfileBulkResponse, MetadataProfileResponse,
+    UpdateMetadataProfileRequest, __path_bulk_metadata_profiles, __path_create_metadata_profile,
     __path_delete_metadata_profile, __path_get_metadata_profile, __path_list_metadata_profiles,
     __path_update_metadata_profile,
 };
 use handlers::quality_profiles::{
-    create_quality_profile, delete_quality_profile, get_quality_profile, list_quality_profiles,
-    update_quality_profile, CreateQualityProfileRequest,
+    bulk_quality_profiles, create_quality_profile, delete_quality_profile, get_quality_profile,
+    list_quality_profiles, update_quality_profile, CreateQualityProfileRequest,
     ErrorResponse as QualityProfileErrorResponse, ListQualityProfilesResponse,
-    QualityProfileResponse, UpdateQualityProfileRequest, __path_create_quality_profile,
+    QualityProfileBulkRequest, QualityProfileBulkResponse, QualityProfileResponse,
+    UpdateQualityProfileRequest, __path_bulk_quality_profiles, __path_create_quality_profile,
     __path_delete_quality_profile, __path_get_quality_profile, __path_list_quality_profiles,
     __path_update_quality_profile,
 };
@@ -317,21 +321,25 @@ async fn metrics() -> axum::response::Response {
         create_quality_profile,
         update_quality_profile,
         delete_quality_profile,
+        bulk_quality_profiles,
         list_metadata_profiles,
         get_metadata_profile,
         create_metadata_profile,
         update_metadata_profile,
         delete_metadata_profile,
+        bulk_metadata_profiles,
         list_download_clients,
         get_download_client,
         create_download_client,
         update_download_client,
         delete_download_client,
+        bulk_download_clients,
         list_indexers,
         get_indexer,
         create_indexer,
         update_indexer,
         delete_indexer,
+        bulk_indexers,
         test_indexer_endpoint,
         manual_search_endpoint,
         evaluate_import_candidate,
@@ -417,21 +425,29 @@ async fn metrics() -> axum::response::Response {
             CreateQualityProfileRequest,
             UpdateQualityProfileRequest,
             QualityProfileErrorResponse,
+            QualityProfileBulkRequest,
+            QualityProfileBulkResponse,
             ListMetadataProfilesResponse,
             MetadataProfileResponse,
             CreateMetadataProfileRequest,
             UpdateMetadataProfileRequest,
             MetadataProfileErrorResponse,
+            MetadataProfileBulkRequest,
+            MetadataProfileBulkResponse,
             ListDownloadClientsResponse,
             DownloadClientResponse,
             CreateDownloadClientRequest,
             UpdateDownloadClientRequest,
             DownloadClientErrorResponse,
+            DownloadClientBulkRequest,
+            DownloadClientBulkResponse,
             ListIndexersResponse,
             IndexerResponse,
             CreateIndexerRequest,
             UpdateIndexerRequest,
             IndexerErrorResponse,
+            IndexerBulkRequest,
+            IndexerBulkResponse,
             TestIndexerRequest,
             TestIndexerResponse,
             IndexerCapabilitiesResponse,
@@ -606,6 +622,10 @@ pub fn router(state: AppState) -> Router {
             get(list_quality_profiles).post(create_quality_profile),
         )
         .route(
+            "/settings/quality-profiles/bulk",
+            post(bulk_quality_profiles),
+        )
+        .route(
             "/settings/quality-profiles/:id",
             get(get_quality_profile)
                 .put(update_quality_profile)
@@ -614,6 +634,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/settings/metadata-profiles",
             get(list_metadata_profiles).post(create_metadata_profile),
+        )
+        .route(
+            "/settings/metadata-profiles/bulk",
+            post(bulk_metadata_profiles),
         )
         .route(
             "/settings/metadata-profiles/:id",
@@ -626,6 +650,10 @@ pub fn router(state: AppState) -> Router {
             get(list_download_clients).post(create_download_client),
         )
         .route(
+            "/settings/download-clients/bulk",
+            post(bulk_download_clients),
+        )
+        .route(
             "/settings/download-clients/:id",
             get(get_download_client)
                 .put(update_download_client)
@@ -635,6 +663,7 @@ pub fn router(state: AppState) -> Router {
             "/settings/indexers",
             get(list_indexers).post(create_indexer),
         )
+        .route("/settings/indexers/bulk", post(bulk_indexers))
         .route(
             "/settings/indexers/:id",
             get(get_indexer).put(update_indexer).delete(delete_indexer),

@@ -82,6 +82,24 @@ pub struct IndexerErrorResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct IndexerBulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct IndexerBulkItemResult {
+    pub id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct IndexerBulkResponse {
+    pub results: Vec<IndexerBulkItemResult>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct TestIndexerRequest {
     pub name: String,
     pub base_url: String,
@@ -541,6 +559,104 @@ pub async fn delete_indexer(
         )
             .into_response(),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/indexers/bulk",
+    request_body = IndexerBulkRequest,
+    responses(
+        (status = 200, description = "Bulk action completed", body = IndexerBulkResponse),
+        (status = 207, description = "Bulk action partially succeeded", body = IndexerBulkResponse),
+        (status = 400, description = "Invalid request", body = IndexerErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn bulk_indexers(
+    State(state): State<AppState>,
+    Json(request): Json<IndexerBulkRequest>,
+) -> impl IntoResponse {
+    if request.ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexerErrorResponse {
+                error: "ids must contain at least one item".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if !matches!(request.action.as_str(), "enable" | "disable" | "delete") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IndexerErrorResponse {
+                error: "action must be one of: enable, disable, delete".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::with_capacity(request.ids.len());
+
+    for id in request.ids {
+        let result = match request.action.as_str() {
+            "delete" => match state.indexer_definition_repository.delete(&id).await {
+                Ok(_) => IndexerBulkItemResult {
+                    id,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => IndexerBulkItemResult {
+                    id,
+                    success: false,
+                    error: Some(format!("failed to delete indexer: {error}")),
+                },
+            },
+            "enable" | "disable" => {
+                let enabled = request.action == "enable";
+                match state.indexer_definition_repository.get_by_id(&id).await {
+                    Ok(Some(mut indexer)) => {
+                        indexer.enabled = enabled;
+                        indexer.updated_at = Utc::now();
+                        match state.indexer_definition_repository.update(indexer).await {
+                            Ok(_) => IndexerBulkItemResult {
+                                id,
+                                success: true,
+                                error: None,
+                            },
+                            Err(error) => IndexerBulkItemResult {
+                                id,
+                                success: false,
+                                error: Some(format!("failed to update indexer state: {error}")),
+                            },
+                        }
+                    }
+                    Ok(None) => IndexerBulkItemResult {
+                        id,
+                        success: false,
+                        error: Some("indexer not found".to_string()),
+                    },
+                    Err(error) => IndexerBulkItemResult {
+                        id,
+                        success: false,
+                        error: Some(format!("failed to fetch indexer: {error}")),
+                    },
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        results.push(result);
+    }
+
+    let has_failures = results.iter().any(|r| !r.success);
+    let status = if has_failures {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+
+    (status, Json(IndexerBulkResponse { results })).into_response()
 }
 
 #[derive(Debug, Serialize, ToSchema)]

@@ -75,6 +75,24 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct QualityProfileBulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QualityProfileBulkItemResult {
+    pub id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QualityProfileBulkResponse {
+    pub results: Vec<QualityProfileBulkItemResult>,
+}
+
 fn validate_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if name.trim().is_empty() {
         Err((
@@ -403,6 +421,78 @@ pub async fn delete_quality_profile(
         )
             .into_response(),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/quality-profiles/bulk",
+    request_body = QualityProfileBulkRequest,
+    responses(
+        (status = 200, description = "Bulk action completed", body = QualityProfileBulkResponse),
+        (status = 207, description = "Bulk action partially succeeded", body = QualityProfileBulkResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn bulk_quality_profiles(
+    State(state): State<AppState>,
+    Json(request): Json<QualityProfileBulkRequest>,
+) -> impl IntoResponse {
+    if request.ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "ids must contain at least one item".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if !matches!(request.action.as_str(), "enable" | "disable" | "delete") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "action must be one of: enable, disable, delete".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::with_capacity(request.ids.len());
+
+    for id in request.ids {
+        let result = match request.action.as_str() {
+            "delete" => match state.quality_profile_repository.delete(&id).await {
+                Ok(_) => QualityProfileBulkItemResult {
+                    id,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => QualityProfileBulkItemResult {
+                    id,
+                    success: false,
+                    error: Some(format!("failed to delete quality profile: {error}")),
+                },
+            },
+            "enable" | "disable" => QualityProfileBulkItemResult {
+                id,
+                success: false,
+                error: Some("enable/disable is not supported for quality profiles".to_string()),
+            },
+            _ => unreachable!(),
+        };
+
+        results.push(result);
+    }
+
+    let has_failures = results.iter().any(|r| !r.success);
+    let status = if has_failures {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+
+    (status, Json(QualityProfileBulkResponse { results })).into_response()
 }
 
 #[cfg(test)]
