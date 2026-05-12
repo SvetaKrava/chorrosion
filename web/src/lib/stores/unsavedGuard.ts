@@ -2,10 +2,10 @@
  * Unsaved guard store.
  *
  * Usage:
- *   import { createUnsavedGuard } from '$lib/stores/unsavedGuard';
+ *   import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
  *
  *   // In a settings page component:
- *   const guard = createUnsavedGuard(() => { showConfirmDialog = true; });
+ *   const guard = useUnsavedGuard(() => { showConfirmDialog = true; });
  *
  *   // Mark dirty when a field changes:
  *   guard.markDirty();
@@ -18,16 +18,19 @@
  *
  *   // Navigation is blocked automatically via beforeNavigate; the optional
  *   // onNavigateBlocked callback lets you open a confirm dialog in response.
+ *   // Call guard.confirmNavigation() after the user confirms to continue.
  */
 
-import { beforeNavigate } from '$app/navigation';
+import { beforeNavigate, goto } from '$app/navigation';
 
 export interface UnsavedGuard {
 	readonly isDirty: boolean;
+	readonly hasPendingNavigation: boolean;
 	markDirty: () => void;
 	markClean: () => void;
-	/** Returns true if navigation should proceed (not dirty or user confirmed). */
-	confirmNavigation: () => boolean;
+	/** Continue the blocked navigation if one is pending. */
+	confirmNavigation: () => Promise<boolean>;
+	discardNavigation: () => void;
 }
 
 /**
@@ -35,14 +38,16 @@ export interface UnsavedGuard {
  * Call this once at component initialisation (not inside a reactive block).
  *
  * @param onNavigateBlocked - optional callback invoked when navigation is blocked;
- *   use this to open your ConfirmDialog. Resolve by calling markClean() + goto().
+ *   use this to open your ConfirmDialog. Resolve by calling confirmNavigation().
  */
-export function createUnsavedGuard(onNavigateBlocked?: () => void): UnsavedGuard {
+export function useUnsavedGuard(onNavigateBlocked?: () => void): UnsavedGuard {
 	let dirty = false;
+	let pendingHref: string | null = null;
 
-	beforeNavigate(({ cancel }) => {
+	beforeNavigate(({ cancel, to }) => {
 		if (dirty) {
 			cancel();
+			pendingHref = to?.url.href ?? null;
 			if (onNavigateBlocked) {
 				onNavigateBlocked();
 			}
@@ -53,14 +58,30 @@ export function createUnsavedGuard(onNavigateBlocked?: () => void): UnsavedGuard
 		get isDirty() {
 			return dirty;
 		},
+		get hasPendingNavigation() {
+			return pendingHref !== null;
+		},
 		markDirty() {
 			dirty = true;
 		},
 		markClean() {
 			dirty = false;
 		},
-		confirmNavigation() {
-			return !dirty;
+		async confirmNavigation() {
+			dirty = false;
+			if (pendingHref) {
+				const href = pendingHref;
+				pendingHref = null;
+				await goto(href);
+			}
+			return true;
+		},
+		discardNavigation() {
+			pendingHref = null;
 		}
 	};
+}
+
+export function createUnsavedGuard(onNavigateBlocked?: () => void): UnsavedGuard {
+	return useUnsavedGuard(onNavigateBlocked);
 }

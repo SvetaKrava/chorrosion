@@ -14,6 +14,8 @@
 		deleteDownloadClient,
 		ApiError
 	} from '$lib/api';
+	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
+	import { classifyFormError } from '$lib/settingsValidation';
 	import type {
 		DownloadClient,
 		CreateDownloadClientRequest,
@@ -26,6 +28,9 @@
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
 	let saveError = $state('');
+	let formDirty = $state(false);
+	let leaveDialogOpen = $state(false);
+	let initialFormSnapshot = '';
 
 	// modal state
 	let modalOpen = $state(false);
@@ -49,6 +54,37 @@
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+	const unsavedGuard = useUnsavedGuard(() => {
+		leaveDialogOpen = true;
+	});
+
+	function getFormSnapshot(): string {
+		return JSON.stringify({
+			name: formName.trim(),
+			clientType: formClientType,
+			baseUrl: formBaseUrl.trim(),
+			username: formUsername.trim(),
+			password: formPassword,
+			category: formCategory.trim(),
+			enabled: formEnabled
+		});
+	}
+
+	function syncDirtyState() {
+		formDirty = getFormSnapshot() !== initialFormSnapshot;
+		if (formDirty) {
+			unsavedGuard.markDirty();
+		} else {
+			unsavedGuard.markClean();
+		}
+	}
+
+	function clearFieldError(field: string) {
+		if (formErrors[field]) {
+			const { [field]: _removed, ...rest } = formErrors;
+			formErrors = rest;
+		}
+	}
 
 	function scheduleBannerClear() {
 		if (saveStatusTimer !== null) clearTimeout(saveStatusTimer);
@@ -98,7 +134,10 @@
 		formCategory = '';
 		formEnabled = true;
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function openEdit(client: DownloadClient) {
@@ -111,10 +150,18 @@
 		formCategory = client.category ?? '';
 		formEnabled = client.enabled;
 		formErrors = {};
+		leaveDialogOpen = false;
 		modalOpen = true;
+		initialFormSnapshot = getFormSnapshot();
+		syncDirtyState();
 	}
 
 	function closeModal() {
+		if (formDirty) {
+			leaveDialogOpen = true;
+			return;
+		}
+		unsavedGuard.discardNavigation();
 		modalOpen = false;
 		editingClient = null;
 	}
@@ -169,12 +216,29 @@
 				const created = await createDownloadClient(payload);
 				clients = [...clients, created];
 			}
+			unsavedGuard.markClean();
+			formDirty = false;
+			initialFormSnapshot = getFormSnapshot();
 			closeModal();
 			saveStatus = 'saved';
 			scheduleBannerClear();
 		} catch (err) {
-			saveError = err instanceof ApiError ? err.message : 'Save failed.';
-			saveStatus = 'error';
+			const classified = classifyFormError(err, [
+				{ field: 'name', messages: ['name cannot be empty', 'already exists'] },
+				{
+					field: 'base_url',
+					messages: ['base_url must be a valid http or https URL with a host']
+				},
+				{ field: 'client_type', messages: ['unsupported client_type'] }
+			]);
+			if (Object.keys(classified.fieldErrors).length > 0) {
+				formErrors = { ...formErrors, ...classified.fieldErrors };
+				saveStatus = 'idle';
+				saveError = '';
+			} else {
+				saveError = classified.bannerMessage || 'Save failed.';
+				saveStatus = 'error';
+			}
 		} finally {
 			formSaving = false;
 		}
@@ -222,6 +286,18 @@
 
 	function clientTypeLabel(type: string): string {
 		return CLIENT_TYPES.find((t) => t.value === type)?.label ?? type;
+	}
+
+	function confirmLeave() {
+		leaveDialogOpen = false;
+		modalOpen = false;
+		editingClient = null;
+		void unsavedGuard.confirmNavigation();
+	}
+
+	function cancelLeave() {
+		leaveDialogOpen = false;
+		unsavedGuard.discardNavigation();
 	}
 </script>
 
@@ -302,17 +378,34 @@
 			>
 				<div class="field" class:has-error={!!formErrors.name}>
 					<label for="dc-name">Name <span aria-hidden="true">*</span></label>
-					<input id="dc-name" type="text" bind:value={formName} placeholder="My qBittorrent" />
+					<input
+						id="dc-name"
+						type="text"
+						bind:value={formName}
+						placeholder="My qBittorrent"
+						oninput={() => {
+							clearFieldError('name');
+							syncDirtyState();
+						}}
+					/>
 					{#if formErrors.name}<span class="field-error">{formErrors.name}</span>{/if}
 				</div>
 
-				<div class="field">
+				<div class="field" class:has-error={!!formErrors.client_type}>
 					<label for="dc-type">Client Type</label>
-					<select id="dc-type" bind:value={formClientType}>
+					<select
+						id="dc-type"
+						bind:value={formClientType}
+						onchange={() => {
+							clearFieldError('client_type');
+							syncDirtyState();
+						}}
+					>
 						{#each CLIENT_TYPES as type}
 							<option value={type.value}>{type.label}</option>
 						{/each}
 					</select>
+					{#if formErrors.client_type}<span class="field-error">{formErrors.client_type}</span>{/if}
 				</div>
 
 				<div class="field" class:has-error={!!formErrors.base_url}>
@@ -322,13 +415,26 @@
 						type="url"
 						bind:value={formBaseUrl}
 						placeholder="http://localhost:8080"
+						oninput={() => {
+							clearFieldError('base_url');
+							syncDirtyState();
+						}}
 					/>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
 
 				<div class="field">
 					<label for="dc-username">Username</label>
-					<input id="dc-username" type="text" bind:value={formUsername} autocomplete="username" />
+					<input
+						id="dc-username"
+						type="text"
+						bind:value={formUsername}
+						autocomplete="username"
+						oninput={() => {
+							clearFieldError('username');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<div class="field">
@@ -343,22 +449,43 @@
 						type="password"
 						bind:value={formPassword}
 						autocomplete="current-password"
+						oninput={() => {
+							clearFieldError('password');
+							syncDirtyState();
+						}}
 					/>
 				</div>
 
 				<div class="field">
 					<label for="dc-category">Category</label>
-					<input id="dc-category" type="text" bind:value={formCategory} placeholder="chorrosion" />
+					<input
+						id="dc-category"
+						type="text"
+						bind:value={formCategory}
+						placeholder="chorrosion"
+						oninput={() => {
+							clearFieldError('category');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<div class="field field-inline">
 					<label for="dc-enabled">Enabled</label>
-					<input id="dc-enabled" type="checkbox" bind:checked={formEnabled} />
+					<input
+						id="dc-enabled"
+						type="checkbox"
+						bind:checked={formEnabled}
+						onchange={() => {
+							clearFieldError('enabled');
+							syncDirtyState();
+						}}
+					/>
 				</div>
 
 				<div class="modal-actions">
 					<button type="button" class="btn-cancel" onclick={closeModal}>Cancel</button>
-					<button type="submit" class="btn-primary" disabled={formSaving}>
+					<button type="submit" class="btn-primary" disabled={formSaving || !formDirty}>
 						{formSaving ? 'Saving…' : editingClient ? 'Save Changes' : 'Add Client'}
 					</button>
 				</div>
@@ -366,6 +493,16 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	open={leaveDialogOpen}
+	title="Leave with unsaved changes?"
+	message="You have unsaved changes. Leave anyway?"
+	confirmLabel="Leave"
+	destructive
+	onconfirm={confirmLeave}
+	oncancel={cancelLeave}
+/>
 
 <!-- ── Delete confirmation ──────────────────────────────────────────────── -->
 <ConfirmDialog
