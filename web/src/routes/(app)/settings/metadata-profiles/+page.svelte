@@ -12,6 +12,7 @@
 		createMetadataProfile,
 		updateMetadataProfile,
 		deleteMetadataProfile,
+		bulkMetadataProfiles,
 		ApiError
 	} from '$lib/api';
 	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
@@ -64,6 +65,7 @@
 	}
 
 	let profiles = $state<MetadataProfile[]>([]);
+	let selectedIds = $state<Set<string>>(new Set());
 	let loading = $state(true);
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
@@ -88,6 +90,8 @@
 	let deleteDialogOpen = $state(false);
 	let deleteTarget = $state<MetadataProfile | null>(null);
 	let deleting = $state(false);
+	let bulkDeleteDialogOpen = $state(false);
+	let bulkActing = $state(false);
 
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
 	const unsavedGuard = useUnsavedGuard(() => {
@@ -164,6 +168,9 @@
 	}
 
 	onMount(load);
+
+	let hasSelection = $derived(selectedIds.size > 0);
+	let allSelected = $derived(profiles.length > 0 && profiles.every((profile) => selectedIds.has(profile.id)));
 
 	function openAdd() {
 		editingProfile = null;
@@ -296,6 +303,81 @@
 		deleteDialogOpen = true;
 	}
 
+	function toggleRowSelection(id: string) {
+		const next = new Set(selectedIds);
+		if (next.has(id)) {
+			next.delete(id);
+		} else {
+			next.add(id);
+		}
+		selectedIds = next;
+	}
+
+	function toggleSelectAll() {
+		if (allSelected) {
+			selectedIds = new Set();
+			return;
+		}
+		selectedIds = new Set(profiles.map((profile) => profile.id));
+	}
+
+	async function runBulkAction(action: 'delete') {
+		if (selectedIds.size === 0) return;
+
+		const ids = [...selectedIds];
+		const selectedSet = new Set(ids);
+		const originalProfiles = profiles;
+
+		if (action === 'delete') {
+			profiles = profiles.filter((profile) => !selectedSet.has(profile.id));
+		}
+
+		saveStatus = 'saving';
+		saveError = '';
+		bulkActing = true;
+
+		try {
+			const result = await bulkMetadataProfiles({ action, ids });
+			const failed = result.results.filter((item) => !item.success);
+			if (failed.length > 0) {
+				const failedSet = new Set(failed.map((item) => item.id));
+				if (action === 'delete') {
+					profiles = originalProfiles.filter(
+						(profile) => !selectedSet.has(profile.id) || failedSet.has(profile.id)
+					);
+				}
+
+				selectedIds = failedSet;
+				saveStatus = 'error';
+				saveError = failed
+					.slice(0, 4)
+					.map((item) => `${item.id}: ${item.error ?? 'operation failed'}`)
+					.join('\n');
+				return;
+			}
+
+			selectedIds = new Set();
+			saveStatus = 'saved';
+			scheduleBannerClear();
+		} catch (err) {
+			profiles = originalProfiles;
+			saveStatus = 'error';
+			saveError = err instanceof ApiError ? err.message : 'Bulk action failed.';
+		} finally {
+			bulkActing = false;
+		}
+	}
+
+	function openBulkDelete() {
+		if (!hasSelection) return;
+		bulkDeleteDialogOpen = true;
+	}
+
+	async function confirmBulkDelete() {
+		await runBulkAction('delete');
+		bulkDeleteDialogOpen = false;
+	}
+
 	function cancelDelete() {
 		deleteDialogOpen = false;
 		deleteTarget = null;
@@ -348,6 +430,13 @@
 >
 	{#snippet actions()}
 		<SaveStatusBanner status={saveStatus} errorMessage={saveError} />
+		{#if hasSelection}
+			<div class="bulk-toolbar">
+				<button class="btn-icon destructive" onclick={openBulkDelete} disabled={bulkActing}>
+					Delete Selected
+				</button>
+			</div>
+		{/if}
 		<button class="btn-primary" onclick={openAdd}>Add Profile</button>
 	{/snippet}
 
@@ -362,9 +451,21 @@
 			onaction={openAdd}
 		/>
 	{:else}
+		<div class="bulk-select-row">
+			<label>
+				<input type="checkbox" checked={allSelected} onchange={toggleSelectAll} />
+				Select All ({selectedIds.size}/{profiles.length})
+			</label>
+		</div>
 		<ul class="profile-list" role="list">
 			{#each profiles as profile (profile.id)}
 				<li class="profile-item">
+					<input
+						type="checkbox"
+						checked={selectedIds.has(profile.id)}
+						onchange={() => toggleRowSelection(profile.id)}
+						aria-label="Select {profile.name}"
+					/>
 					<div class="profile-info">
 						<span class="profile-name">{profile.name}</span>
 						<span class="profile-meta">
@@ -622,6 +723,16 @@
 	oncancel={cancelDelete}
 />
 
+<ConfirmDialog
+	open={bulkDeleteDialogOpen}
+	title="Delete Selected Metadata Profiles"
+	message={`Delete ${selectedIds.size} selected metadata profile(s)? This cannot be undone.`}
+	confirmLabel={bulkActing ? 'Deleting...' : 'Delete Selected'}
+	destructive
+	onconfirm={confirmBulkDelete}
+	oncancel={() => (bulkDeleteDialogOpen = false)}
+/>
+
 <style>
 	.profile-list {
 		list-style: none;
@@ -630,6 +741,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.bulk-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.bulk-select-row {
+		margin-bottom: 0.6rem;
+		font-size: 0.85rem;
+	}
+
+	.bulk-select-row label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.profile-item {

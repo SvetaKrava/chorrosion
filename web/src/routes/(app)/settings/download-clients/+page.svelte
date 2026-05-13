@@ -12,6 +12,7 @@
 		createDownloadClient,
 		updateDownloadClient,
 		deleteDownloadClient,
+		bulkDownloadClients,
 		ApiError
 	} from '$lib/api';
 	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
@@ -24,6 +25,7 @@
 
 	// ── state ──────────────────────────────────────────────────────────────────
 	let clients = $state<DownloadClient[]>([]);
+	let selectedIds = $state<Set<string>>(new Set());
 	let loading = $state(true);
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
@@ -51,6 +53,8 @@
 	let deleteTarget = $state<DownloadClient | null>(null);
 	let deleteDialogOpen = $state(false);
 	let deleting = $state(false);
+	let bulkDeleteDialogOpen = $state(false);
+	let bulkActing = $state(false);
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -122,6 +126,9 @@
 	}
 
 	onMount(load);
+
+	let hasSelection = $derived(selectedIds.size > 0);
+	let allSelected = $derived(clients.length > 0 && clients.every((client) => selectedIds.has(client.id)));
 
 	// ── modal helpers ──────────────────────────────────────────────────────────
 	function openAdd() {
@@ -255,6 +262,95 @@
 		}
 	}
 
+	function toggleRowSelection(id: string) {
+		const next = new Set(selectedIds);
+		if (next.has(id)) {
+			next.delete(id);
+		} else {
+			next.add(id);
+		}
+		selectedIds = next;
+	}
+
+	function toggleSelectAll() {
+		if (allSelected) {
+			selectedIds = new Set();
+			return;
+		}
+		selectedIds = new Set(clients.map((client) => client.id));
+	}
+
+	async function runBulkAction(action: 'enable' | 'disable' | 'delete') {
+		if (selectedIds.size === 0) return;
+
+		const ids = [...selectedIds];
+		const selectedSet = new Set(ids);
+		const originalClients = clients;
+		const originalById = new Map(originalClients.map((client) => [client.id, client]));
+
+		if (action === 'delete') {
+			clients = clients.filter((client) => !selectedSet.has(client.id));
+		} else {
+			clients = clients.map((client) =>
+				selectedSet.has(client.id)
+					? {
+						...client,
+						enabled: action === 'enable'
+					}
+					: client
+			);
+		}
+
+		saveStatus = 'saving';
+		saveError = '';
+		bulkActing = true;
+
+		try {
+			const result = await bulkDownloadClients({ action, ids });
+			const failed = result.results.filter((item) => !item.success);
+			if (failed.length > 0) {
+				const failedSet = new Set(failed.map((item) => item.id));
+				if (action === 'delete') {
+					clients = originalClients.filter(
+						(client) => !selectedSet.has(client.id) || failedSet.has(client.id)
+					);
+				} else {
+					clients = clients.map((client) =>
+						failedSet.has(client.id) ? (originalById.get(client.id) ?? client) : client
+					);
+				}
+
+				selectedIds = failedSet;
+				saveStatus = 'error';
+				saveError = failed
+					.slice(0, 4)
+					.map((item) => `${item.id}: ${item.error ?? 'operation failed'}`)
+					.join('\n');
+				return;
+			}
+
+			selectedIds = new Set();
+			saveStatus = 'saved';
+			scheduleBannerClear();
+		} catch (err) {
+			clients = originalClients;
+			saveStatus = 'error';
+			saveError = err instanceof ApiError ? err.message : 'Bulk action failed.';
+		} finally {
+			bulkActing = false;
+		}
+	}
+
+	function openBulkDelete() {
+		if (!hasSelection) return;
+		bulkDeleteDialogOpen = true;
+	}
+
+	async function confirmBulkDelete() {
+		await runBulkAction('delete');
+		bulkDeleteDialogOpen = false;
+	}
+
 	// ── delete ─────────────────────────────────────────────────────────────────
 	function openDelete(client: DownloadClient) {
 		deleteTarget = client;
@@ -307,6 +403,19 @@
 >
 	{#snippet actions()}
 		<SaveStatusBanner status={saveStatus} errorMessage={saveError} />
+		{#if hasSelection}
+			<div class="bulk-toolbar">
+				<button class="btn-secondary" onclick={() => runBulkAction('enable')} disabled={bulkActing}>
+					Enable Selected
+				</button>
+				<button class="btn-secondary" onclick={() => runBulkAction('disable')} disabled={bulkActing}>
+					Disable Selected
+				</button>
+				<button class="btn-icon destructive" onclick={openBulkDelete} disabled={bulkActing}>
+					Delete Selected
+				</button>
+			</div>
+		{/if}
 		<button class="btn-primary" onclick={openAdd}>Add Client</button>
 	{/snippet}
 
@@ -321,9 +430,21 @@
 			onaction={openAdd}
 		/>
 	{:else}
+		<div class="bulk-select-row">
+			<label>
+				<input type="checkbox" checked={allSelected} onchange={toggleSelectAll} />
+				Select All ({selectedIds.size}/{clients.length})
+			</label>
+		</div>
 		<ul class="client-list" role="list">
 			{#each clients as client (client.id)}
 				<li class="client-item" class:disabled={!client.enabled}>
+					<input
+						type="checkbox"
+						checked={selectedIds.has(client.id)}
+						onchange={() => toggleRowSelection(client.id)}
+						aria-label="Select {client.name}"
+					/>
 					<div class="client-info">
 						<span class="client-name">{client.name}</span>
 						<span class="client-meta">
@@ -515,6 +636,16 @@
 	oncancel={cancelDelete}
 />
 
+<ConfirmDialog
+	open={bulkDeleteDialogOpen}
+	title="Delete Selected Download Clients"
+	message={`Delete ${selectedIds.size} selected download client(s)? This cannot be undone.`}
+	confirmLabel={bulkActing ? 'Deleting…' : 'Delete Selected'}
+	destructive
+	onconfirm={confirmBulkDelete}
+	oncancel={() => (bulkDeleteDialogOpen = false)}
+/>
+
 <style>
 	.client-list {
 		list-style: none;
@@ -523,6 +654,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.bulk-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.bulk-select-row {
+		margin-bottom: 0.6rem;
+		font-size: 0.85rem;
+	}
+
+	.bulk-select-row label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.client-item {
@@ -669,6 +817,16 @@
 		cursor: pointer;
 		transition: opacity 0.12s;
 		white-space: nowrap;
+	}
+
+	.btn-secondary {
+		padding: 0.45rem 0.8rem;
+		background: transparent;
+		border: 1px solid var(--border-color, rgba(15, 26, 31, 0.2));
+		border-radius: 6px;
+		font-size: 0.82rem;
+		cursor: pointer;
+		color: var(--text-primary, #0f1a1f);
 	}
 
 	.btn-primary:hover:not(:disabled) {

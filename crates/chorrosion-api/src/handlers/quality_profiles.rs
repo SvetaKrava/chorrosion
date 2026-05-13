@@ -75,6 +75,24 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct QualityProfileBulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QualityProfileBulkItemResult {
+    pub id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QualityProfileBulkResponse {
+    pub results: Vec<QualityProfileBulkItemResult>,
+}
+
 fn validate_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if name.trim().is_empty() {
         Err((
@@ -405,6 +423,73 @@ pub async fn delete_quality_profile(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/quality-profiles/bulk",
+    request_body = QualityProfileBulkRequest,
+    responses(
+        (status = 200, description = "Bulk action completed", body = QualityProfileBulkResponse),
+        (status = 207, description = "Bulk action partially succeeded", body = QualityProfileBulkResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn bulk_quality_profiles(
+    State(state): State<AppState>,
+    Json(request): Json<QualityProfileBulkRequest>,
+) -> impl IntoResponse {
+    if request.ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "ids must contain at least one item".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if !matches!(request.action.as_str(), "delete") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "action must be one of: delete".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::with_capacity(request.ids.len());
+
+    for id in request.ids {
+        let result = match request.action.as_str() {
+            "delete" => match state.quality_profile_repository.delete(&id).await {
+                Ok(_) => QualityProfileBulkItemResult {
+                    id,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => QualityProfileBulkItemResult {
+                    id,
+                    success: false,
+                    error: Some(format!("failed to delete quality profile: {error}")),
+                },
+            },
+            _ => unreachable!(),
+        };
+
+        results.push(result);
+    }
+
+    let has_failures = results.iter().any(|r| !r.success);
+    let status = if has_failures {
+        StatusCode::MULTI_STATUS
+    } else {
+        StatusCode::OK
+    };
+
+    (status, Json(QualityProfileBulkResponse { results })).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,6 +797,111 @@ mod tests {
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+
+        // --- bulk_quality_profiles ---
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_delete_returns_200_on_success() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_quality_profiles(
+                State(state.clone()),
+                Json(QualityProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let fetched = state
+                .quality_profile_repository
+                .get_by_id(&profile.id.to_string())
+                .await
+                .expect("get_by_id");
+            assert!(fetched.is_none(), "profile should be deleted");
+        }
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_rejects_empty_ids() {
+            let state = make_test_state().await;
+            let response = bulk_quality_profiles(
+                State(state),
+                Json(QualityProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_rejects_invalid_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_quality_profiles(
+                State(state),
+                Json(QualityProfileBulkRequest {
+                    action: "frobulate".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_rejects_enable_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_quality_profiles(
+                State(state),
+                Json(QualityProfileBulkRequest {
+                    action: "enable".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_rejects_disable_action() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let response = bulk_quality_profiles(
+                State(state),
+                Json(QualityProfileBulkRequest {
+                    action: "disable".to_string(),
+                    ids: vec![profile.id.to_string()],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn bulk_quality_profiles_returns_207_for_partial_failure() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let missing_id = "00000000-0000-0000-0000-000000000000".to_string();
+            let response = bulk_quality_profiles(
+                State(state),
+                Json(QualityProfileBulkRequest {
+                    action: "delete".to_string(),
+                    ids: vec![profile.id.to_string(), missing_id],
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::MULTI_STATUS);
         }
     }
 }

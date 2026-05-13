@@ -88,6 +88,23 @@ export interface UpdateDownloadClientRequest {
 
 export type DownloadClientErrorResponse = ApiErrorResponse;
 
+export type SettingsBulkAction = 'enable' | 'disable' | 'delete';
+
+export interface SettingsBulkRequest {
+	action: SettingsBulkAction;
+	ids: string[];
+}
+
+export interface SettingsBulkItemResult {
+	id: string;
+	success: boolean;
+	error?: string;
+}
+
+export interface SettingsBulkResponse {
+	results: SettingsBulkItemResult[];
+}
+
 export interface Indexer {
 	id: string;
 	name: string;

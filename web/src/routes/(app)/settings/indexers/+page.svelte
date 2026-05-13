@@ -12,6 +12,7 @@
 		createIndexer,
 		updateIndexer,
 		deleteIndexer,
+		bulkIndexers,
 		testIndexer,
 		ApiError
 	} from '$lib/api';
@@ -26,6 +27,7 @@
 
 	// ── state ──────────────────────────────────────────────────────────────────
 	let indexers = $state<Indexer[]>([]);
+	let selectedIds = $state<Set<string>>(new Set());
 	let loading = $state(true);
 	let loadError = $state('');
 	let saveStatus = $state<SaveStatus>('idle');
@@ -56,6 +58,8 @@
 	let deleteTarget = $state<Indexer | null>(null);
 	let deleteDialogOpen = $state(false);
 	let deleting = $state(false);
+	let bulkDeleteDialogOpen = $state(false);
+	let bulkActing = $state(false);
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,6 +127,9 @@
 	}
 
 	onMount(load);
+
+	let hasSelection = $derived(selectedIds.size > 0);
+	let allSelected = $derived(indexers.length > 0 && indexers.every((indexer) => selectedIds.has(indexer.id)));
 
 	// ── modal helpers ──────────────────────────────────────────────────────────
 	function openAdd() {
@@ -288,6 +295,95 @@
 		}
 	}
 
+	function toggleRowSelection(id: string) {
+		const next = new Set(selectedIds);
+		if (next.has(id)) {
+			next.delete(id);
+		} else {
+			next.add(id);
+		}
+		selectedIds = next;
+	}
+
+	function toggleSelectAll() {
+		if (allSelected) {
+			selectedIds = new Set();
+			return;
+		}
+		selectedIds = new Set(indexers.map((indexer) => indexer.id));
+	}
+
+	async function runBulkAction(action: 'enable' | 'disable' | 'delete') {
+		if (selectedIds.size === 0) return;
+
+		const ids = [...selectedIds];
+		const selectedSet = new Set(ids);
+		const originalIndexers = indexers;
+		const originalById = new Map(originalIndexers.map((indexer) => [indexer.id, indexer]));
+
+		if (action === 'delete') {
+			indexers = indexers.filter((indexer) => !selectedSet.has(indexer.id));
+		} else {
+			indexers = indexers.map((indexer) =>
+				selectedSet.has(indexer.id)
+					? {
+						...indexer,
+						enabled: action === 'enable'
+					}
+					: indexer
+			);
+		}
+
+		saveStatus = 'saving';
+		saveError = '';
+		bulkActing = true;
+
+		try {
+			const result = await bulkIndexers({ action, ids });
+			const failed = result.results.filter((item) => !item.success);
+			if (failed.length > 0) {
+				const failedSet = new Set(failed.map((item) => item.id));
+				if (action === 'delete') {
+					indexers = originalIndexers.filter(
+						(indexer) => !selectedSet.has(indexer.id) || failedSet.has(indexer.id)
+					);
+				} else {
+					indexers = indexers.map((indexer) =>
+						failedSet.has(indexer.id) ? (originalById.get(indexer.id) ?? indexer) : indexer
+					);
+				}
+
+				selectedIds = failedSet;
+				saveStatus = 'error';
+				saveError = failed
+					.slice(0, 4)
+					.map((item) => `${item.id}: ${item.error ?? 'operation failed'}`)
+					.join('\n');
+				return;
+			}
+
+			selectedIds = new Set();
+			saveStatus = 'saved';
+			scheduleBannerClear();
+		} catch (err) {
+			indexers = originalIndexers;
+			saveStatus = 'error';
+			saveError = err instanceof ApiError ? err.message : 'Bulk action failed.';
+		} finally {
+			bulkActing = false;
+		}
+	}
+
+	function openBulkDelete() {
+		if (!hasSelection) return;
+		bulkDeleteDialogOpen = true;
+	}
+
+	async function confirmBulkDelete() {
+		await runBulkAction('delete');
+		bulkDeleteDialogOpen = false;
+	}
+
 	// ── delete ─────────────────────────────────────────────────────────────────
 	function openDelete(indexer: Indexer) {
 		deleteTarget = indexer;
@@ -340,6 +436,19 @@
 >
 	{#snippet actions()}
 		<SaveStatusBanner status={saveStatus} errorMessage={saveError} />
+		{#if hasSelection}
+			<div class="bulk-toolbar">
+				<button class="btn-secondary" onclick={() => runBulkAction('enable')} disabled={bulkActing}>
+					Enable Selected
+				</button>
+				<button class="btn-secondary" onclick={() => runBulkAction('disable')} disabled={bulkActing}>
+					Disable Selected
+				</button>
+				<button class="btn-icon destructive" onclick={openBulkDelete} disabled={bulkActing}>
+					Delete Selected
+				</button>
+			</div>
+		{/if}
 		<button class="btn-primary" onclick={openAdd}>Add Indexer</button>
 	{/snippet}
 
@@ -354,9 +463,21 @@
 			onaction={openAdd}
 		/>
 	{:else}
+		<div class="bulk-select-row">
+			<label>
+				<input type="checkbox" checked={allSelected} onchange={toggleSelectAll} />
+				Select All ({selectedIds.size}/{indexers.length})
+			</label>
+		</div>
 		<ul class="indexer-list" role="list">
 			{#each indexers as indexer (indexer.id)}
 				<li class="indexer-item" class:disabled={!indexer.enabled}>
+					<input
+						type="checkbox"
+						checked={selectedIds.has(indexer.id)}
+						onchange={() => toggleRowSelection(indexer.id)}
+						aria-label="Select {indexer.name}"
+					/>
 					<div class="indexer-info">
 						<span class="indexer-name">{indexer.name}</span>
 						<span class="indexer-meta">
@@ -549,6 +670,16 @@
 	oncancel={cancelDelete}
 />
 
+<ConfirmDialog
+	open={bulkDeleteDialogOpen}
+	title="Delete Selected Indexers"
+	message={`Delete ${selectedIds.size} selected indexer(s)? This cannot be undone.`}
+	confirmLabel={bulkActing ? 'Deleting…' : 'Delete Selected'}
+	destructive
+	onconfirm={confirmBulkDelete}
+	oncancel={() => (bulkDeleteDialogOpen = false)}
+/>
+
 <style>
 	.indexer-list {
 		list-style: none;
@@ -557,6 +688,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.bulk-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.bulk-select-row {
+		margin-bottom: 0.6rem;
+		font-size: 0.85rem;
+	}
+
+	.bulk-select-row label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.indexer-item {

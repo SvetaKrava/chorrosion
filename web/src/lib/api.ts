@@ -20,6 +20,8 @@ import type {
 	FormsLogoutResponse,
 	PaginatedResponse,
 	QualityProfile,
+	SettingsBulkRequest,
+	SettingsBulkResponse,
 	SystemTasksResponse,
 	TestIndexerRequest,
 	TestIndexerResponse,
@@ -170,6 +172,13 @@ export async function deleteDownloadClient(id: string): Promise<void> {
 	});
 }
 
+export async function bulkDownloadClients(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
+	return request<SettingsBulkResponse>('/api/v1/settings/download-clients/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
 export async function getIndexers(params?: {
 	limit?: number;
 	offset?: number;
@@ -205,6 +214,13 @@ export async function updateIndexer(
 export async function deleteIndexer(id: string): Promise<void> {
 	await request<unknown>(`/api/v1/settings/indexers/${encodeURIComponent(id)}`, {
 		method: 'DELETE'
+	});
+}
+
+export async function bulkIndexers(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
+	return request<SettingsBulkResponse>('/api/v1/settings/indexers/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
 	});
 }
 
@@ -257,6 +273,13 @@ export async function deleteQualityProfile(id: string): Promise<void> {
 	});
 }
 
+export async function bulkQualityProfiles(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
+	return request<SettingsBulkResponse>('/api/v1/settings/quality-profiles/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
 export async function getMetadataProfiles(params?: {
 	limit?: number;
 	offset?: number;
@@ -296,6 +319,13 @@ export async function updateMetadataProfile(
 export async function deleteMetadataProfile(id: string): Promise<void> {
 	await request<unknown>(`/api/v1/settings/metadata-profiles/${encodeURIComponent(id)}`, {
 		method: 'DELETE'
+	});
+}
+
+export async function bulkMetadataProfiles(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
+	return request<SettingsBulkResponse>('/api/v1/settings/metadata-profiles/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
 	});
 }
 
