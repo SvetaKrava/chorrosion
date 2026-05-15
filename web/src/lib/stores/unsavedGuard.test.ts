@@ -73,4 +73,21 @@ describe('useUnsavedGuard', () => {
 		expect(guard.hasPendingNavigation).toBe(false);
 		expect(mockGoto).not.toHaveBeenCalled();
 	});
+
+	it('markClean prevents navigation from being blocked', () => {
+		const onBlocked = vi.fn();
+		const guard = useUnsavedGuard(onBlocked);
+		guard.markDirty();
+		guard.markClean();
+		const cancel = vi.fn();
+
+		navigationState.handler?.({
+			cancel,
+			to: { url: new URL('http://localhost/settings/metadata-profiles') }
+		});
+
+		expect(cancel).not.toHaveBeenCalled();
+		expect(onBlocked).not.toHaveBeenCalled();
+		expect(guard.hasPendingNavigation).toBe(false);
+	});
 });
