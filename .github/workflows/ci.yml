@@ -80,6 +80,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-bin: false
 
       - name: Cargo build
         run: cargo build --workspace --all-targets --locked
@@ -111,6 +112,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-bin: false
 
       - name: Install chromaprint (Ubuntu)
         run: |
@@ -167,6 +169,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-bin: false
 
       - name: Install chromaprint (Ubuntu)
         run: |
@@ -251,6 +254,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-bin: false
 
       - name: Test chorrosion-infrastructure
         run: cargo test -p chorrosion-infrastructure --no-fail-fast -- --nocapture
