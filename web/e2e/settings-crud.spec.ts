@@ -126,6 +126,30 @@ async function mockIndexersCrud(page: Page) {
 		}
 	];
 
+	await routeJson(page, '**/api/v1/indexers/test', async (route) => {
+		if (route.request().method() !== 'POST') {
+			await route.fallback();
+			return;
+		}
+
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				success: true,
+				message: 'ok',
+				protocol: 'torznab',
+				capabilities: {
+					supports_search: true,
+					supports_rss: true,
+					supports_capabilities_detection: true,
+					supports_categories: true,
+					supported_categories: ['music']
+				}
+			})
+		});
+	});
+
 	await routeJson(page, '**/api/v1/settings/indexers**', async (route) => {
 		const req = route.request();
 		const method = req.method();
@@ -153,26 +177,6 @@ async function mockIndexersCrud(page: Page) {
 			};
 			items.push(created);
 			await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) });
-			return;
-		}
-
-		if (path.endsWith('/indexers/test') && method === 'POST') {
-			await route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify({
-					success: true,
-					message: 'ok',
-					protocol: 'torznab',
-					capabilities: {
-						supports_search: true,
-						supports_rss: true,
-						supports_capabilities_detection: true,
-						supports_categories: true,
-						supported_categories: ['music']
-					}
-				})
-			});
 			return;
 		}
 

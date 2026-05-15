@@ -53,7 +53,9 @@ describe('settings API client methods', () => {
 		await getDownloadClients({ limit: 50, offset: 0 });
 
 		expect(fetchMock).toHaveBeenCalledOnce();
-		expect(fetchMock.mock.calls[0][0]).toMatch('/api/v1/settings/download-clients?limit=50&offset=0');
+		expect(String(fetchMock.mock.calls[0][0])).toContain(
+			'/api/v1/settings/download-clients?limit=50&offset=0'
+		);
 	});
 
 	it('gets indexers list', async () => {
@@ -63,7 +65,7 @@ describe('settings API client methods', () => {
 
 		await getIndexers({ limit: 25 });
 
-		expect(fetchMock.mock.calls[0][0]).toMatch('/api/v1/settings/indexers?limit=25');
+		expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/settings/indexers?limit=25');
 	});
 
 	it('gets quality profiles list', async () => {
@@ -73,7 +75,7 @@ describe('settings API client methods', () => {
 
 		await getQualityProfiles({ limit: 100 });
 
-		expect(fetchMock.mock.calls[0][0]).toMatch('/api/v1/settings/quality-profiles?limit=100');
+		expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/settings/quality-profiles?limit=100');
 	});
 
 	it('gets metadata profiles list', async () => {
@@ -83,7 +85,7 @@ describe('settings API client methods', () => {
 
 		await getMetadataProfiles({ limit: 100 });
 
-		expect(fetchMock.mock.calls[0][0]).toMatch('/api/v1/settings/metadata-profiles?limit=100');
+		expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/settings/metadata-profiles?limit=100');
 	});
 
 	it('creates a download client', async () => {
