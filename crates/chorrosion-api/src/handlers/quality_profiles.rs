@@ -625,9 +625,6 @@ pub async fn import_quality_profiles(
     }
 
     let mut validation_errors = Vec::new();
-    if request.items.is_empty() {
-        validation_errors.push("items must contain at least one entry".to_string());
-    }
     for (idx, item) in request.items.iter().enumerate() {
         if item.name.trim().is_empty() {
             validation_errors.push(format!("items[{idx}].name cannot be empty"));

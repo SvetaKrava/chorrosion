@@ -802,7 +802,7 @@ pub async fn export_download_clients(State(state): State<AppState>) -> impl Into
                         client_type: item.client_type,
                         base_url: item.base_url,
                         username: item.username,
-                        password: item.password_encrypted,
+                        password: None,
                         category: item.category,
                         enabled: item.enabled,
                     })
@@ -849,10 +849,6 @@ pub async fn import_download_clients(
     }
 
     let mut validation_errors = Vec::new();
-    if request.items.is_empty() {
-        validation_errors.push("items must contain at least one entry".to_string());
-    }
-
     for (idx, item) in request.items.iter().enumerate() {
         if item.name.trim().is_empty() {
             validation_errors.push(format!("items[{idx}].name cannot be empty"));

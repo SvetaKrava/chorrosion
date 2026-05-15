@@ -140,7 +140,6 @@
 	}
 
 	async function refreshImportPreview() {
-		if (importItems.length === 0) return;
 		importPreview = await importQualityProfiles(
 			{
 				version: importVersion,

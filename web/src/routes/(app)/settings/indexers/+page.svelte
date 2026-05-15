@@ -328,7 +328,6 @@
 	}
 
 	async function refreshImportPreview() {
-		if (importItems.length === 0) return;
 		importPreview = await importIndexers(
 			{
 				version: importVersion,

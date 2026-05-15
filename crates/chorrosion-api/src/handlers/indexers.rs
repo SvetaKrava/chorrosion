@@ -753,7 +753,7 @@ pub async fn export_indexers(State(state): State<AppState>) -> impl IntoResponse
                         name: item.name,
                         base_url: item.base_url,
                         protocol: item.protocol,
-                        api_key: item.api_key,
+                        api_key: None,
                         enabled: item.enabled,
                     })
                     .collect(),
@@ -799,10 +799,6 @@ pub async fn import_indexers(
     }
 
     let mut validation_errors = Vec::new();
-    if request.items.is_empty() {
-        validation_errors.push("items must contain at least one entry".to_string());
-    }
-
     for (idx, item) in request.items.iter().enumerate() {
         if item.name.trim().is_empty() {
             validation_errors.push(format!("items[{idx}].name cannot be empty"));
@@ -915,7 +911,10 @@ pub async fn import_indexers(
             existing_item.name = item.name.trim().to_string();
             existing_item.base_url = item.base_url.trim().to_string();
             existing_item.protocol = protocol.as_str().to_string();
-            existing_item.api_key = item.api_key.clone();
+            existing_item.api_key = item.api_key.as_ref().and_then(|key| {
+                let trimmed = key.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            });
             existing_item.enabled = item.enabled;
             existing_item.updated_at = Utc::now();
 
@@ -938,7 +937,10 @@ pub async fn import_indexers(
         } else {
             let mut new_item =
                 IndexerDefinition::new(item.name.trim(), item.base_url.trim(), protocol.as_str());
-            new_item.api_key = item.api_key.clone();
+            new_item.api_key = item.api_key.as_ref().and_then(|key| {
+                let trimmed = key.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            });
             new_item.enabled = item.enabled;
 
             match state.indexer_definition_repository.create(new_item).await {

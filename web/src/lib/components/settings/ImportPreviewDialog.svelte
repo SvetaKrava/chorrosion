@@ -28,14 +28,30 @@
 		onConfirm,
 		onCancel
 	}: Props = $props();
+
+	const dialogTitleId = `import-dialog-title-${crypto.randomUUID()}`;
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			onCancel();
+		}
+	}
 </script>
 
 {#if open}
-	<div class="dialog-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div
+		class="dialog-backdrop"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby={dialogTitleId}
+		tabindex="-1"
+		onkeydown={handleKeydown}
+	>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div class="dialog-scrim" role="presentation" onclick={onCancel}></div>
 		<div class="dialog-panel">
-			<h3>{title}</h3>
+			<h3 id={dialogTitleId}>{title}</h3>
 			<div class="summary-row">
 				<span>Added: {summary.added}</span>
 				<span>Updated: {summary.updated}</span>
