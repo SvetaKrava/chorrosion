@@ -5,6 +5,7 @@
 	import LoadingSpinner from '$lib/components/settings/LoadingSpinner.svelte';
 	import ErrorMessage from '$lib/components/settings/ErrorMessage.svelte';
 	import ConfirmDialog from '$lib/components/settings/ConfirmDialog.svelte';
+	import ImportPreviewDialog from '$lib/components/settings/ImportPreviewDialog.svelte';
 	import SaveStatusBanner from '$lib/components/settings/SaveStatusBanner.svelte';
 	import type { SaveStatus } from '$lib/components/settings/SaveStatusBanner.svelte';
 	import {
@@ -13,6 +14,8 @@
 		updateQualityProfile,
 		deleteQualityProfile,
 		bulkQualityProfiles,
+		exportQualityProfiles,
+		importQualityProfiles,
 		ApiError
 	} from '$lib/api';
 	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
@@ -20,6 +23,8 @@
 	import type {
 		QualityProfile,
 		CreateQualityProfileRequest,
+		SettingsImportConflictPolicy,
+		SettingsImportResponse,
 		UpdateQualityProfileRequest
 	} from '$lib/types';
 
@@ -91,6 +96,13 @@
 	let deleting = $state(false);
 	let bulkDeleteDialogOpen = $state(false);
 	let bulkActing = $state(false);
+	let importDialogOpen = $state(false);
+	let importApplying = $state(false);
+	let importPolicy = $state<SettingsImportConflictPolicy>('merge');
+	let importVersion = $state('1');
+	let importItems = $state<CreateQualityProfileRequest[]>([]);
+	let importPreview = $state<SettingsImportResponse | null>(null);
+	let importFileInput: HTMLInputElement | null = null;
 
 	// banner auto-clear timer
 	let saveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -105,6 +117,92 @@
 			cutoffQuality: formCutoffQuality,
 			upgradeAllowed: formUpgradeAllowed
 		});
+	}
+
+	async function exportItems() {
+		try {
+			const payload = await exportQualityProfiles();
+			const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = 'quality-profiles.export.json';
+			link.click();
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			saveError = err instanceof ApiError ? err.message : 'Export failed.';
+			saveStatus = 'error';
+		}
+	}
+
+	function triggerImport() {
+		importFileInput?.click();
+	}
+
+	async function refreshImportPreview() {
+		if (importItems.length === 0) return;
+		importPreview = await importQualityProfiles(
+			{
+				version: importVersion,
+				conflict_policy: importPolicy,
+				items: importItems
+			},
+			true
+		);
+	}
+
+	async function handleImportFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		try {
+			const text = await file.text();
+			const parsed = JSON.parse(text);
+			importVersion = typeof parsed.version === 'string' ? parsed.version : '1';
+			importItems = Array.isArray(parsed.items)
+				? parsed.items
+				: Array.isArray(parsed)
+					? parsed
+					: [];
+			await refreshImportPreview();
+			importDialogOpen = true;
+		} catch (err) {
+			saveError = err instanceof Error ? err.message : 'Import file is invalid.';
+			saveStatus = 'error';
+		}
+		input.value = '';
+	}
+
+	async function applyImport() {
+		importApplying = true;
+		try {
+			const result = await importQualityProfiles(
+				{
+					version: importVersion,
+					conflict_policy: importPolicy,
+					items: importItems
+				},
+				false
+			);
+			const failed = result.results.filter((item) => !item.success);
+			if (failed.length > 0) {
+				saveError = failed
+					.slice(0, 4)
+					.map((item) => `${item.id}: ${item.error ?? 'operation failed'}`)
+					.join('\n');
+				saveStatus = 'error';
+			} else {
+				saveStatus = 'saved';
+				scheduleBannerClear();
+			}
+			importDialogOpen = false;
+			await load();
+		} catch (err) {
+			saveError = err instanceof ApiError ? err.message : 'Import failed.';
+			saveStatus = 'error';
+		} finally {
+			importApplying = false;
+		}
 	}
 
 	function syncDirtyState() {
@@ -417,6 +515,9 @@
 >
 	{#snippet actions()}
 		<SaveStatusBanner status={saveStatus} errorMessage={saveError} />
+		<button class="btn-secondary" onclick={exportItems}>Export</button>
+		<button class="btn-secondary" onclick={triggerImport}>Import</button>
+		<input bind:this={importFileInput} type="file" accept="application/json" hidden onchange={handleImportFile} />
 		{#if hasSelection}
 			<div class="bulk-toolbar">
 				<button class="btn-icon destructive" onclick={openBulkDelete} disabled={bulkActing}>
@@ -621,6 +722,21 @@
 	destructive
 	onconfirm={confirmBulkDelete}
 	oncancel={() => (bulkDeleteDialogOpen = false)}
+/>
+
+<ImportPreviewDialog
+	open={importDialogOpen}
+	title="Preview Quality Profile Import"
+	summary={importPreview?.summary ?? { added: 0, updated: 0, deleted: 0 }}
+	preview={importPreview?.preview ?? []}
+	policy={importPolicy}
+	applying={importApplying}
+	onPolicyChange={(policy) => {
+		importPolicy = policy;
+		void refreshImportPreview();
+	}}
+	onConfirm={applyImport}
+	onCancel={() => (importDialogOpen = false)}
 />
 
 <style>

@@ -20,6 +20,9 @@ import type {
 	FormsLogoutResponse,
 	PaginatedResponse,
 	QualityProfile,
+	SettingsExportEnvelope,
+	SettingsImportRequest,
+	SettingsImportResponse,
 	SettingsBulkRequest,
 	SettingsBulkResponse,
 	SystemTasksResponse,
@@ -179,6 +182,20 @@ export async function bulkDownloadClients(payload: SettingsBulkRequest): Promise
 	});
 }
 
+export async function exportDownloadClients(): Promise<SettingsExportEnvelope<CreateDownloadClientRequest>> {
+	return request<SettingsExportEnvelope<CreateDownloadClientRequest>>('/api/v1/settings/download-clients/export');
+}
+
+export async function importDownloadClients(
+	payload: SettingsImportRequest<CreateDownloadClientRequest>,
+	dryRun = false
+): Promise<SettingsImportResponse> {
+	return request<SettingsImportResponse>(`/api/v1/settings/download-clients/import?dry_run=${dryRun}`, {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
 export async function getIndexers(params?: {
 	limit?: number;
 	offset?: number;
@@ -219,6 +236,20 @@ export async function deleteIndexer(id: string): Promise<void> {
 
 export async function bulkIndexers(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
 	return request<SettingsBulkResponse>('/api/v1/settings/indexers/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function exportIndexers(): Promise<SettingsExportEnvelope<CreateIndexerRequest>> {
+	return request<SettingsExportEnvelope<CreateIndexerRequest>>('/api/v1/settings/indexers/export');
+}
+
+export async function importIndexers(
+	payload: SettingsImportRequest<CreateIndexerRequest>,
+	dryRun = false
+): Promise<SettingsImportResponse> {
+	return request<SettingsImportResponse>(`/api/v1/settings/indexers/import?dry_run=${dryRun}`, {
 		method: 'POST',
 		body: JSON.stringify(payload)
 	});
@@ -280,6 +311,20 @@ export async function bulkQualityProfiles(payload: SettingsBulkRequest): Promise
 	});
 }
 
+export async function exportQualityProfiles(): Promise<SettingsExportEnvelope<CreateQualityProfileRequest>> {
+	return request<SettingsExportEnvelope<CreateQualityProfileRequest>>('/api/v1/settings/quality-profiles/export');
+}
+
+export async function importQualityProfiles(
+	payload: SettingsImportRequest<CreateQualityProfileRequest>,
+	dryRun = false
+): Promise<SettingsImportResponse> {
+	return request<SettingsImportResponse>(`/api/v1/settings/quality-profiles/import?dry_run=${dryRun}`, {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
 export async function getMetadataProfiles(params?: {
 	limit?: number;
 	offset?: number;
@@ -324,6 +369,20 @@ export async function deleteMetadataProfile(id: string): Promise<void> {
 
 export async function bulkMetadataProfiles(payload: SettingsBulkRequest): Promise<SettingsBulkResponse> {
 	return request<SettingsBulkResponse>('/api/v1/settings/metadata-profiles/bulk', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
+}
+
+export async function exportMetadataProfiles(): Promise<SettingsExportEnvelope<CreateMetadataProfileRequest>> {
+	return request<SettingsExportEnvelope<CreateMetadataProfileRequest>>('/api/v1/settings/metadata-profiles/export');
+}
+
+export async function importMetadataProfiles(
+	payload: SettingsImportRequest<CreateMetadataProfileRequest>,
+	dryRun = false
+): Promise<SettingsImportResponse> {
+	return request<SettingsImportResponse>(`/api/v1/settings/metadata-profiles/import?dry_run=${dryRun}`, {
 		method: 'POST',
 		body: JSON.stringify(payload)
 	});

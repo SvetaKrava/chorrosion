@@ -9,6 +9,7 @@ use chorrosion_application::AppState;
 use chorrosion_domain::DownloadClientDefinition;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -105,6 +106,76 @@ pub struct DownloadClientBulkItemResult {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DownloadClientBulkResponse {
     pub results: Vec<DownloadClientBulkItemResult>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct SettingsImportQuery {
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct DownloadClientImportItem {
+    pub name: String,
+    pub client_type: String,
+    pub base_url: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub category: Option<String>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DownloadClientExportEnvelope {
+    pub version: String,
+    pub exported_at: String,
+    pub items: Vec<DownloadClientImportItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportConflictPolicy {
+    Merge,
+    ReplaceAll,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DownloadClientImportRequest {
+    pub version: String,
+    #[serde(default = "default_import_conflict_policy")]
+    pub conflict_policy: ImportConflictPolicy,
+    pub items: Vec<DownloadClientImportItem>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportPreviewSummary {
+    pub added: usize,
+    pub updated: usize,
+    pub deleted: usize,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportPreviewItem {
+    pub name: String,
+    pub action: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DownloadClientImportResponse {
+    pub dry_run: bool,
+    pub summary: ImportPreviewSummary,
+    pub preview: Vec<ImportPreviewItem>,
+    pub results: Vec<DownloadClientBulkItemResult>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DownloadClientImportErrorResponse {
+    pub error: String,
+    pub details: Vec<String>,
+}
+
+fn default_import_conflict_policy() -> ImportConflictPolicy {
+    ImportConflictPolicy::Merge
 }
 
 fn default_true() -> bool {
@@ -703,6 +774,278 @@ pub async fn bulk_download_clients(
     };
 
     (status, Json(DownloadClientBulkResponse { results })).into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/download-clients/export",
+    responses(
+        (status = 200, description = "Export download clients", body = DownloadClientExportEnvelope),
+        (status = 500, description = "Internal server error", body = DownloadClientErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn export_download_clients(State(state): State<AppState>) -> impl IntoResponse {
+    match state
+        .download_client_definition_repository
+        .list(5000, 0)
+        .await
+    {
+        Ok(items) => {
+            let exported = DownloadClientExportEnvelope {
+                version: "1".to_string(),
+                exported_at: Utc::now().to_rfc3339(),
+                items: items
+                    .into_iter()
+                    .map(|item| DownloadClientImportItem {
+                        name: item.name,
+                        client_type: item.client_type,
+                        base_url: item.base_url,
+                        username: item.username,
+                        password: item.password_encrypted,
+                        category: item.category,
+                        enabled: item.enabled,
+                    })
+                    .collect(),
+            };
+            (StatusCode::OK, Json(exported)).into_response()
+        }
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(DownloadClientErrorResponse {
+                error: format!("failed to export download clients: {error}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/download-clients/import",
+    params(SettingsImportQuery),
+    request_body = DownloadClientImportRequest,
+    responses(
+        (status = 200, description = "Import processed", body = DownloadClientImportResponse),
+        (status = 400, description = "Invalid request", body = DownloadClientImportErrorResponse),
+        (status = 500, description = "Internal server error", body = DownloadClientErrorResponse)
+    ),
+    tag = "settings"
+)]
+pub async fn import_download_clients(
+    State(state): State<AppState>,
+    Query(query): Query<SettingsImportQuery>,
+    Json(request): Json<DownloadClientImportRequest>,
+) -> impl IntoResponse {
+    if request.version.trim() != "1" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DownloadClientImportErrorResponse {
+                error: "unsupported import version".to_string(),
+                details: vec!["version must be '1'".to_string()],
+            }),
+        )
+            .into_response();
+    }
+
+    let mut validation_errors = Vec::new();
+    if request.items.is_empty() {
+        validation_errors.push("items must contain at least one entry".to_string());
+    }
+
+    for (idx, item) in request.items.iter().enumerate() {
+        if item.name.trim().is_empty() {
+            validation_errors.push(format!("items[{idx}].name cannot be empty"));
+        }
+        if validate_base_url(&item.base_url).is_err() {
+            validation_errors.push(format!("items[{idx}].base_url is invalid"));
+        }
+        if normalize_client_type(&item.client_type).is_err() {
+            validation_errors.push(format!("items[{idx}].client_type is not supported"));
+        }
+    }
+
+    if !validation_errors.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DownloadClientImportErrorResponse {
+                error: "invalid import payload".to_string(),
+                details: validation_errors,
+            }),
+        )
+            .into_response();
+    }
+
+    let existing = match state
+        .download_client_definition_repository
+        .list(5000, 0)
+        .await
+    {
+        Ok(existing) => existing,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DownloadClientErrorResponse {
+                    error: format!("failed to read existing download clients: {error}"),
+                }),
+            )
+                .into_response()
+        }
+    };
+
+    let mut existing_by_name: HashMap<String, DownloadClientDefinition> = HashMap::new();
+    for item in existing {
+        existing_by_name.insert(item.name.to_lowercase(), item);
+    }
+
+    let mut import_names = HashSet::new();
+    let mut preview = Vec::new();
+    let mut summary = ImportPreviewSummary {
+        added: 0,
+        updated: 0,
+        deleted: 0,
+    };
+
+    for item in &request.items {
+        let key = item.name.to_lowercase();
+        import_names.insert(key.clone());
+        if existing_by_name.contains_key(&key) {
+            summary.updated += 1;
+            preview.push(ImportPreviewItem {
+                name: item.name.clone(),
+                action: "update".to_string(),
+            });
+        } else {
+            summary.added += 1;
+            preview.push(ImportPreviewItem {
+                name: item.name.clone(),
+                action: "add".to_string(),
+            });
+        }
+    }
+
+    if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
+        for existing_item in existing_by_name.values() {
+            if !import_names.contains(&existing_item.name.to_lowercase()) {
+                summary.deleted += 1;
+                preview.push(ImportPreviewItem {
+                    name: existing_item.name.clone(),
+                    action: "delete".to_string(),
+                });
+            }
+        }
+    }
+
+    if query.dry_run {
+        return (
+            StatusCode::OK,
+            Json(DownloadClientImportResponse {
+                dry_run: true,
+                summary,
+                preview,
+                results: vec![],
+            }),
+        )
+            .into_response();
+    }
+
+    let mut results = Vec::new();
+
+    for item in &request.items {
+        let key = item.name.to_lowercase();
+        let client_type = match normalize_client_type(&item.client_type) {
+            Ok(client_type) => client_type,
+            Err(_) => {
+                results.push(DownloadClientBulkItemResult {
+                    id: item.name.clone(),
+                    success: false,
+                    error: Some("unsupported client_type".to_string()),
+                });
+                continue;
+            }
+        };
+
+        if let Some(mut existing_item) = existing_by_name.get(&key).cloned() {
+            existing_item.name = item.name.trim().to_string();
+            existing_item.client_type = client_type;
+            existing_item.base_url = item.base_url.trim().to_string();
+            existing_item.username = normalize_optional(item.username.clone());
+            existing_item.password_encrypted = normalize_optional(item.password.clone());
+            existing_item.category = normalize_optional(item.category.clone());
+            existing_item.enabled = item.enabled;
+            existing_item.updated_at = Utc::now();
+
+            match state
+                .download_client_definition_repository
+                .update(existing_item)
+                .await
+            {
+                Ok(updated) => results.push(DownloadClientBulkItemResult {
+                    id: updated.id.to_string(),
+                    success: true,
+                    error: None,
+                }),
+                Err(error) => results.push(DownloadClientBulkItemResult {
+                    id: item.name.clone(),
+                    success: false,
+                    error: Some(format!("failed to update download client: {error}")),
+                }),
+            }
+        } else {
+            let mut new_item =
+                DownloadClientDefinition::new(item.name.trim(), client_type, item.base_url.trim());
+            new_item.username = normalize_optional(item.username.clone());
+            new_item.password_encrypted = normalize_optional(item.password.clone());
+            new_item.category = normalize_optional(item.category.clone());
+            new_item.enabled = item.enabled;
+
+            match state
+                .download_client_definition_repository
+                .create(new_item)
+                .await
+            {
+                Ok(created) => results.push(DownloadClientBulkItemResult {
+                    id: created.id.to_string(),
+                    success: true,
+                    error: None,
+                }),
+                Err(error) => results.push(DownloadClientBulkItemResult {
+                    id: item.name.clone(),
+                    success: false,
+                    error: Some(format!("failed to create download client: {error}")),
+                }),
+            }
+        }
+    }
+
+    if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
+        for existing_item in existing_by_name.values() {
+            if !import_names.contains(&existing_item.name.to_lowercase()) {
+                if let Err(error) = state
+                    .download_client_definition_repository
+                    .delete(&existing_item.id.to_string())
+                    .await
+                {
+                    results.push(DownloadClientBulkItemResult {
+                        id: existing_item.id.to_string(),
+                        success: false,
+                        error: Some(format!("failed to delete stale download client: {error}")),
+                    });
+                }
+            }
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(DownloadClientImportResponse {
+            dry_run: false,
+            summary,
+            preview,
+            results,
+        }),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
