@@ -704,11 +704,11 @@ pub async fn import_metadata_profiles(
             existing_item.secondary_album_types = item.secondary_album_types.clone();
             existing_item.release_statuses = item.release_statuses.clone();
             existing_item.updated_at = Utc::now();
-            match state
+            let update_result = state
                 .metadata_profile_repository
                 .update(existing_item)
-                .await
-            {
+                .await;
+            match update_result {
                 Ok(updated) => results.push(MetadataProfileBulkItemResult {
                     id: updated.id.to_string(),
                     success: true,
@@ -725,7 +725,8 @@ pub async fn import_metadata_profiles(
             new_item.primary_album_types = item.primary_album_types.clone();
             new_item.secondary_album_types = item.secondary_album_types.clone();
             new_item.release_statuses = item.release_statuses.clone();
-            match state.metadata_profile_repository.create(new_item).await {
+            let create_result = state.metadata_profile_repository.create(new_item).await;
+            match create_result {
                 Ok(created) => results.push(MetadataProfileBulkItemResult {
                     id: created.id.to_string(),
                     success: true,
@@ -743,11 +744,11 @@ pub async fn import_metadata_profiles(
     if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
         for existing_item in existing_by_name.values() {
             if !import_names.contains(&existing_item.name.to_lowercase()) {
-                if let Err(error) = state
+                let delete_result = state
                     .metadata_profile_repository
                     .delete(&existing_item.id.to_string())
-                    .await
-                {
+                    .await;
+                if let Err(error) = delete_result {
                     results.push(MetadataProfileBulkItemResult {
                         id: existing_item.id.to_string(),
                         success: false,

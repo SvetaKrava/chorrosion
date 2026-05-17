@@ -918,11 +918,11 @@ pub async fn import_indexers(
             existing_item.enabled = item.enabled;
             existing_item.updated_at = Utc::now();
 
-            match state
+            let update_result = state
                 .indexer_definition_repository
                 .update(existing_item)
-                .await
-            {
+                .await;
+            match update_result {
                 Ok(updated) => results.push(IndexerBulkItemResult {
                     id: updated.id.to_string(),
                     success: true,
@@ -943,7 +943,8 @@ pub async fn import_indexers(
             });
             new_item.enabled = item.enabled;
 
-            match state.indexer_definition_repository.create(new_item).await {
+            let create_result = state.indexer_definition_repository.create(new_item).await;
+            match create_result {
                 Ok(created) => results.push(IndexerBulkItemResult {
                     id: created.id.to_string(),
                     success: true,
@@ -961,11 +962,11 @@ pub async fn import_indexers(
     if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
         for existing_item in existing_by_name.values() {
             if !import_names.contains(&existing_item.name.to_lowercase()) {
-                if let Err(error) = state
+                let delete_result = state
                     .indexer_definition_repository
                     .delete(&existing_item.id.to_string())
-                    .await
-                {
+                    .await;
+                if let Err(error) = delete_result {
                     results.push(IndexerBulkItemResult {
                         id: existing_item.id.to_string(),
                         success: false,

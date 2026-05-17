@@ -971,11 +971,11 @@ pub async fn import_download_clients(
             existing_item.enabled = item.enabled;
             existing_item.updated_at = Utc::now();
 
-            match state
+            let update_result = state
                 .download_client_definition_repository
                 .update(existing_item)
-                .await
-            {
+                .await;
+            match update_result {
                 Ok(updated) => results.push(DownloadClientBulkItemResult {
                     id: updated.id.to_string(),
                     success: true,
@@ -995,11 +995,11 @@ pub async fn import_download_clients(
             new_item.category = normalize_optional(item.category.clone());
             new_item.enabled = item.enabled;
 
-            match state
+            let create_result = state
                 .download_client_definition_repository
                 .create(new_item)
-                .await
-            {
+                .await;
+            match create_result {
                 Ok(created) => results.push(DownloadClientBulkItemResult {
                     id: created.id.to_string(),
                     success: true,
@@ -1017,11 +1017,11 @@ pub async fn import_download_clients(
     if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
         for existing_item in existing_by_name.values() {
             if !import_names.contains(&existing_item.name.to_lowercase()) {
-                if let Err(error) = state
+                let delete_result = state
                     .download_client_definition_repository
                     .delete(&existing_item.id.to_string())
-                    .await
-                {
+                    .await;
+                if let Err(error) = delete_result {
                     results.push(DownloadClientBulkItemResult {
                         id: existing_item.id.to_string(),
                         success: false,

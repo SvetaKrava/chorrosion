@@ -720,7 +720,8 @@ pub async fn import_quality_profiles(
             existing_item.allowed_qualities = item.allowed_qualities.clone();
             existing_item.upgrade_allowed = item.upgrade_allowed;
             existing_item.cutoff_quality = item.cutoff_quality.clone();
-            match state.quality_profile_repository.update(existing_item).await {
+            let update_result = state.quality_profile_repository.update(existing_item).await;
+            match update_result {
                 Ok(updated) => results.push(QualityProfileBulkItemResult {
                     id: updated.id.to_string(),
                     success: true,
@@ -737,7 +738,8 @@ pub async fn import_quality_profiles(
                 QualityProfile::new(item.name.clone(), item.allowed_qualities.clone());
             new_item.upgrade_allowed = item.upgrade_allowed;
             new_item.cutoff_quality = item.cutoff_quality.clone();
-            match state.quality_profile_repository.create(new_item).await {
+            let create_result = state.quality_profile_repository.create(new_item).await;
+            match create_result {
                 Ok(created) => results.push(QualityProfileBulkItemResult {
                     id: created.id.to_string(),
                     success: true,
@@ -755,11 +757,11 @@ pub async fn import_quality_profiles(
     if matches!(request.conflict_policy, ImportConflictPolicy::ReplaceAll) {
         for existing_item in existing_by_name.values() {
             if !import_names.contains(&existing_item.name.to_lowercase()) {
-                if let Err(error) = state
+                let delete_result = state
                     .quality_profile_repository
                     .delete(&existing_item.id.to_string())
-                    .await
-                {
+                    .await;
+                if let Err(error) = delete_result {
                     results.push(QualityProfileBulkItemResult {
                         id: existing_item.id.to_string(),
                         success: false,
