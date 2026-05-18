@@ -105,6 +105,38 @@ export interface SettingsBulkResponse {
 	results: SettingsBulkItemResult[];
 }
 
+export type SettingsImportConflictPolicy = 'merge' | 'replace_all';
+
+export interface SettingsExportEnvelope<T> {
+	version: string;
+	exported_at: string;
+	items: T[];
+}
+
+export interface SettingsImportRequest<T> {
+	version: string;
+	conflict_policy: SettingsImportConflictPolicy;
+	items: T[];
+}
+
+export interface SettingsImportPreviewItem {
+	name: string;
+	action: string;
+}
+
+export interface SettingsImportSummary {
+	added: number;
+	updated: number;
+	deleted: number;
+}
+
+export interface SettingsImportResponse {
+	dry_run: boolean;
+	summary: SettingsImportSummary;
+	preview: SettingsImportPreviewItem[];
+	results: SettingsBulkItemResult[];
+}
+
 export interface Indexer {
 	id: string;
 	name: string;
