@@ -481,7 +481,7 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ## Phase 12: UI Production Readiness (Q2-Q3 2026)
 
-- Related issues: #444, #445, #446, #447, #448
+- Related issues: #444, #445, #446, #447, #448, #457, #458, #459, #460, #461, #462, #463, #464, #465, #466, #467
 
 ### 12.1 UX Hardening
 
@@ -499,6 +499,20 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 ### 12.4 UI-State Maintainability
 
 - [x] Consolidate dashboard presentation logic into tested UI-state helpers (Issue #448) ✓
+
+### 12.5 Settings UX Wave 1
+
+- [x] Settings IA + shared shell/navigation foundation (Issue #457) ✓
+- [x] Frontend API/type coverage for four settings domains (Issue #458) ✓
+- [x] Download Clients settings page (Issue #459) ✓
+- [x] Indexers settings page (Issue #460) ✓
+- [x] Quality Profiles settings page (Issue #461) ✓
+- [x] Metadata Profiles settings page (Issue #462) ✓
+- [x] Polished UX pass for settings forms and guards (Issue #463) ✓
+- [x] Bulk operations for settings (Issue #464) ✓
+- [x] Import/export for settings domains (Issue #465) ✓
+- [x] Test coverage expansion for settings UX (Issue #466) ✓
+- [x] Operator docs + final QA + ROADMAP update for Settings Wave 1 (Issue #467) ✓
 
 ---
 
@@ -553,6 +567,6 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 
 ---
 
-**Last Updated:** 2026-05-06  
+**Last Updated:** 2026-05-18  
 **Current Phase:** Phase 12: UI Production Readiness ✅ COMPLETE  
-**Status:** All Phase 12 UI production readiness items merged; project ready for v1.0 milestone planning
+**Status:** All Phase 12 items and the Settings UX Wave 1 rollout (#457-#467) are merged; project ready for v1.0 milestone planning

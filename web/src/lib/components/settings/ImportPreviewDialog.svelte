@@ -67,6 +67,10 @@
 				<option value="merge">Merge</option>
 				<option value="replace_all">Replace All</option>
 			</select>
+			<p class="policy-hint">
+				Merge updates matching names and keeps everything else. Replace All also deletes existing items
+				that are not present in the import file.
+			</p>
 			<div class="preview-list" role="list">
 				{#each preview.slice(0, 20) as item}
 					<div class="preview-item" role="listitem">
@@ -126,6 +130,12 @@
 	select {
 		width: 100%;
 		margin-bottom: 0.75rem;
+	}
+	.policy-hint {
+		margin: -0.35rem 0 0.75rem;
+		font-size: 0.78rem;
+		line-height: 1.4;
+		color: var(--text-secondary, #666);
 	}
 	.preview-list {
 		max-height: 220px;

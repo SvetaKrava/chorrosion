@@ -674,6 +674,7 @@
 							syncDirtyState();
 						}}
 					/>
+					<span class="field-hint">Use the root Torznab, Newznab, or Gazelle endpoint URL, including `http://` or `https://`.</span>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
 
@@ -694,6 +695,7 @@
 							syncDirtyState();
 						}}
 					/>
+					<span class="field-hint">Paste the provider-issued API token exactly as shown in the indexer or aggregator UI.</span>
 				</div>
 
 				<div class="field field-inline">
@@ -1054,6 +1056,12 @@
 	.hint {
 		font-weight: 400;
 		font-size: 0.78rem;
+		color: var(--text-secondary, #666);
+	}
+
+	.field-hint {
+		font-size: 0.78rem;
+		line-height: 1.4;
 		color: var(--text-secondary, #666);
 	}
 
