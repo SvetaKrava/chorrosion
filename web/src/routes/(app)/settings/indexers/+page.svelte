@@ -674,7 +674,7 @@
 							syncDirtyState();
 						}}
 					/>
-					<span class="field-hint">Use the root Torznab, Newznab, or Gazelle endpoint URL, including `http://` or `https://`.</span>
+					<span class="field-hint">Use the root Torznab, Newznab, or Gazelle endpoint URL, including <code>http://</code> or <code>https://</code>.</span>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
 

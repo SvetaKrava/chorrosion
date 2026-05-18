@@ -641,7 +641,7 @@
 							syncDirtyState();
 						}}
 					/>
-					<span class="field-hint">Include the full client URL, including `http://` or `https://` and the web UI port.</span>
+					<span class="field-hint">Include the full client URL, including <code>http://</code> or <code>https://</code> and the web UI port.</span>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
 
