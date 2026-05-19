@@ -16,7 +16,7 @@ export default defineConfig({
 		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }
 	],
 	webServer: {
-		command: 'bun run preview',
+		command: 'bun run build && bun run preview',
 		url: 'http://localhost:4173',
 		reuseExistingServer: !process.env.CI,
 		timeout: 30_000

@@ -629,6 +629,7 @@
 
 				<div class="field-group">
 					<span class="field-group-title">Primary Album Types</span>
+					<span class="field-hint">Choose the primary release types to keep when metadata is imported or refreshed.</span>
 					<div class="option-grid">
 						{#each primaryTypeOptions as value}
 							<label class="option-check">
@@ -684,6 +685,7 @@
 
 				<div class="field-group">
 					<span class="field-group-title">Secondary Album Types</span>
+					<span class="field-hint">Use secondary types to include or exclude compilations, live releases, soundtracks, and similar variants.</span>
 					<div class="option-grid">
 						{#each secondaryTypeOptions as value}
 							<label class="option-check">
@@ -739,6 +741,7 @@
 
 				<div class="field-group">
 					<span class="field-group-title">Release Statuses</span>
+					<span class="field-hint">Statuses help filter official releases from promos, bootlegs, or pseudo-releases.</span>
 					<div class="option-grid">
 						{#each releaseStatusOptions as value}
 							<label class="option-check">
@@ -1026,6 +1029,12 @@
 	.field-error {
 		font-size: 0.78rem;
 		color: #c0392b;
+	}
+
+	.field-hint {
+		font-size: 0.78rem;
+		line-height: 1.4;
+		color: var(--text-secondary, #666);
 	}
 
 	.field-group {

@@ -231,22 +231,54 @@ Current implemented endpoints:
 - `POST /api/v1/settings/quality-profiles`
 - `PUT /api/v1/settings/quality-profiles/{id}`
 - `DELETE /api/v1/settings/quality-profiles/{id}`
+- `POST /api/v1/settings/quality-profiles/bulk`
+- `GET /api/v1/settings/quality-profiles/export`
+- `POST /api/v1/settings/quality-profiles/import`
 - `GET /api/v1/settings/metadata-profiles`
 - `GET /api/v1/settings/metadata-profiles/{id}`
 - `POST /api/v1/settings/metadata-profiles`
 - `PUT /api/v1/settings/metadata-profiles/{id}`
 - `DELETE /api/v1/settings/metadata-profiles/{id}`
+- `POST /api/v1/settings/metadata-profiles/bulk`
+- `GET /api/v1/settings/metadata-profiles/export`
+- `POST /api/v1/settings/metadata-profiles/import`
 - `GET /api/v1/settings/download-clients`
 - `GET /api/v1/settings/download-clients/{id}`
 - `POST /api/v1/settings/download-clients`
 - `PUT /api/v1/settings/download-clients/{id}`
 - `DELETE /api/v1/settings/download-clients/{id}`
+- `POST /api/v1/settings/download-clients/bulk`
+- `GET /api/v1/settings/download-clients/export`
+- `POST /api/v1/settings/download-clients/import`
 - `GET /api/v1/settings/indexers`
 - `GET /api/v1/settings/indexers/{id}`
 - `POST /api/v1/settings/indexers`
 - `PUT /api/v1/settings/indexers/{id}`
 - `DELETE /api/v1/settings/indexers/{id}`
+- `POST /api/v1/settings/indexers/bulk`
+- `GET /api/v1/settings/indexers/export`
+- `POST /api/v1/settings/indexers/import`
 - `POST /api/v1/indexers/test`
+
+## Settings UI Workflows
+
+The web settings area at `/settings` now includes dedicated screens for Download Clients, Indexers, Quality Profiles, Metadata Profiles, and Appearance.
+
+- Bulk actions are available on the four settings resource screens for enable, disable, and delete operations.
+- Export downloads the current resource set as JSON with a `version`, `exported_at`, and `items` envelope.
+- Import supports a dry-run preview before apply.
+- Import conflict policy `merge` updates matching items by name and adds new ones.
+- Import conflict policy `replace_all` also removes existing items that are not present in the import file.
+
+Example import/export envelope:
+
+```json
+{
+  "version": "1",
+  "exported_at": "2026-05-18T12:00:00Z",
+  "items": []
+}
+```
 
 ## Testing with the Mock Server
 

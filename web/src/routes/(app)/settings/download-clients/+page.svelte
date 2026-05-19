@@ -641,6 +641,7 @@
 							syncDirtyState();
 						}}
 					/>
+					<span class="field-hint">Include the full client URL, including <code>http://</code> or <code>https://</code> and the web UI port.</span>
 					{#if formErrors.base_url}<span class="field-error">{formErrors.base_url}</span>{/if}
 				</div>
 
@@ -689,6 +690,7 @@
 							syncDirtyState();
 						}}
 					/>
+					<span class="field-hint">Optional label/category used by the client to group Chorrosion-managed downloads.</span>
 				</div>
 
 				<div class="field field-inline">
@@ -1059,6 +1061,12 @@
 	.field-error {
 		font-size: 0.78rem;
 		color: var(--error, #b6422e);
+	}
+
+	.field-hint {
+		font-size: 0.78rem;
+		line-height: 1.4;
+		color: var(--text-secondary, #666);
 	}
 
 	.hint {
