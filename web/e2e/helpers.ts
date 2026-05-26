@@ -188,8 +188,50 @@ export async function mockApiRoutes(page: Page): Promise<void> {
 		})
 	);
 
+	// Realtime/event endpoints to avoid backend proxy noise in non-SSE-focused tests.
+	await page.route(`${API_BASE}/api/v1/events**`, async (route) => {
+		const req = route.request();
+		const path = new URL(req.url()).pathname;
+
+		if (req.method() === 'GET' && path.endsWith('/events/connections')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ items: [], total: 0 })
+			});
+			return;
+		}
+
+		if (req.method() === 'POST' && path.endsWith('/events/broadcast')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true })
+			});
+			return;
+		}
+
+		if (
+			req.method() === 'GET' &&
+			(path.endsWith('/events') ||
+				path.endsWith('/events/download-progress') ||
+				path.endsWith('/events/import-progress') ||
+				path.endsWith('/events/job-status'))
+		) {
+			await route.fulfill({
+				status: 200,
+				headers: { 'content-type': 'text/event-stream' },
+				body: 'event: connected\ndata: {}\n\n'
+			});
+			return;
+		}
+
+		await route.fallback();
+	});
+
 	// Catalog endpoints
 	const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
+	const emptySettingsPage = { items: [], total: 0, limit: 100, offset: 0 };
 	await page.route(`${API_BASE}/api/v1/artists**`, (route) =>
 		route.fulfill({
 			status: 200,
@@ -204,4 +246,59 @@ export async function mockApiRoutes(page: Page): Promise<void> {
 			body: JSON.stringify(emptyPage)
 		})
 	);
+
+	// Default settings list mocks for tests that navigate through /settings but do not
+	// install domain-specific CRUD fixtures.
+	await page.route(`${API_BASE}/api/v1/settings/download-clients**`, async (route) => {
+		const req = route.request();
+		const path = new URL(req.url()).pathname;
+		if (req.method() === 'GET' && path.endsWith('/settings/download-clients')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(emptySettingsPage)
+			});
+			return;
+		}
+		await route.fallback();
+	});
+	await page.route(`${API_BASE}/api/v1/settings/indexers**`, async (route) => {
+		const req = route.request();
+		const path = new URL(req.url()).pathname;
+		if (req.method() === 'GET' && path.endsWith('/settings/indexers')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(emptySettingsPage)
+			});
+			return;
+		}
+		await route.fallback();
+	});
+	await page.route(`${API_BASE}/api/v1/settings/quality-profiles**`, async (route) => {
+		const req = route.request();
+		const path = new URL(req.url()).pathname;
+		if (req.method() === 'GET' && path.endsWith('/settings/quality-profiles')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(emptySettingsPage)
+			});
+			return;
+		}
+		await route.fallback();
+	});
+	await page.route(`${API_BASE}/api/v1/settings/metadata-profiles**`, async (route) => {
+		const req = route.request();
+		const path = new URL(req.url()).pathname;
+		if (req.method() === 'GET' && path.endsWith('/settings/metadata-profiles')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(emptySettingsPage)
+			});
+			return;
+		}
+		await route.fallback();
+	});
 }
