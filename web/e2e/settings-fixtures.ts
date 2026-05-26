@@ -71,7 +71,7 @@ export async function mockDownloadClientsCrud(page: Page): Promise<void> {
 		}
 
 		if (path.endsWith('/settings/download-clients') && method === 'POST') {
-			const body = req.postDataJSON() as Partial<DownloadClient>;
+			const body = req.postDataJSON() as Partial<DownloadClient> & { password?: string | null };
 			const created: DownloadClient = {
 				id: `dc-${nextId++}`,
 				name: body.name ?? 'Unnamed',
@@ -80,7 +80,7 @@ export async function mockDownloadClientsCrud(page: Page): Promise<void> {
 				username: body.username ?? null,
 				category: body.category ?? null,
 				enabled: body.enabled ?? true,
-				has_password: false
+				has_password: Boolean(body.password)
 			};
 			items.push(created);
 			await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) });
@@ -96,8 +96,13 @@ export async function mockDownloadClientsCrud(page: Page): Promise<void> {
 		}
 
 		if (method === 'PUT') {
-			const patch = req.postDataJSON() as Partial<DownloadClient>;
-			items[idx] = { ...items[idx], ...patch };
+			const patch = req.postDataJSON() as Partial<DownloadClient> & { password?: string | null };
+			const { password, ...rest } = patch;
+			items[idx] = {
+				...items[idx],
+				...rest,
+				has_password: password === undefined ? items[idx].has_password : Boolean(password)
+			};
 			await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items[idx]) });
 			return;
 		}
@@ -165,14 +170,14 @@ export async function mockIndexersCrud(page: Page): Promise<void> {
 		}
 
 		if (path.endsWith('/settings/indexers') && method === 'POST') {
-			const body = req.postDataJSON() as Partial<Indexer>;
+			const body = req.postDataJSON() as Partial<Indexer> & { api_key?: string | null };
 			const created: Indexer = {
 				id: `idx-${nextId++}`,
 				name: body.name ?? 'Unnamed',
 				base_url: body.base_url ?? 'http://localhost:9117',
 				protocol: body.protocol ?? 'torznab',
 				enabled: body.enabled ?? true,
-				has_api_key: Boolean(body.has_api_key)
+				has_api_key: Boolean(body.api_key)
 			};
 			items.push(created);
 			await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) });
@@ -187,8 +192,13 @@ export async function mockIndexersCrud(page: Page): Promise<void> {
 		}
 
 		if (method === 'PUT') {
-			const patch = req.postDataJSON() as Partial<Indexer>;
-			items[idx] = { ...items[idx], ...patch };
+			const patch = req.postDataJSON() as Partial<Indexer> & { api_key?: string | null };
+			const { api_key, ...rest } = patch;
+			items[idx] = {
+				...items[idx],
+				...rest,
+				has_api_key: api_key === undefined ? items[idx].has_api_key : Boolean(api_key)
+			};
 			await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items[idx]) });
 			return;
 		}
