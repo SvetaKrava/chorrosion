@@ -6,6 +6,36 @@ if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]]; then
   echo "iterations must be numeric" >&2
   exit 1
 fi
+if (( ITERATIONS < 1 )); then
+  echo "iterations must be >= 1" >&2
+  exit 1
+fi
+
+for dep in jq curl awk base64; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "missing required dependency: $dep" >&2
+    exit 1
+  fi
+done
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
+cd "$repo_root"
+
+now_ms() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+    return
+  fi
+  if command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=time -e 'printf "%.0f\n", time()*1000'
+    return
+  fi
+  echo "$(( $(date +%s) * 1000 ))"
+}
 
 cargo build --release -p chorrosion-cli
 
@@ -31,7 +61,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-startup_start_ms="$(date +%s%3N)"
+startup_start_ms="$(now_ms)"
 ready="false"
 for _ in $(seq 1 300); do
   if curl -fsS "http://127.0.0.1:5150/health" >/dev/null 2>&1; then
@@ -44,7 +74,7 @@ if [[ "$ready" != "true" ]]; then
   echo "server did not become healthy within 30s" >&2
   exit 1
 fi
-startup_end_ms="$(date +%s%3N)"
+startup_end_ms="$(now_ms)"
 startup_ms="$((startup_end_ms - startup_start_ms))"
 
 endpoints=(

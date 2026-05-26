@@ -2,11 +2,14 @@
 # Measures startup readiness and request latency percentiles for key endpoints.
 
 param(
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$Iterations = 100,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
+
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 if (-not $SkipBuild) {
     cargo build --release -p chorrosion-cli
@@ -20,6 +23,7 @@ if (-not (Test-Path $exe)) {
 
 $perfDir = Join-Path $PSScriptRoot '..\tmp\perf'
 New-Item -ItemType Directory -Path $perfDir -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $repoRoot 'data') -Force | Out-Null
 
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $jsonOut = Join-Path $perfDir "baseline-$timestamp.json"
@@ -33,7 +37,7 @@ $env:RUST_LOG = 'warn'
 $basicAuthValue = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes('bench:bench'))
 $authHeaders = @{ Authorization = "Basic $basicAuthValue" }
 
-$proc = Start-Process -FilePath $exe -PassThru
+$proc = Start-Process -FilePath $exe -WorkingDirectory $repoRoot -PassThru
 try {
     $startupSw = [System.Diagnostics.Stopwatch]::StartNew()
     $deadline = [DateTime]::UtcNow.AddSeconds(30)

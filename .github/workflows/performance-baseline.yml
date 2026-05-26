@@ -40,6 +40,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-bin: false
 
       - name: Run performance baseline script
         run: |
