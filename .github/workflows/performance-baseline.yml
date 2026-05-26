@@ -1,0 +1,53 @@
+name: Performance Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Number of samples per endpoint
+        required: false
+        default: "100"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Startup and API latency baseline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Install dependencies (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-dev pkg-config jq curl
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run performance baseline script
+        run: |
+          chmod +x scripts/perf-baseline.sh
+          bash scripts/perf-baseline.sh "${{ github.event.inputs.iterations || '100' }}"
+
+      - name: Upload performance baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline
+          path: tmp/perf/baseline-latest.json
