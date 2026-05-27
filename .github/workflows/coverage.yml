@@ -54,23 +54,31 @@ jobs:
         run: cargo llvm-cov --workspace --fail-under-lines ${{ env.COVERAGE_THRESHOLD_LINES }} --lcov --output-path lcov.info
 
       - name: Export coverage summary (json)
+        if: always()
         run: cargo llvm-cov --workspace --no-run --json --summary-only --output-path coverage-summary.json
 
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
           path: lcov.info
 
       - name: Upload coverage summary artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary-json
           path: coverage-summary.json
 
       - name: Coverage summary
+        if: always()
         run: |
-          line_coverage=$(jq -r '.data[0].totals.lines.percent // empty' coverage-summary.json)
+          if [ -f coverage-summary.json ]; then
+            line_coverage=$(jq -r '.data[0].totals.lines.percent // empty' coverage-summary.json)
+          else
+            line_coverage=""
+          fi
           echo "Coverage gate (line): >= ${{ env.COVERAGE_THRESHOLD_LINES }}%" >> $GITHUB_STEP_SUMMARY
           if [ -n "$line_coverage" ]; then
             printf "Measured line coverage: %.2f%%\n" "$line_coverage" >> $GITHUB_STEP_SUMMARY
