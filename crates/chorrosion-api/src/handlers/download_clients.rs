@@ -1093,6 +1093,26 @@ mod tests {
         )
     }
 
+    #[test]
+    fn validate_name_rejects_empty_input() {
+        assert!(validate_name("   ").is_err());
+    }
+
+    #[test]
+    fn validate_base_url_accepts_trimmed_https_url() {
+        assert!(validate_base_url("  https://downloads.example  ").is_ok());
+    }
+
+    #[test]
+    fn validate_base_url_rejects_unsupported_scheme() {
+        assert!(validate_base_url("ftp://downloads.example").is_err());
+    }
+
+    #[test]
+    fn normalize_client_type_rejects_unknown_value() {
+        assert!(normalize_client_type("invalid-client").is_err());
+    }
+
     #[tokio::test]
     async fn create_download_client_returns_created() {
         let state = make_test_state().await;
