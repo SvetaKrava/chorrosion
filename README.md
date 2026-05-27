@@ -166,7 +166,7 @@ All `/api/v1` endpoints require a valid API key. Provide the key using one of:
 
 When both `CHORROSION_AUTH__BASIC_USERNAME` and `CHORROSION_AUTH__BASIC_PASSWORD` are set, HTTP Basic authentication is also accepted:
 
-```
+```text
 Authorization: Basic <base64(username:password)>
 ```
 
@@ -303,6 +303,18 @@ For CI or quick compile checks without executing benchmark loops:
 ```bash
 cargo bench -p chorrosion-api --no-run
 ```
+
+## Performance Baseline Capture
+
+To track startup and API latency against roadmap goals:
+
+- Windows: `powershell -ExecutionPolicy Bypass -File scripts/perf-baseline.ps1 -Iterations 100`
+- Linux/macOS: `bash scripts/perf-baseline.sh 100`
+
+Results are written to `tmp/perf/baseline-latest.json`.
+
+For CI, run the `Performance Baseline` workflow in `.github/workflows/performance-baseline.yml`.
+Current baseline history and reporting lives in `PERFORMANCE_BASELINE.md`.
 
 ## License
 
