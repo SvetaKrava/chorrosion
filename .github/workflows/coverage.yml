@@ -13,6 +13,8 @@ concurrency:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD_LINES: "80"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +30,7 @@ jobs:
       - name: Install chromaprint (Ubuntu)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libchromaprint-dev pkg-config
+          sudo apt-get install -y libchromaprint-dev pkg-config jq
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> $GITHUB_ENV
@@ -48,8 +50,11 @@ jobs:
       - name: Clean coverage data
         run: cargo llvm-cov clean --workspace
 
-      - name: Generate coverage (lcov)
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - name: Generate coverage (lcov) with threshold gate
+        run: cargo llvm-cov --workspace --fail-under-lines ${{ env.COVERAGE_THRESHOLD_LINES }} --lcov --output-path lcov.info
+
+      - name: Export coverage summary (json)
+        run: cargo llvm-cov --workspace --no-run --json --summary-only --output-path coverage-summary.json
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -57,6 +62,19 @@ jobs:
           name: coverage-lcov
           path: lcov.info
 
+      - name: Upload coverage summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary-json
+          path: coverage-summary.json
+
       - name: Coverage summary
         run: |
+          line_coverage=$(jq -r '.data[0].totals.lines.percent // empty' coverage-summary.json)
+          echo "Coverage gate (line): >= ${{ env.COVERAGE_THRESHOLD_LINES }}%" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$line_coverage" ]; then
+            printf "Measured line coverage: %.2f%%\n" "$line_coverage" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Measured line coverage: unavailable (see coverage-summary.json artifact)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "Coverage report generated as lcov.info" >> $GITHUB_STEP_SUMMARY
