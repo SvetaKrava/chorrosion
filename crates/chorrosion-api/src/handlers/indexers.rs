@@ -1140,6 +1140,26 @@ mod tests {
         )
     }
 
+    #[test]
+    fn validate_name_rejects_empty_input() {
+        assert!(validate_name("   ").is_err());
+    }
+
+    #[test]
+    fn validate_base_url_accepts_trimmed_https_url() {
+        assert!(validate_base_url("  https://indexer.example  ").is_ok());
+    }
+
+    #[test]
+    fn validate_base_url_rejects_unsupported_scheme() {
+        assert!(validate_base_url("ftp://indexer.example").is_err());
+    }
+
+    #[test]
+    fn parse_protocol_rejects_unknown_protocol() {
+        assert!(parse_protocol("not-a-protocol").is_err());
+    }
+
     #[tokio::test]
     async fn create_indexer_returns_created() {
         let state = make_test_state().await;
