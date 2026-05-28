@@ -582,6 +582,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_duplicates_rejects_negative_offset() {
+        let state = make_test_state().await;
+
+        let result = list_duplicate_groups(
+            State(state),
+            Query(ListDuplicatesQuery {
+                method: "fingerprint".to_string(),
+                limit: 50,
+                offset: -1,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn list_duplicates_rejects_invalid_method() {
         let state = make_test_state().await;
 
@@ -616,6 +635,24 @@ mod tests {
         assert!(result.is_err());
         let (status, _) = result.unwrap_err();
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_duplicate_group_rejects_invalid_method() {
+        let state = make_test_state().await;
+
+        let result = get_duplicate_group(
+            State(state),
+            Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "invalid".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -675,6 +712,28 @@ mod tests {
             Json(ResolveDuplicateRequest {
                 action: "keep_best".to_string(),
                 track_file_id: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn resolve_duplicate_rejects_invalid_method() {
+        let state = make_test_state().await;
+
+        let result = resolve_duplicate_group(
+            State(state),
+            Path("some_key".to_string()),
+            Query(DuplicateGroupQuery {
+                method: "invalid".to_string(),
+            }),
+            Json(ResolveDuplicateRequest {
+                action: "delete_specific".to_string(),
+                track_file_id: Some("00000000-0000-0000-0000-000000000000".to_string()),
             }),
         )
         .await;
