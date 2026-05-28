@@ -572,6 +572,65 @@ mod tests {
         )
     }
 
+    #[test]
+    fn parse_entity_type_accepts_case_insensitive_values() {
+        assert!(matches!(parse_entity_type("artist"), Ok(EntityType::Artist)));
+        assert!(matches!(parse_entity_type("ALBUM"), Ok(EntityType::Album)));
+    }
+
+    #[test]
+    fn parse_entity_type_rejects_unknown_value() {
+        let result = parse_entity_type("track");
+        assert!(result.is_err());
+        let (status, Json(error)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.error, "Invalid entity type");
+    }
+
+    #[tokio::test]
+    async fn create_tag_rejects_empty_name() {
+        let state = make_test_state().await;
+
+        let result = create_tag(
+            State(state),
+            Json(CreateTagRequest {
+                name: "   ".to_string(),
+                description: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, Json(error)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.error, "Tag name cannot be empty");
+    }
+
+    #[tokio::test]
+    async fn update_tag_rejects_empty_name() {
+        let state = make_test_state().await;
+        let created = state
+            .tag_repository
+            .create(DomainTag::new("initial".to_string(), None))
+            .await
+            .expect("create tag");
+
+        let result = update_tag(
+            State(state),
+            Path(created.id.to_string()),
+            Json(UpdateTagRequest {
+                name: Some("  ".to_string()),
+                description: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, Json(error)) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.error, "Tag name cannot be empty");
+    }
+
     #[tokio::test]
     async fn list_tags_returns_total_count_across_all_rows() {
         let state = make_test_state().await;
