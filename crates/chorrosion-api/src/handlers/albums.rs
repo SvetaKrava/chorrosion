@@ -1100,5 +1100,79 @@ mod tests {
             assert_eq!(result.total, 3);
             assert_eq!(result.items.len(), 2);
         }
+
+        #[tokio::test]
+        async fn list_albums_rejects_invalid_limit() {
+            let state = make_test_state().await;
+
+            let result = list_albums(
+                State(state),
+                Query(ListAlbumsQuery {
+                    limit: 0,
+                    offset: 0,
+                }),
+            )
+            .await;
+
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn list_albums_rejects_negative_offset() {
+            let state = make_test_state().await;
+
+            let result = list_albums(
+                State(state),
+                Query(ListAlbumsQuery {
+                    limit: 50,
+                    offset: -1,
+                }),
+            )
+            .await;
+
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn list_albums_by_artist_rejects_invalid_limit() {
+            let state = make_test_state().await;
+
+            let result = list_albums_by_artist(
+                State(state),
+                Path("00000000-0000-0000-0000-000000000000".to_string()),
+                Query(ListAlbumsQuery {
+                    limit: 0,
+                    offset: 0,
+                }),
+            )
+            .await;
+
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn list_albums_by_artist_rejects_negative_offset() {
+            let state = make_test_state().await;
+
+            let result = list_albums_by_artist(
+                State(state),
+                Path("00000000-0000-0000-0000-000000000000".to_string()),
+                Query(ListAlbumsQuery {
+                    limit: 50,
+                    offset: -1,
+                }),
+            )
+            .await;
+
+            assert!(result.is_err());
+            let (status, _) = result.unwrap_err();
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
     }
 }
