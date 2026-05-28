@@ -684,4 +684,51 @@ mod tests {
 
         assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
     }
+
+    #[tokio::test]
+    async fn update_tag_returns_not_found_for_missing_tag() {
+        let state = make_test_state().await;
+
+        let result = update_tag(
+            State(state),
+            Path(uuid::Uuid::new_v4().to_string()),
+            Json(UpdateTagRequest {
+                name: Some("renamed".to_string()),
+                description: None,
+            }),
+        )
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
+    }
+
+    #[tokio::test]
+    async fn get_entity_tags_rejects_invalid_entity_type() {
+        let state = make_test_state().await;
+
+        let result = get_entity_tags(
+            State(state),
+            Path(("track".to_string(), uuid::Uuid::new_v4().to_string())),
+        )
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+    }
+
+    #[tokio::test]
+    async fn remove_tag_rejects_invalid_tag_id_format() {
+        let state = make_test_state().await;
+
+        let result = remove_tag_from_entity(
+            State(state),
+            Path((
+                "artist".to_string(),
+                uuid::Uuid::new_v4().to_string(),
+                "not-a-uuid".to_string(),
+            )),
+        )
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+    }
 }
