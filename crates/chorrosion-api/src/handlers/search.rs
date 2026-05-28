@@ -376,6 +376,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_preferred_qualities_accepts_trimmed_case_insensitive_values() {
+        let parsed = parse_preferred_qualities(&[
+            "  FLAC ".to_string(),
+            "Mp3".to_string(),
+            "aAc".to_string(),
+        ])
+        .expect("valid qualities");
+
+        assert_eq!(
+            parsed,
+            vec![AudioQuality::Flac, AudioQuality::Mp3, AudioQuality::Aac]
+        );
+    }
+
+    #[test]
     fn parse_custom_format_rules_maps_valid_rule() {
         let rules = vec![ManualSearchCustomFormatRule {
             name: "MQA".to_string(),
@@ -424,6 +439,50 @@ mod tests {
 
         let err = parse_custom_format_rules(rules).expect_err("invalid score bonus");
         assert!(err.contains("score_bonus must be between"));
+    }
+
+    #[test]
+    fn parse_custom_format_rules_accepts_boundary_score_bonus_values() {
+        let rules = vec![
+            ManualSearchCustomFormatRule {
+                name: "Lowest".to_string(),
+                keywords: vec!["lossy".to_string()],
+                score_bonus: -MAX_CUSTOM_FORMAT_SCORE_BONUS,
+            },
+            ManualSearchCustomFormatRule {
+                name: "Highest".to_string(),
+                keywords: vec!["lossless".to_string()],
+                score_bonus: MAX_CUSTOM_FORMAT_SCORE_BONUS,
+            },
+        ];
+
+        let parsed = parse_custom_format_rules(rules).expect("boundary bonuses are valid");
+        assert_eq!(parsed[0].score_bonus, -MAX_CUSTOM_FORMAT_SCORE_BONUS);
+        assert_eq!(parsed[1].score_bonus, MAX_CUSTOM_FORMAT_SCORE_BONUS);
+    }
+
+    #[tokio::test]
+    async fn manual_search_endpoint_returns_400_when_indexer_id_is_empty() {
+        let state = make_test_state().await;
+
+        let response = manual_search_endpoint(
+            State(state),
+            Json(ManualSearchApiRequest {
+                indexer_id: "   ".to_string(),
+                artist: Some("Boards of Canada".to_string()),
+                album: None,
+                query: None,
+                preferred_qualities: vec![],
+                min_bitrate_kbps: None,
+                preferred_release_groups: vec![],
+                preferred_words: vec![],
+                custom_format_rules: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
