@@ -408,6 +408,33 @@ mod tests {
         a
     }
 
+    #[test]
+    fn ical_escape_escapes_reserved_characters_and_newlines() {
+        let input = "A\\B;C,D\nE\r\nF";
+        let escaped = ical_escape(input);
+
+        assert_eq!(escaped, "A\\\\B\\;C\\,D\\nE\\nF");
+    }
+
+    #[test]
+    fn ical_fold_short_line_returns_single_crlf_terminated_line() {
+        let folded = ical_fold("SUMMARY:Short line");
+
+        assert_eq!(folded, "SUMMARY:Short line\r\n");
+    }
+
+    #[test]
+    fn ical_fold_long_line_inserts_continuation_prefix() {
+        let original = format!("SUMMARY:{}", "A".repeat(100));
+        let folded = ical_fold(&original);
+
+        assert!(folded.contains("\r\n "));
+        assert!(folded.ends_with("\r\n"));
+
+        let unfolded = folded.replace("\r\n ", "").replace("\r\n", "");
+        assert_eq!(unfolded, original);
+    }
+
     #[tokio::test]
     async fn list_upcoming_releases_returns_albums_in_window() {
         let (_pool, state) = make_test_pool_and_state().await;
