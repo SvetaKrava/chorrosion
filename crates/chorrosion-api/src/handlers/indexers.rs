@@ -1161,6 +1161,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_indexers_rejects_invalid_limit() {
+        let state = make_test_state().await;
+
+        let result = list_indexers(
+            State(state),
+            Query(ListIndexersQuery {
+                limit: 0,
+                offset: 0,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_indexers_rejects_negative_offset() {
+        let state = make_test_state().await;
+
+        let result = list_indexers(
+            State(state),
+            Query(ListIndexersQuery {
+                limit: 50,
+                offset: -1,
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn create_indexer_returns_created() {
         let state = make_test_state().await;
         let response = create_indexer(
