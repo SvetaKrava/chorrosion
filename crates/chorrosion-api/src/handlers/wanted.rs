@@ -580,6 +580,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_missing_albums_rejects_invalid_limit() {
+        let state = make_test_state().await;
+        let err = list_missing_albums(
+            State(state),
+            Query(WantedQuery {
+                limit: 0,
+                offset: 0,
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_missing_albums_rejects_negative_offset() {
+        let state = make_test_state().await;
+        let err = list_missing_albums(
+            State(state),
+            Query(WantedQuery {
+                limit: 50,
+                offset: -1,
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn list_cutoff_unmet_albums_returns_empty_when_none() {
         let state = make_test_state().await;
         let result = list_cutoff_unmet_albums(
@@ -603,6 +633,21 @@ mod tests {
             Query(WantedQuery {
                 limit: 0,
                 offset: 0,
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn list_cutoff_unmet_albums_rejects_negative_offset() {
+        let state = make_test_state().await;
+        let err = list_cutoff_unmet_albums(
+            State(state),
+            Query(WantedQuery {
+                limit: 50,
+                offset: -1,
             }),
         )
         .await
