@@ -788,6 +788,24 @@ mod tests {
         };
         use std::sync::Arc;
 
+        #[test]
+        fn validate_name_rejects_empty_input() {
+            assert!(validate_name("   ").is_err());
+        }
+
+        #[test]
+        fn validate_name_accepts_trimmed_non_empty_input() {
+            assert!(validate_name("  Metadata Profile  ").is_ok());
+        }
+
+        #[test]
+        fn default_import_conflict_policy_is_merge() {
+            assert!(matches!(
+                default_import_conflict_policy(),
+                ImportConflictPolicy::Merge
+            ));
+        }
+
         async fn make_test_state() -> AppState {
             use sqlx::sqlite::SqlitePoolOptions;
             let pool = SqlitePoolOptions::new()
