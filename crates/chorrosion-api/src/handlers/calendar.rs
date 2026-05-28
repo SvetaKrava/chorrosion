@@ -551,4 +551,30 @@ mod tests {
         assert!(body_str.contains("Calendar Artist"));
         assert!(body_str.contains("Calendar Album"));
     }
+
+    #[tokio::test]
+    async fn ical_feed_bad_date_returns_400() {
+        let (_pool, state) = make_test_pool_and_state().await;
+
+        let query = CalendarQuery {
+            start: Some("not-a-date".to_string()),
+            end: None,
+        };
+        let response = get_ical_feed(State(state), Query(query)).await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ical_feed_end_before_start_returns_400() {
+        let (_pool, state) = make_test_pool_and_state().await;
+
+        let query = CalendarQuery {
+            start: Some("2030-06-30".to_string()),
+            end: Some("2030-06-01".to_string()),
+        };
+        let response = get_ical_feed(State(state), Query(query)).await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }
