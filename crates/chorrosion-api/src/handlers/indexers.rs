@@ -1174,8 +1174,9 @@ mod tests {
         .await;
 
         assert!(result.is_err());
-        let (status, _) = result.unwrap_err();
+        let (status, Json(error)) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.error, "limit must be between 1 and 500");
     }
 
     #[tokio::test]
@@ -1192,8 +1193,9 @@ mod tests {
         .await;
 
         assert!(result.is_err());
-        let (status, _) = result.unwrap_err();
+        let (status, Json(error)) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.error, "offset must be greater than or equal to 0");
     }
 
     #[tokio::test]
