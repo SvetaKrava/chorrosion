@@ -252,6 +252,40 @@ mod tests {
     }
 
     #[test]
+    fn extract_api_key_uses_bearer_when_x_api_key_is_blank() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Api-Key", HeaderValue::from_static("   "));
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Bearer fallback-token"),
+        );
+
+        let extracted = extract_api_key(&headers);
+        assert_eq!(extracted.as_deref(), Some("fallback-token"));
+    }
+
+    #[test]
+    fn extract_api_key_rejects_non_bearer_authorization() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_static("Basic dXNlcjpwYXNz"),
+        );
+
+        let extracted = extract_api_key(&headers);
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn extract_api_key_rejects_empty_bearer_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_static("Bearer   "));
+
+        let extracted = extract_api_key(&headers);
+        assert!(extracted.is_none());
+    }
+
+    #[test]
     fn extract_basic_credentials_returns_username_and_password() {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -357,6 +391,15 @@ mod tests {
             PermissionLevel::ReadOnly,
             &Method::POST,
             "/api/v1/auth/forms/logout"
+        ));
+    }
+
+    #[test]
+    fn admin_permission_allows_mutating_requests() {
+        assert!(permission_allows_request(
+            PermissionLevel::Admin,
+            &Method::DELETE,
+            "/api/v1/artists/some-id"
         ));
     }
 
