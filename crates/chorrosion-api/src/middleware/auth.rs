@@ -360,6 +360,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn path_matches_accepts_prefixed_and_unprefixed_routes() {
+        assert!(super::path_matches("/auth/forms/logout", "/auth/forms/logout"));
+        assert!(super::path_matches(
+            "/api/v1/auth/forms/logout",
+            "/auth/forms/logout"
+        ));
+        assert!(!super::path_matches("/api/v1/auth/forms/login", "/auth/forms/logout"));
+    }
+
+    #[test]
+    fn allows_read_only_access_allows_get_and_logout_post_only() {
+        assert!(super::allows_read_only_access(
+            &Method::GET,
+            "/api/v1/system/status"
+        ));
+        assert!(super::allows_read_only_access(
+            &Method::POST,
+            "/api/v1/auth/forms/logout"
+        ));
+        assert!(!super::allows_read_only_access(
+            &Method::POST,
+            "/api/v1/artists"
+        ));
+    }
+
+    #[test]
+    fn is_mutating_method_identifies_write_verbs() {
+        assert!(super::is_mutating_method(&Method::POST));
+        assert!(super::is_mutating_method(&Method::PUT));
+        assert!(super::is_mutating_method(&Method::PATCH));
+        assert!(super::is_mutating_method(&Method::DELETE));
+        assert!(!super::is_mutating_method(&Method::GET));
+    }
+
     async fn make_test_state(config: AppConfig) -> AppState {
         use sqlx::sqlite::SqlitePoolOptions;
         let pool = SqlitePoolOptions::new()
