@@ -983,6 +983,21 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[tokio::test]
+        async fn create_quality_profile_returns_400_for_whitespace_only_allowed_qualities() {
+            let state = make_test_state().await;
+            let request = CreateQualityProfileRequest {
+                name: "Valid Name".to_string(),
+                allowed_qualities: vec!["   ".to_string()],
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response = create_quality_profile(State(state), Json(request))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
         // --- update_quality_profile ---
 
         #[tokio::test]
@@ -1025,6 +1040,23 @@ mod tests {
             let request = UpdateQualityProfileRequest {
                 name: Some("  ".to_string()),
                 allowed_qualities: None,
+                upgrade_allowed: None,
+                cutoff_quality: None,
+            };
+            let response =
+                update_quality_profile(State(state), Path(profile.id.to_string()), Json(request))
+                    .await
+                    .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn update_quality_profile_returns_400_for_whitespace_only_allowed_qualities() {
+            let state = make_test_state().await;
+            let profile = create_test_profile(&state).await;
+            let request = UpdateQualityProfileRequest {
+                name: None,
+                allowed_qualities: Some(vec!["   ".to_string()]),
                 upgrade_allowed: None,
                 cutoff_quality: None,
             };
