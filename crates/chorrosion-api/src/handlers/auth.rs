@@ -742,6 +742,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn forms_login_returns_service_unavailable_when_not_configured() {
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
+
+        let state = make_test_state_with_config(AppConfig::default()).await;
+
+        let login = forms_login(
+            State(state),
+            Form(FormsLoginRequest {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(login, Err((StatusCode::SERVICE_UNAVAILABLE, _))));
+    }
+
+    #[tokio::test]
+    async fn forms_logout_without_cookie_returns_logged_out_false() {
+        let _lock = auth_test_mutex().lock().await;
+        clear_stores_for_tests().await;
+
+        let state = make_test_state().await;
+        let headers = HeaderMap::new();
+
+        let (_, Json(response)) = forms_logout(State(state), headers).await;
+        assert!(!response.logged_out);
+    }
+
+    #[tokio::test]
     async fn forms_login_returns_configured_permission_level() {
         let _lock = auth_test_mutex().lock().await;
         clear_stores_for_tests().await;
