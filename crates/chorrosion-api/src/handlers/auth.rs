@@ -576,6 +576,29 @@ mod tests {
         assert!(deleted.0.deleted);
     }
 
+    #[test]
+    fn key_prefix_truncates_to_eight_characters() {
+        assert_eq!(super::key_prefix("123456789abcdef"), "12345678");
+        assert_eq!(super::key_prefix("short"), "short");
+    }
+
+    #[test]
+    fn build_form_session_cookie_includes_secure_directive_when_enabled() {
+        let cookie = super::build_form_session_cookie("token-123", true);
+
+        assert!(cookie.contains("chorrosion_session=token-123"));
+        assert!(cookie.contains("; Secure"));
+    }
+
+    #[test]
+    fn clear_form_session_cookie_omits_secure_directive_when_disabled() {
+        let cookie = super::clear_form_session_cookie(false);
+
+        assert!(cookie.contains("chorrosion_session=;"));
+        assert!(!cookie.contains("; Secure"));
+        assert!(cookie.ends_with("Max-Age=0"));
+    }
+
     /// Tests the TOCTOU branch in `validate_api_key_and_touch` where the key is
     /// deleted between the read-lock check and the write-lock update.
     ///
