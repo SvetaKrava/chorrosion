@@ -1125,6 +1125,49 @@ mod tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
+        // --- import_quality_profiles ---
+
+        #[tokio::test]
+        async fn import_quality_profiles_rejects_unsupported_version() {
+            let state = make_test_state().await;
+            let response = import_quality_profiles(
+                State(state),
+                Query(SettingsImportQuery { dry_run: false }),
+                Json(QualityProfileImportRequest {
+                    version: "2".to_string(),
+                    conflict_policy: ImportConflictPolicy::Merge,
+                    items: vec![],
+                }),
+            )
+            .await
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn import_quality_profiles_rejects_whitespace_only_allowed_qualities() {
+            let state = make_test_state().await;
+            let response = import_quality_profiles(
+                State(state),
+                Query(SettingsImportQuery { dry_run: false }),
+                Json(QualityProfileImportRequest {
+                    version: "1".to_string(),
+                    conflict_policy: ImportConflictPolicy::Merge,
+                    items: vec![QualityProfileImportItem {
+                        name: "Imported".to_string(),
+                        allowed_qualities: vec!["   ".to_string()],
+                        upgrade_allowed: false,
+                        cutoff_quality: None,
+                    }],
+                }),
+            )
+            .await
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
         // --- bulk_quality_profiles ---
 
         #[tokio::test]
