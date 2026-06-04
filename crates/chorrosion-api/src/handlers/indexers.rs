@@ -1199,6 +1199,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_indexers_rejects_unsupported_version() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "2".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn import_indexers_rejects_invalid_protocol_in_item() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "1".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![IndexerImportItem {
+                    name: "Imported".to_string(),
+                    base_url: "https://indexer.example".to_string(),
+                    protocol: "invalid-protocol".to_string(),
+                    api_key: None,
+                    enabled: true,
+                }],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn create_indexer_returns_created() {
         let state = make_test_state().await;
         let response = create_indexer(
