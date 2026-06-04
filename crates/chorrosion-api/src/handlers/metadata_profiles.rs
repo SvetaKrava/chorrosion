@@ -1083,6 +1083,49 @@ mod tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
+        // --- import_metadata_profiles ---
+
+        #[tokio::test]
+        async fn import_metadata_profiles_rejects_unsupported_version() {
+            let state = make_test_state().await;
+            let response = import_metadata_profiles(
+                State(state),
+                Query(SettingsImportQuery { dry_run: false }),
+                Json(MetadataProfileImportRequest {
+                    version: "2".to_string(),
+                    conflict_policy: ImportConflictPolicy::Merge,
+                    items: vec![],
+                }),
+            )
+            .await
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        #[tokio::test]
+        async fn import_metadata_profiles_rejects_whitespace_item_name() {
+            let state = make_test_state().await;
+            let response = import_metadata_profiles(
+                State(state),
+                Query(SettingsImportQuery { dry_run: false }),
+                Json(MetadataProfileImportRequest {
+                    version: "1".to_string(),
+                    conflict_policy: ImportConflictPolicy::Merge,
+                    items: vec![MetadataProfileImportItem {
+                        name: "   ".to_string(),
+                        primary_album_types: vec![],
+                        secondary_album_types: vec![],
+                        release_statuses: vec![],
+                    }],
+                }),
+            )
+            .await
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
         // --- bulk_metadata_profiles ---
 
         #[tokio::test]
