@@ -1047,6 +1047,7 @@ pub async fn import_download_clients(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
     use axum::extract::State;
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
@@ -1361,6 +1362,13 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "unsupported import version");
+        assert_eq!(error["details"], serde_json::json!(["version must be '1'"]));
     }
 
     #[tokio::test]
@@ -1388,6 +1396,19 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "invalid import payload");
+        assert!(
+            error["details"]
+                .as_array()
+                .expect("details array")
+                .iter()
+                .any(|detail| detail == "items[0].client_type is not supported")
+        );
     }
 
     #[tokio::test]
