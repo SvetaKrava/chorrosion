@@ -1094,6 +1094,7 @@ fn capabilities_for_protocol(protocol: &IndexerProtocol) -> IndexerCapabilities 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
     use axum::extract::State;
     use chorrosion_config::AppConfig;
     use chorrosion_infrastructure::sqlite_adapters::{
@@ -1196,6 +1197,70 @@ mod tests {
         let (status, Json(error)) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(error.error, "offset must be greater than or equal to 0");
+    }
+
+    #[tokio::test]
+    async fn import_indexers_rejects_unsupported_version() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "2".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "unsupported import version");
+        assert_eq!(error["details"], serde_json::json!(["version must be '1'"]));
+    }
+
+    #[tokio::test]
+    async fn import_indexers_rejects_invalid_protocol_in_item() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "1".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![IndexerImportItem {
+                    name: "Imported".to_string(),
+                    base_url: "https://indexer.example".to_string(),
+                    protocol: "invalid-protocol".to_string(),
+                    api_key: None,
+                    enabled: true,
+                }],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "invalid import payload");
+        assert!(
+            error["details"]
+                .as_array()
+                .expect("details array")
+                .iter()
+                .any(|detail| detail == "items[0].protocol is invalid")
+        );
     }
 
     #[tokio::test]
