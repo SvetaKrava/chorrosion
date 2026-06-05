@@ -1345,6 +1345,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_download_clients_rejects_unsupported_version() {
+        let state = make_test_state().await;
+
+        let response = import_download_clients(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(DownloadClientImportRequest {
+                version: "2".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn import_download_clients_rejects_unsupported_client_type_item() {
+        let state = make_test_state().await;
+
+        let response = import_download_clients(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(DownloadClientImportRequest {
+                version: "1".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![DownloadClientImportItem {
+                    name: "Imported".to_string(),
+                    client_type: "not-supported".to_string(),
+                    base_url: "https://downloads.example".to_string(),
+                    username: None,
+                    password: None,
+                    category: None,
+                    enabled: true,
+                }],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn bulk_download_clients_enables_selected_items() {
         let state = make_test_state().await;
         let first = state
