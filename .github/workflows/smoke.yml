@@ -105,50 +105,24 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          if ($IsWindows) {
-            # Run cargo through MSVC environment for Windows
-            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
-            if (-not (Test-Path $vsPath)) {
-              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
-            }
-            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
-            $env:CC = "cl.exe"
-            $env:CXX = "cl.exe"
-            
-            # Invoke vcvars and build in one command
-            cmd /c "`"$vcvarsPath`" && cargo build --workspace --all-targets --locked"
-          } else {
-            cargo build --workspace --all-targets --locked
-          }
+          # ilammy/msvc-dev-cmd already activated the MSVC developer environment;
+          # cargo can be invoked directly on all platforms.
+          cargo build --workspace --all-targets --locked
 
       - name: Clippy (deny warnings)
         shell: pwsh
         run: |
-          if ($IsWindows) {
-            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
-            if (-not (Test-Path $vsPath)) {
-              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
-            }
-            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
-            cmd /c "`"$vcvarsPath`" && cargo clippy --workspace --all-targets -- -D warnings"
-          } else {
-            cargo clippy --workspace --all-targets -- -D warnings
-          }
+          cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
         shell: pwsh
         run: |
           if ($IsWindows) {
-            $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
-            if (-not (Test-Path $vsPath)) {
-              $vsPath = "C:\Program Files\Microsoft Visual Studio\2022\Community"
-            }
-            $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
             # Exclude --all-features on Windows: the optional ffmpeg-support feature pulls in
             # ffmpeg-next v8.0.0 which fails to compile against vcpkg's FFmpeg 7.1+ due to
             # non-exhaustive match patterns for new enum variants added in FFmpeg 7.1.
             # ffmpeg-support is a Phase 2 placeholder not required for smoke testing.
-            cmd /c "`"$vcvarsPath`" && cargo test --workspace --all-targets"
+            cargo test --workspace --all-targets
           } else {
             cargo test --workspace --all-features --all-targets
           }

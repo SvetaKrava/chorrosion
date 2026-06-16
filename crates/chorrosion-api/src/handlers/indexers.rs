@@ -1264,6 +1264,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_indexers_rejects_empty_name_in_item() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "1".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![IndexerImportItem {
+                    name: "   ".to_string(),
+                    base_url: "https://indexer.example".to_string(),
+                    protocol: "newznab".to_string(),
+                    api_key: None,
+                    enabled: true,
+                }],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "invalid import payload");
+        assert!(
+            error["details"]
+                .as_array()
+                .expect("details array")
+                .iter()
+                .any(|detail| detail == "items[0].name cannot be empty")
+        );
+    }
+
+    #[tokio::test]
+    async fn import_indexers_rejects_invalid_base_url_in_item() {
+        let state = make_test_state().await;
+
+        let response = import_indexers(
+            State(state),
+            Query(SettingsImportQuery { dry_run: false }),
+            Json(IndexerImportRequest {
+                version: "1".to_string(),
+                conflict_policy: ImportConflictPolicy::Merge,
+                items: vec![IndexerImportItem {
+                    name: "Imported".to_string(),
+                    base_url: "not-a-url".to_string(),
+                    protocol: "newznab".to_string(),
+                    api_key: None,
+                    enabled: true,
+                }],
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let error: serde_json::Value =
+            serde_json::from_slice(&body).expect("deserialize import error");
+        assert_eq!(error["error"], "invalid import payload");
+        assert!(
+            error["details"]
+                .as_array()
+                .expect("details array")
+                .iter()
+                .any(|detail| detail == "items[0].base_url is invalid")
+        );
+    }
+
+    #[tokio::test]
     async fn create_indexer_returns_created() {
         let state = make_test_state().await;
         let response = create_indexer(
