@@ -1168,6 +1168,29 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[tokio::test]
+        async fn import_quality_profiles_rejects_empty_item_name() {
+            let state = make_test_state().await;
+            let response = import_quality_profiles(
+                State(state),
+                Query(SettingsImportQuery { dry_run: false }),
+                Json(QualityProfileImportRequest {
+                    version: "1".to_string(),
+                    conflict_policy: ImportConflictPolicy::Merge,
+                    items: vec![QualityProfileImportItem {
+                        name: "   ".to_string(),
+                        allowed_qualities: vec!["FLAC".to_string()],
+                        upgrade_allowed: false,
+                        cutoff_quality: None,
+                    }],
+                }),
+            )
+            .await
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
         // --- bulk_quality_profiles ---
 
         #[tokio::test]
