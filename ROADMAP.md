@@ -514,6 +514,14 @@ _(See design: [Embedded Tags Behavior](DESIGN.md#embedded-tags-behavior))_
 - [x] Test coverage expansion for settings UX (Issue #466) ✓
 - [x] Operator docs + final QA + ROADMAP update for Settings Wave 1 (Issue #467) ✓
 
+**Settings Validation & Troubleshooting:** See [Settings Validation Playbook](README.md#settings-validation-playbook) in README for end-to-end workflows, import/export validation, and troubleshooting guidance.
+
+### 12.6 Post-Wave-1 Cleanup & Tech Debt (Issue #480)
+
+- [x] E2E hardening & modular API mocks (Issue #481, PR #511) ✓
+- [x] Settings UI tech debt: shared form workflows (Issue #483, PRs #512-#515) ✓
+- [x] Operator docs polish: troubleshooting & playbook (Issue #482, PR #516) ✓
+
 ---
 
 ## Success Metrics
