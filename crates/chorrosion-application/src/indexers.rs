@@ -222,6 +222,60 @@ impl TorznabClient {
         );
         Self::new(config)
     }
+
+    async fn search_with_fallback(
+        &self,
+        query: &IndexerSearchQuery,
+    ) -> Result<Vec<IndexerSearchResult>, IndexerError> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+
+        if !query.query.trim().is_empty() {
+            params.push(("q", query.query.trim().to_string()));
+        }
+
+        if let Some(category) = query.category.as_deref() {
+            params.push((
+                "cat",
+                map_category_to_indexer(category, &self.config.protocol).to_string(),
+            ));
+        }
+
+        if let Some(limit) = query.limit {
+            params.push(("limit", limit.to_string()));
+        }
+
+        if let Some(offset) = query.offset {
+            params.push(("offset", offset.to_string()));
+        }
+
+        let mut last_error: Option<IndexerError> = None;
+        for request_type in ["music", "tvsearch"] {
+            match execute_api_request(
+                &self.client,
+                &self.config,
+                request_type,
+                Some(params.clone()),
+            )
+            .await
+            .and_then(|xml| parse_search_results(&xml))
+            {
+                Ok(results) if !results.is_empty() => return Ok(results),
+                Ok(_) => {
+                    debug!(target: "indexers", indexer = %self.config.name, request_type, "torznab fallback returned empty results");
+                }
+                Err(error) => {
+                    debug!(target: "indexers", indexer = %self.config.name, request_type, error = %error, "torznab fallback request failed");
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            IndexerError::Request(
+                "torznab search failed for primary and fallback request types".to_string(),
+            )
+        }))
+    }
 }
 
 impl GazelleClient {
@@ -289,8 +343,21 @@ impl IndexerClient for TorznabClient {
         &self,
         query: &IndexerSearchQuery,
     ) -> Result<Vec<IndexerSearchResult>, IndexerError> {
-        let xml = execute_search(&self.client, &self.config, query).await?;
-        parse_search_results(&xml)
+        let primary = execute_search(&self.client, &self.config, query)
+            .await
+            .and_then(|xml| parse_search_results(&xml));
+
+        match primary {
+            Ok(results) if !results.is_empty() => Ok(results),
+            Ok(_) => {
+                debug!(target: "indexers", indexer = %self.config.name, "torznab primary search returned no results, trying fallback");
+                self.search_with_fallback(query).await
+            }
+            Err(error) => {
+                debug!(target: "indexers", indexer = %self.config.name, error = %error, "torznab primary search failed, trying fallback");
+                self.search_with_fallback(query).await
+            }
+        }
     }
 
     async fn fetch_rss_feed(&self) -> Result<Vec<IndexerRssItem>, IndexerError> {
@@ -1090,6 +1157,120 @@ mod tests {
             Some("magnet:?xt=urn:btih:abcdef")
         );
         assert_eq!(results[0].seeders, Some(99));
+    }
+
+    #[tokio::test]
+    async fn torznab_search_falls_back_to_music_when_primary_search_fails() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("t", "search"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("unsupported"))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("t", "music"))
+            .and(query_param("q", "radiohead"))
+            .and(query_param("cat", "3000"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"
+                <rss>
+                  <channel>
+                    <item>
+                      <title>Radiohead - In Rainbows [FLAC]</title>
+                      <guid>f-1</guid>
+                      <link>https://example.com/torrent/fallback</link>
+                    </item>
+                  </channel>
+                </rss>
+                "#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = TorznabClient::new(IndexerConfig {
+            name: "fallback-torznab".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Torznab,
+            api_key: None,
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "radiohead".to_string(),
+                category: Some("music".to_string()),
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("torznab fallback search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].guid.as_deref(), Some("f-1"));
+    }
+
+    #[tokio::test]
+    async fn torznab_search_falls_back_when_primary_returns_empty_results() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("t", "search"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"
+                <rss>
+                  <channel></channel>
+                </rss>
+                "#,
+            ))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api"))
+            .and(query_param("t", "music"))
+            .and(query_param("q", "nirvana"))
+            .and(query_param("cat", "3040"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"
+                <rss>
+                  <channel>
+                    <item>
+                      <title>Nirvana - Nevermind FLAC</title>
+                      <guid>f-2</guid>
+                      <link>https://example.com/torrent/nevermind</link>
+                    </item>
+                  </channel>
+                </rss>
+                "#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = TorznabClient::new(IndexerConfig {
+            name: "fallback-empty-torznab".to_string(),
+            base_url: server.uri(),
+            protocol: IndexerProtocol::Torznab,
+            api_key: None,
+            enabled: true,
+        });
+
+        let results = client
+            .search(&IndexerSearchQuery {
+                query: "nirvana".to_string(),
+                category: Some("audio/flac".to_string()),
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("torznab fallback should succeed on empty primary results");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].guid.as_deref(), Some("f-2"));
     }
 
     #[tokio::test]
