@@ -19,7 +19,7 @@
 		ApiError
 	} from '$lib/api';
 	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
-	import { classifyFormError } from '$lib/settingsValidation';
+	import { classifyFormError, mapClassifiedSaveErrorToUiState } from '$lib/settingsValidation';
 	import type {
 		QualityProfile,
 		CreateQualityProfileRequest,
@@ -368,14 +368,13 @@
 				normalizedFieldErrors.qualities = normalizedFieldErrors.allowed_qualities;
 				delete normalizedFieldErrors.allowed_qualities;
 			}
-			if (Object.keys(normalizedFieldErrors).length > 0) {
-				formErrors = { ...formErrors, ...normalizedFieldErrors };
-				saveStatus = 'idle';
-				saveError = '';
-			} else {
-				saveError = classified.bannerMessage || 'Save failed.';
-				saveStatus = 'error';
-			}
+			const uiState = mapClassifiedSaveErrorToUiState(
+				{ ...classified, fieldErrors: normalizedFieldErrors },
+				formErrors
+			);
+			formErrors = uiState.formErrors;
+			saveStatus = uiState.saveStatus;
+			saveError = uiState.saveError;
 		} finally {
 			formSaving = false;
 		}
