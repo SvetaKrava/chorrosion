@@ -19,7 +19,7 @@
 		ApiError
 	} from '$lib/api';
 	import { useUnsavedGuard } from '$lib/stores/unsavedGuard';
-	import { classifyFormError } from '$lib/settingsValidation';
+	import { classifyFormError, mapClassifiedSaveErrorToUiState } from '$lib/settingsValidation';
 	import type {
 		DownloadClient,
 		CreateDownloadClientRequest,
@@ -250,14 +250,10 @@
 				},
 				{ field: 'client_type', messages: ['unsupported client_type'] }
 			]);
-			if (Object.keys(classified.fieldErrors).length > 0) {
-				formErrors = { ...formErrors, ...classified.fieldErrors };
-				saveStatus = 'idle';
-				saveError = '';
-			} else {
-				saveError = classified.bannerMessage || 'Save failed.';
-				saveStatus = 'error';
-			}
+			const uiState = mapClassifiedSaveErrorToUiState(classified, formErrors);
+			formErrors = uiState.formErrors;
+			saveStatus = uiState.saveStatus;
+			saveError = uiState.saveError;
 		} finally {
 			formSaving = false;
 		}
