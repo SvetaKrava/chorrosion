@@ -280,6 +280,117 @@ Example import/export envelope:
 }
 ```
 
+## Settings Validation Playbook
+
+This guide provides a one-pass command sequence to validate settings endpoints and import/export workflows locally.
+
+### Prerequisites
+
+- Backend running with default config: `cargo run -p chorrosion-cli`
+- Frontend dev server running: `cd web && bun run dev`
+- API key created: see [Bootstrap flow](#bootstrap-flow-first-time-setup) above
+- Curl or similar CLI tool (or use Swagger UI at `/docs` for interactive testing)
+
+### Backend Settings Validation (API)
+
+```bash
+# Set your API key from bootstrap
+API_KEY="ck_..."
+
+# 1. Create a quality profile
+curl -X POST http://localhost:5150/api/v1/settings/quality-profiles \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Lossless",
+    "allowed_qualities": ["FLAC", "MP3 320"],
+    "upgrade_allowed": false,
+    "cutoff_quality": "FLAC"
+  }'
+
+# 2. List quality profiles
+curl -X GET http://localhost:5150/api/v1/settings/quality-profiles \
+  -H "X-Api-Key: $API_KEY"
+
+# 3. Export quality profiles
+curl -X GET http://localhost:5150/api/v1/settings/quality-profiles/export \
+  -H "X-Api-Key: $API_KEY" > profiles.json
+
+# 4. Test import (dry-run)
+curl -X POST 'http://localhost:5150/api/v1/settings/quality-profiles/import?dry_run=true' \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "1",
+    "conflict_policy": "merge",
+    "items": [{"name": "High Quality", "allowed_qualities": ["FLAC"], "upgrade_allowed": false}]
+  }'
+
+# 5. Apply import
+curl -X POST http://localhost:5150/api/v1/settings/quality-profiles/import \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{...}'
+```
+
+### Frontend Settings Validation (Web UI)
+
+```bash
+cd web
+
+# 1. Type-check all Svelte components and TS
+bun run check
+
+# 2. Run unit tests (includes settings validation tests)
+bun run test
+
+# 3. Start dev server (HMR enabled)
+bun run dev
+# Visit http://127.0.0.1:5173/settings to access settings pages
+```
+
+### End-to-End Settings Workflow
+
+1. **Backend + Frontend running**
+   - Backend: `cargo run -p chorrosion-cli`
+   - Frontend dev: `cd web && bun run dev`
+
+2. **In browser: Create settings**
+   - Visit <http://127.0.0.1:5173/settings/quality-profiles>
+   - Click "Add", fill form, save
+
+3. **In browser: Export**
+   - Visit settings page, click "Export"
+   - Browser downloads `quality-profiles.export.json`
+
+4. **In browser: Import with preview**
+   - Click "Import"
+   - Select the exported JSON file
+   - Dialog shows dry-run preview
+   - Click "Apply" to commit
+
+### Troubleshooting
+
+#### E2E test failures / build issues
+
+- **Frontend build fails**: Ensure `cd web && bun run build` completes without errors. Check Bun version (`bun --version`).
+- **HMR not working in dev**: Clear browser cache, restart `bun run dev`, check `VITE_CHORROSION_API_BASE` is set correctly.
+- **API requests fail with 401**: Ensure `X-Api-Key` header is present and valid (see [Bootstrap flow](#bootstrap-flow-first-time-setup)).
+
+#### Settings import/export issues
+
+- **Import preview shows no results**: Verify import JSON has `version: "1"` and `items` array is not empty.
+- **Import conflict policy not working**: Ensure item names match existing resources (matching is case-insensitive).
+- **Export downloads blank file**: Check API returned 200 and response has `version`, `exported_at`, and `items` fields.
+
+#### Common prerequisites issues
+
+- **Database file not created**: Ensure `CHORROSION_DATABASE__URL` directory exists and is writable. Default: `sqlite://data/chorrosion.db` creates `./data/` automatically.
+- **Migrations fail on startup**: Check migrations in `./migrations/` are readable. Run `cargo build` to ensure compilation succeeds.
+- **Frontend can't connect to backend**: Verify backend is running on `127.0.0.1:5150` and `CHORROSION_WEB__ALLOWED_ORIGINS` includes frontend dev URL (default: `http://127.0.0.1:5173`).
+
+For additional setup help, see [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md) for system library requirements (Chromaprint, FFmpeg).
+
 ## Testing with the Mock Server
 
 Integration tests for the `chorrosion-metadata` crate require a mock server running on `127.0.0.1:3030` **before** running tests. The test suite does not start or stop the server automatically.

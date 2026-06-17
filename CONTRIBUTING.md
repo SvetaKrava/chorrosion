@@ -86,6 +86,15 @@ bun run build
 
 All three must pass cleanly. The `frontend-ci.yml` workflow enforces them on Ubuntu and Windows for every pull request that modifies files under `web/`.
 
+### Settings validation workflow
+
+When working on settings features (Quality Profiles, Metadata Profiles, Download Clients, Indexers), follow the [Settings Validation Playbook](README.md#settings-validation-playbook) to verify:
+- API endpoint behavior (create, update, delete, bulk, import/export)
+- Frontend form handling and error classification
+- E2E workflows in both dev and preview modes
+
+This ensures settings changes work end-to-end before merging.
+
 ### Adding tests
 
 Tests live next to the source they cover, named `*.test.ts`:
