@@ -317,20 +317,20 @@ curl -X GET http://localhost:5150/api/v1/settings/quality-profiles/export \
   -H "X-Api-Key: $API_KEY" > profiles.json
 
 # 4. Test import (dry-run)
-curl -X POST http://localhost:5150/api/v1/settings/quality-profiles/import \
+curl -X POST 'http://localhost:5150/api/v1/settings/quality-profiles/import?dry_run=true' \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "version": "1",
     "conflict_policy": "merge",
-    "items": [{"name": "High Quality", "allowed_qualities": ["FLAC"]}]
-  }?dry_run=true'
+    "items": [{"name": "High Quality", "allowed_qualities": ["FLAC"], "upgrade_allowed": false}]
+  }'
 
-# 5. Apply import (dry_run=false)
+# 5. Apply import
 curl -X POST http://localhost:5150/api/v1/settings/quality-profiles/import \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{...}?dry_run=false'
+  -d '{...}'
 ```
 
 ### Frontend Settings Validation (Web UI)
@@ -373,14 +373,14 @@ bun run dev
 
 #### E2E test failures / build issues
 
-- **Frontend build fails**: Ensure `cd web && bun run build` completes without errors. Check Node version (`bun --version`).
+- **Frontend build fails**: Ensure `cd web && bun run build` completes without errors. Check Bun version (`bun --version`).
 - **HMR not working in dev**: Clear browser cache, restart `bun run dev`, check `VITE_CHORROSION_API_BASE` is set correctly.
 - **API requests fail with 401**: Ensure `X-Api-Key` header is present and valid (see [Bootstrap flow](#bootstrap-flow-first-time-setup)).
 
 #### Settings import/export issues
 
 - **Import preview shows no results**: Verify import JSON has `version: "1"` and `items` array is not empty.
-- **Import conflict policy not working**: Ensure item names match existing resources exactly (case-sensitive).
+- **Import conflict policy not working**: Ensure item names match existing resources (matching is case-insensitive).
 - **Export downloads blank file**: Check API returned 200 and response has `version`, `exported_at`, and `items` fields.
 
 #### Common prerequisites issues

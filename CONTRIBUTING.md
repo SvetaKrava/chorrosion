@@ -88,7 +88,7 @@ All three must pass cleanly. The `frontend-ci.yml` workflow enforces them on Ubu
 
 ### Settings validation workflow
 
-When working on settings features (Quality Profiles, Metadata Profiles, Download Clients, Indexers), follow the [Settings Validation Playbook](../README.md#settings-validation-playbook) to verify:
+When working on settings features (Quality Profiles, Metadata Profiles, Download Clients, Indexers), follow the [Settings Validation Playbook](README.md#settings-validation-playbook) to verify:
 - API endpoint behavior (create, update, delete, bulk, import/export)
 - Frontend form handling and error classification
 - E2E workflows in both dev and preview modes
