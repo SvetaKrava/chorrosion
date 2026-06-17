@@ -1169,7 +1169,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn import_quality_profiles_rejects_empty_item_name() {
+        async fn import_quality_profiles_rejects_whitespace_only_item_name() {
             let state = make_test_state().await;
             let response = import_quality_profiles(
                 State(state),
