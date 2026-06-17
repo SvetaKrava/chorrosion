@@ -9,6 +9,7 @@ use chorrosion_infrastructure::sqlite_adapters::{
     SqliteAlbumRepository, SqliteDownloadClientDefinitionRepository,
     SqliteIndexerDefinitionRepository,
 };
+use chorrosion_musicbrainz::MusicBrainzClient;
 use registry::JobRegistry;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -77,22 +78,50 @@ impl Scheduler {
             .await;
 
         // Refresh all artists metadata every 12 hours
-        self.registry
-            .register(
-                "refresh-artists",
-                RefreshArtistJob::all(),
-                Schedule::Interval(12 * 60 * 60),
-            )
-            .await;
+        match MusicBrainzClient::new() {
+            Ok(c) => {
+                let mb_client_artists = Arc::new(c);
+                let refresh_artist_cache = jobs::MetadataRefreshCache::new();
+                self.registry
+                    .register(
+                        "refresh-artists",
+                        RefreshArtistJob::with_dependencies(
+                            None,
+                            self.pool.clone(),
+                            mb_client_artists,
+                            refresh_artist_cache,
+                        ),
+                        Schedule::Interval(12 * 60 * 60),
+                    )
+                    .await;
+            }
+            Err(e) => {
+                tracing::warn!(target: "scheduler", error = %e, "failed to create MusicBrainz client for artist refresh; job will be skipped");
+            }
+        }
 
         // Refresh all albums metadata every 12 hours, offset by 15 minutes from artists
-        self.registry
-            .register(
-                "refresh-albums",
-                RefreshAlbumJob::all(),
-                Schedule::Interval(12 * 60 * 60 + 15 * 60),
-            )
-            .await;
+        match MusicBrainzClient::new() {
+            Ok(c) => {
+                let mb_client_albums = Arc::new(c);
+                let refresh_album_cache = jobs::MetadataRefreshCache::new();
+                self.registry
+                    .register(
+                        "refresh-albums",
+                        RefreshAlbumJob::with_dependencies(
+                            None,
+                            self.pool.clone(),
+                            mb_client_albums,
+                            refresh_album_cache,
+                        ),
+                        Schedule::Interval(12 * 60 * 60 + 15 * 60),
+                    )
+                    .await;
+            }
+            Err(e) => {
+                tracing::warn!(target: "scheduler", error = %e, "failed to create MusicBrainz client for album refresh; job will be skipped");
+            }
+        }
 
         // Housekeeping every 24 hours
         self.registry
