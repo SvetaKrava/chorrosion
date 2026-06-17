@@ -78,48 +78,50 @@ impl Scheduler {
             .await;
 
         // Refresh all artists metadata every 12 hours
-        let mb_client_artists = Arc::new(match MusicBrainzClient::new() {
-            Ok(c) => c,
+        match MusicBrainzClient::new() {
+            Ok(c) => {
+                let mb_client_artists = Arc::new(c);
+                let refresh_artist_cache = jobs::MetadataRefreshCache::new();
+                self.registry
+                    .register(
+                        "refresh-artists",
+                        RefreshArtistJob::with_dependencies(
+                            None,
+                            self.pool.clone(),
+                            mb_client_artists,
+                            refresh_artist_cache,
+                        ),
+                        Schedule::Interval(12 * 60 * 60),
+                    )
+                    .await;
+            }
             Err(e) => {
                 tracing::warn!(target: "scheduler", error = %e, "failed to create MusicBrainz client for artist refresh; job will be skipped");
-                return;
             }
-        });
-        let refresh_artist_cache = jobs::MetadataRefreshCache::new();
-        self.registry
-            .register(
-                "refresh-artists",
-                RefreshArtistJob::with_dependencies(
-                    None,
-                    self.pool.clone(),
-                    mb_client_artists,
-                    refresh_artist_cache,
-                ),
-                Schedule::Interval(12 * 60 * 60),
-            )
-            .await;
+        }
 
         // Refresh all albums metadata every 12 hours, offset by 15 minutes from artists
-        let mb_client_albums = Arc::new(match MusicBrainzClient::new() {
-            Ok(c) => c,
+        match MusicBrainzClient::new() {
+            Ok(c) => {
+                let mb_client_albums = Arc::new(c);
+                let refresh_album_cache = jobs::MetadataRefreshCache::new();
+                self.registry
+                    .register(
+                        "refresh-albums",
+                        RefreshAlbumJob::with_dependencies(
+                            None,
+                            self.pool.clone(),
+                            mb_client_albums,
+                            refresh_album_cache,
+                        ),
+                        Schedule::Interval(12 * 60 * 60 + 15 * 60),
+                    )
+                    .await;
+            }
             Err(e) => {
                 tracing::warn!(target: "scheduler", error = %e, "failed to create MusicBrainz client for album refresh; job will be skipped");
-                return;
             }
-        });
-        let refresh_album_cache = jobs::MetadataRefreshCache::new();
-        self.registry
-            .register(
-                "refresh-albums",
-                RefreshAlbumJob::with_dependencies(
-                    None,
-                    self.pool.clone(),
-                    mb_client_albums,
-                    refresh_album_cache,
-                ),
-                Schedule::Interval(12 * 60 * 60 + 15 * 60),
-            )
-            .await;
+        }
 
         // Housekeeping every 24 hours
         self.registry

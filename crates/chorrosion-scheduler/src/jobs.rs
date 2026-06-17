@@ -1340,7 +1340,7 @@ impl Job for RefreshArtistJob {
                     }
                 };
 
-                if !self.cache.try_mark_artist_refreshed(uuid) {
+                if !self.cache.should_refresh_artist(uuid) {
                     debug!(target: "jobs", job_id = %ctx.job_id, artist_id = %id,
                            "artist already refreshed recently, skipping (rate limit)");
                     return Ok(JobResult::Success);
@@ -1375,6 +1375,7 @@ impl Job for RefreshArtistJob {
                     Ok(mb_artist) => {
                         Self::apply_mb_artist(&mut artist, &mb_artist);
                         repo.update(artist).await?;
+                        self.cache.try_mark_artist_refreshed(uuid);
                         info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, %mbid, "artist metadata refreshed");
                     }
                     Err(e) => {
@@ -1406,7 +1407,7 @@ impl Job for RefreshArtistJob {
 
                     for mut artist in artists {
                         let uuid = artist.id.0;
-                        if !self.cache.try_mark_artist_refreshed(uuid) {
+                        if !self.cache.should_refresh_artist(uuid) {
                             continue;
                         }
 
@@ -1427,6 +1428,7 @@ impl Job for RefreshArtistJob {
                                           error = %e, "failed to persist artist update");
                                     failures += 1;
                                 } else {
+                                    self.cache.try_mark_artist_refreshed(uuid);
                                     refreshed += 1;
                                 }
                             }
@@ -1606,7 +1608,7 @@ impl Job for RefreshAlbumJob {
                     }
                 };
 
-                if !self.cache.try_mark_album_refreshed(uuid) {
+                if !self.cache.should_refresh_album(uuid) {
                     debug!(target: "jobs", job_id = %ctx.job_id, album_id = %id,
                            "album already refreshed recently, skipping (rate limit)");
                     return Ok(JobResult::Success);
@@ -1641,6 +1643,7 @@ impl Job for RefreshAlbumJob {
                     Ok(mb_album) => {
                         Self::apply_mb_album(&mut album, &mb_album);
                         repo.update(album).await?;
+                        self.cache.try_mark_album_refreshed(uuid);
                         info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, %mbid, "album metadata refreshed");
                     }
                     Err(e) => {
@@ -1672,7 +1675,7 @@ impl Job for RefreshAlbumJob {
 
                     for mut album in albums {
                         let uuid = album.id.0;
-                        if !self.cache.try_mark_album_refreshed(uuid) {
+                        if !self.cache.should_refresh_album(uuid) {
                             continue;
                         }
 
@@ -1693,6 +1696,7 @@ impl Job for RefreshAlbumJob {
                                           error = %e, "failed to persist album update");
                                     failures += 1;
                                 } else {
+                                    self.cache.try_mark_album_refreshed(uuid);
                                     refreshed += 1;
                                 }
                             }
