@@ -1423,13 +1423,16 @@ impl Job for RefreshArtistJob {
                         match mb_client.lookup_artist(mbid).await {
                             Ok(mb_artist) => {
                                 Self::apply_mb_artist(&mut artist, &mb_artist);
-                                if let Err(e) = repo.update(artist).await {
-                                    warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
-                                          error = %e, "failed to persist artist update");
-                                    failures += 1;
-                                } else {
-                                    self.cache.try_mark_artist_refreshed(uuid);
-                                    refreshed += 1;
+                                match repo.update(artist).await {
+                                    Err(e) => {
+                                        warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                              error = %e, "failed to persist artist update");
+                                        failures += 1;
+                                    }
+                                    _ => {
+                                        self.cache.try_mark_artist_refreshed(uuid);
+                                        refreshed += 1;
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -1691,13 +1694,16 @@ impl Job for RefreshAlbumJob {
                         match mb_client.lookup_album(mbid).await {
                             Ok(mb_album) => {
                                 Self::apply_mb_album(&mut album, &mb_album);
-                                if let Err(e) = repo.update(album).await {
-                                    warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
-                                          error = %e, "failed to persist album update");
-                                    failures += 1;
-                                } else {
-                                    self.cache.try_mark_album_refreshed(uuid);
-                                    refreshed += 1;
+                                match repo.update(album).await {
+                                    Err(e) => {
+                                        warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                              error = %e, "failed to persist album update");
+                                        failures += 1;
+                                    }
+                                    _ => {
+                                        self.cache.try_mark_album_refreshed(uuid);
+                                        refreshed += 1;
+                                    }
                                 }
                             }
                             Err(e) => {
