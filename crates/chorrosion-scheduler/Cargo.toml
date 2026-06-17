@@ -14,8 +14,10 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 chorrosion-config = { path = "../chorrosion-config" }
 chorrosion-application = { path = "../chorrosion-application" }
+chorrosion-domain = { path = "../chorrosion-domain" }
 chorrosion-infrastructure = { path = "../chorrosion-infrastructure" }
 chorrosion-metadata = { path = "../chorrosion-metadata" }
+chorrosion-musicbrainz = { path = "../chorrosion-musicbrainz" }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }

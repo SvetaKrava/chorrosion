@@ -9,16 +9,19 @@ use chorrosion_application::{
 use chorrosion_config::{
     CacheConfig, DiscogsAlbumSeed, DiscogsConfig, LastFmAlbumSeed, LastFmConfig,
 };
+use chorrosion_domain::Artist as DomainArtist;
 use chorrosion_infrastructure::{
-    repositories::{AlbumRepository, Repository},
+    repositories::{AlbumRepository, ArtistRepository, Repository},
     sqlite_adapters::{
-        SqliteAlbumRepository, SqliteDownloadClientDefinitionRepository,
+        SqliteAlbumRepository, SqliteArtistRepository, SqliteDownloadClientDefinitionRepository,
         SqliteIndexerDefinitionRepository,
     },
 };
 use chorrosion_metadata::discogs::DiscogsClient;
 use chorrosion_metadata::lastfm::LastFmClient;
+use chorrosion_musicbrainz::MusicBrainzClient;
 use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -1205,33 +1208,79 @@ pub struct RefreshArtistJob {
     artist_id: Option<String>,
     /// Shared cache for tracking refresh timestamps
     cache: MetadataRefreshCache,
+    /// Database pool for artist repository access (None in unit-test mode)
+    pool: Option<SqlitePool>,
+    /// MusicBrainz client for API calls (None in unit-test mode)
+    mb_client: Option<Arc<MusicBrainzClient>>,
 }
 
 impl RefreshArtistJob {
-    /// Create a job to refresh a single artist by ID
+    /// Create a job to refresh a single artist by ID (unit-test constructor; no DB/MB access)
     pub fn single(artist_id: impl Into<String>) -> Self {
         Self {
             artist_id: Some(artist_id.into()),
             cache: MetadataRefreshCache::new(),
+            pool: None,
+            mb_client: None,
         }
     }
 
-    /// Create a job to refresh all monitored artists
+    /// Create a job to refresh all monitored artists (unit-test constructor; no DB/MB access)
     pub fn all() -> Self {
         Self {
             artist_id: None,
             cache: MetadataRefreshCache::new(),
+            pool: None,
+            mb_client: None,
         }
     }
 
     /// Create a job with an existing cache (useful for scheduled jobs that run repeatedly)
     pub fn with_cache(artist_id: Option<String>, cache: MetadataRefreshCache) -> Self {
-        Self { artist_id, cache }
+        Self {
+            artist_id,
+            cache,
+            pool: None,
+            mb_client: None,
+        }
+    }
+
+    /// Create a fully-wired job with database pool and MusicBrainz client.
+    /// Use this constructor in the scheduler for production execution.
+    pub fn with_dependencies(
+        artist_id: Option<String>,
+        pool: SqlitePool,
+        mb_client: Arc<MusicBrainzClient>,
+        cache: MetadataRefreshCache,
+    ) -> Self {
+        Self {
+            artist_id,
+            cache,
+            pool: Some(pool),
+            mb_client: Some(mb_client),
+        }
     }
 
     /// Get a reference to the cache for external use (e.g., scheduler reuse across invocations)
     pub fn cache(&self) -> &MetadataRefreshCache {
         &self.cache
+    }
+
+    /// Apply MusicBrainz artist data onto a mutable domain Artist.
+    fn apply_mb_artist(artist: &mut DomainArtist, mb: &chorrosion_musicbrainz::models::Artist) {
+        if mb.sort_name != artist.name {
+            artist.sort_name = Some(mb.sort_name.clone());
+        }
+        if mb.artist_type.is_some() {
+            artist.artist_type = mb.artist_type.clone();
+        }
+        if mb.country.is_some() {
+            artist.country = mb.country.clone();
+        }
+        if mb.disambiguation.is_some() {
+            artist.disambiguation = mb.disambiguation.clone();
+        }
+        artist.updated_at = Utc::now();
     }
 }
 
@@ -1251,56 +1300,155 @@ impl Job for RefreshArtistJob {
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
         self.cache.prune_stale_entries();
 
+        let (Some(pool), Some(mb_client)) = (self.pool.as_ref(), self.mb_client.as_ref()) else {
+            // No dependencies injected — used in unit tests or scheduler dry-run
+            if let Some(id) = &self.artist_id {
+                match Uuid::parse_str(id) {
+                    Ok(uuid) => {
+                        if !self.cache.try_mark_artist_refreshed(uuid) {
+                            debug!(target: "jobs", job_id = %ctx.job_id, artist_id = %id,
+                                   "artist already refreshed recently, skipping (rate limit)");
+                        }
+                        return Ok(JobResult::Success);
+                    }
+                    Err(e) => {
+                        return Ok(JobResult::Failure {
+                            error: format!("Invalid artist ID: {}", e),
+                            retry: false,
+                        });
+                    }
+                }
+            }
+            return Ok(JobResult::Success);
+        };
+
+        let repo = SqliteArtistRepository::new(pool.clone());
+
         match &self.artist_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, "refreshing single artist metadata");
 
-                // Parse artist ID as UUID
-                match Uuid::parse_str(id) {
-                    Ok(uuid) => {
-                        // Atomically check and mark to prevent race conditions
-                        if !self.cache.try_mark_artist_refreshed(uuid) {
-                            debug!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, 
-                                   "artist already refreshed recently, skipping (rate limit)");
-                            return Ok(JobResult::Success);
-                        }
-
-                        // TODO: In full implementation:
-                        // 1. Load artist from database with its MusicBrainz ID
-                        // 2. If MBID exists, call MusicBrainz client to fetch latest artist metadata
-                        // 3. Update artist record with new data (biography, disambiguation, etc.)
-                        // 4. Schedule cover art fetch job if needed
-
-                        info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, 
-                              "single artist metadata refresh completed (placeholder)");
-                        Ok(JobResult::Success)
-                    }
+                let uuid = match Uuid::parse_str(id) {
+                    Ok(u) => u,
                     Err(e) => {
-                        warn!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, error = %e, 
+                        warn!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, error = %e,
                               "invalid artist ID format, expected UUID");
-                        Ok(JobResult::Failure {
+                        return Ok(JobResult::Failure {
                             error: format!("Invalid artist ID: {}", e),
                             retry: false,
-                        })
+                        });
+                    }
+                };
+
+                if !self.cache.try_mark_artist_refreshed(uuid) {
+                    debug!(target: "jobs", job_id = %ctx.job_id, artist_id = %id,
+                           "artist already refreshed recently, skipping (rate limit)");
+                    return Ok(JobResult::Success);
+                }
+
+                let mut artist = match repo.get_by_id(id).await? {
+                    Some(a) => a,
+                    None => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, "artist not found in database");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                let mbid_str = match &artist.musicbrainz_artist_id {
+                    Some(m) => m.clone(),
+                    None => {
+                        debug!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, "no MusicBrainz ID, skipping");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                let mbid = match Uuid::parse_str(&mbid_str) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, mbid = %mbid_str,
+                              error = %e, "invalid MusicBrainz artist ID");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                match mb_client.lookup_artist(mbid).await {
+                    Ok(mb_artist) => {
+                        Self::apply_mb_artist(&mut artist, &mb_artist);
+                        repo.update(artist).await?;
+                        info!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, %mbid, "artist metadata refreshed");
+                    }
+                    Err(e) => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, artist_id = %id, %mbid,
+                              error = %e, "MusicBrainz artist lookup failed");
+                        return Ok(JobResult::Failure {
+                            error: format!("MusicBrainz lookup failed: {}", e),
+                            retry: true,
+                        });
                     }
                 }
+
+                Ok(JobResult::Success)
             }
             None => {
                 info!(target: "jobs", job_id = %ctx.job_id, "refreshing all monitored artists metadata");
 
-                // TODO: In full implementation:
-                // 1. Query database for all monitored artists
-                // 2. For each artist with a MusicBrainz ID:
-                //    a. Check cache (skip if recently refreshed)
-                //    b. Fetch updated metadata from MusicBrainz
-                //    c. Update database record
-                //    d. Mark as refreshed in cache
-                // 3. Schedule cover art fetch jobs for updated artists
-                // 4. Batch requests to respect rate limits
-                // 5. If partial failure, return appropriate retry status
+                let mut offset: i64 = 0;
+                const BATCH: i64 = 100;
+                let mut refreshed = 0u32;
+                let mut failures = 0u32;
 
-                info!(target: "jobs", job_id = %ctx.job_id, "all artists metadata refresh completed (placeholder)");
-                Ok(JobResult::Success)
+                loop {
+                    let artists = repo.list_monitored(BATCH, offset).await?;
+                    if artists.is_empty() {
+                        break;
+                    }
+                    offset += artists.len() as i64;
+
+                    for mut artist in artists {
+                        let uuid = artist.id.0;
+                        if !self.cache.try_mark_artist_refreshed(uuid) {
+                            continue;
+                        }
+
+                        let mbid_str = match &artist.musicbrainz_artist_id {
+                            Some(m) => m.clone(),
+                            None => continue,
+                        };
+                        let mbid = match Uuid::parse_str(&mbid_str) {
+                            Ok(u) => u,
+                            Err(_) => continue,
+                        };
+
+                        match mb_client.lookup_artist(mbid).await {
+                            Ok(mb_artist) => {
+                                Self::apply_mb_artist(&mut artist, &mb_artist);
+                                if let Err(e) = repo.update(artist).await {
+                                    warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                          error = %e, "failed to persist artist update");
+                                    failures += 1;
+                                } else {
+                                    refreshed += 1;
+                                }
+                            }
+                            Err(e) => {
+                                warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                      error = %e, "MusicBrainz artist lookup failed, continuing");
+                                failures += 1;
+                            }
+                        }
+                    }
+                }
+
+                info!(target: "jobs", job_id = %ctx.job_id, refreshed, failures, "all artists metadata refresh complete");
+
+                if failures > 0 {
+                    Ok(JobResult::Failure {
+                        error: format!("{} artist(s) failed to refresh", failures),
+                        retry: true,
+                    })
+                } else {
+                    Ok(JobResult::Success)
+                }
             }
         }
     }
@@ -1326,33 +1474,79 @@ pub struct RefreshAlbumJob {
     album_id: Option<String>,
     /// Shared cache for tracking refresh timestamps
     cache: MetadataRefreshCache,
+    /// Database pool for album repository access (None in unit-test mode)
+    pool: Option<SqlitePool>,
+    /// MusicBrainz client for API calls (None in unit-test mode)
+    mb_client: Option<Arc<MusicBrainzClient>>,
 }
 
 impl RefreshAlbumJob {
-    /// Create a job to refresh a single album by ID
+    /// Create a job to refresh a single album by ID (unit-test constructor; no DB/MB access)
     pub fn single(album_id: impl Into<String>) -> Self {
         Self {
             album_id: Some(album_id.into()),
             cache: MetadataRefreshCache::new(),
+            pool: None,
+            mb_client: None,
         }
     }
 
-    /// Create a job to refresh all monitored albums
+    /// Create a job to refresh all monitored albums (unit-test constructor; no DB/MB access)
     pub fn all() -> Self {
         Self {
             album_id: None,
             cache: MetadataRefreshCache::new(),
+            pool: None,
+            mb_client: None,
         }
     }
 
     /// Create a job with an existing cache (useful for scheduled jobs that run repeatedly)
     pub fn with_cache(album_id: Option<String>, cache: MetadataRefreshCache) -> Self {
-        Self { album_id, cache }
+        Self {
+            album_id,
+            cache,
+            pool: None,
+            mb_client: None,
+        }
+    }
+
+    /// Create a fully-wired job with database pool and MusicBrainz client.
+    /// Use this constructor in the scheduler for production execution.
+    pub fn with_dependencies(
+        album_id: Option<String>,
+        pool: SqlitePool,
+        mb_client: Arc<MusicBrainzClient>,
+        cache: MetadataRefreshCache,
+    ) -> Self {
+        Self {
+            album_id,
+            cache,
+            pool: Some(pool),
+            mb_client: Some(mb_client),
+        }
     }
 
     /// Get a reference to the cache for external use
     pub fn cache(&self) -> &MetadataRefreshCache {
         &self.cache
+    }
+
+    /// Apply MusicBrainz album data onto a mutable domain Album.
+    fn apply_mb_album(
+        album: &mut chorrosion_domain::Album,
+        mb: &chorrosion_musicbrainz::models::Album,
+    ) {
+        if mb.primary_type.is_some() {
+            album.primary_type = mb.primary_type.clone();
+        }
+        if !mb.secondary_types.is_empty() {
+            album.secondary_types = Some(mb.secondary_types.join(","));
+        }
+        if mb.first_release_date.is_some() {
+            album.first_release_date = mb.first_release_date.clone();
+        }
+        album.updated_at = Utc::now();
     }
 }
 
@@ -1372,56 +1566,155 @@ impl Job for RefreshAlbumJob {
     async fn execute(&self, ctx: JobContext) -> Result<JobResult> {
         self.cache.prune_stale_entries();
 
+        let (Some(pool), Some(mb_client)) = (self.pool.as_ref(), self.mb_client.as_ref()) else {
+            // No dependencies injected — used in unit tests or scheduler dry-run
+            if let Some(id) = &self.album_id {
+                match Uuid::parse_str(id) {
+                    Ok(uuid) => {
+                        if !self.cache.try_mark_album_refreshed(uuid) {
+                            debug!(target: "jobs", job_id = %ctx.job_id, album_id = %id,
+                                   "album already refreshed recently, skipping (rate limit)");
+                        }
+                        return Ok(JobResult::Success);
+                    }
+                    Err(e) => {
+                        return Ok(JobResult::Failure {
+                            error: format!("Invalid album ID: {}", e),
+                            retry: false,
+                        });
+                    }
+                }
+            }
+            return Ok(JobResult::Success);
+        };
+
+        let repo = SqliteAlbumRepository::new(pool.clone());
+
         match &self.album_id {
             Some(id) => {
                 info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, "refreshing single album metadata");
 
-                // Parse album ID as UUID
-                match Uuid::parse_str(id) {
-                    Ok(uuid) => {
-                        // Atomically check and mark to prevent race conditions
-                        if !self.cache.try_mark_album_refreshed(uuid) {
-                            debug!(target: "jobs", job_id = %ctx.job_id, album_id = %id, 
-                                   "album already refreshed recently, skipping (rate limit)");
-                            return Ok(JobResult::Success);
-                        }
-
-                        // TODO: In full implementation:
-                        // 1. Load album from database with its MusicBrainz ID (release group MBID)
-                        // 2. If MBID exists, call MusicBrainz client to fetch latest album metadata
-                        // 3. Update album record with new data (release dates, types, tracks, etc.)
-                        // 4. Enqueue cover art fetch job if artwork not cached
-
-                        info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, 
-                              "single album metadata refresh completed (placeholder)");
-                        Ok(JobResult::Success)
-                    }
+                let uuid = match Uuid::parse_str(id) {
+                    Ok(u) => u,
                     Err(e) => {
-                        warn!(target: "jobs", job_id = %ctx.job_id, album_id = %id, error = %e, 
+                        warn!(target: "jobs", job_id = %ctx.job_id, album_id = %id, error = %e,
                               "invalid album ID format, expected UUID");
-                        Ok(JobResult::Failure {
+                        return Ok(JobResult::Failure {
                             error: format!("Invalid album ID: {}", e),
                             retry: false,
-                        })
+                        });
+                    }
+                };
+
+                if !self.cache.try_mark_album_refreshed(uuid) {
+                    debug!(target: "jobs", job_id = %ctx.job_id, album_id = %id,
+                           "album already refreshed recently, skipping (rate limit)");
+                    return Ok(JobResult::Success);
+                }
+
+                let mut album = match repo.get_by_id(id).await? {
+                    Some(a) => a,
+                    None => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, album_id = %id, "album not found in database");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                let mbid_str = match &album.musicbrainz_release_group_id {
+                    Some(m) => m.clone(),
+                    None => {
+                        debug!(target: "jobs", job_id = %ctx.job_id, album_id = %id, "no MusicBrainz ID, skipping");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                let mbid = match Uuid::parse_str(&mbid_str) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, album_id = %id, mbid = %mbid_str,
+                              error = %e, "invalid MusicBrainz release group ID");
+                        return Ok(JobResult::Success);
+                    }
+                };
+
+                match mb_client.lookup_album(mbid).await {
+                    Ok(mb_album) => {
+                        Self::apply_mb_album(&mut album, &mb_album);
+                        repo.update(album).await?;
+                        info!(target: "jobs", job_id = %ctx.job_id, album_id = %id, %mbid, "album metadata refreshed");
+                    }
+                    Err(e) => {
+                        warn!(target: "jobs", job_id = %ctx.job_id, album_id = %id, %mbid,
+                              error = %e, "MusicBrainz album lookup failed");
+                        return Ok(JobResult::Failure {
+                            error: format!("MusicBrainz lookup failed: {}", e),
+                            retry: true,
+                        });
                     }
                 }
+
+                Ok(JobResult::Success)
             }
             None => {
                 info!(target: "jobs", job_id = %ctx.job_id, "refreshing all monitored albums metadata");
 
-                // TODO: In full implementation:
-                // 1. Query database for all monitored albums with MusicBrainz IDs
-                // 2. For each album:
-                //    a. Check cache (skip if recently refreshed)
-                //    b. Fetch updated metadata from MusicBrainz
-                //    c. Update database record with release dates, types, and track listings
-                //    d. Mark as refreshed in cache
-                // 3. Schedule cover art fetch jobs for updated albums
-                // 4. Batch requests to respect rate limits and improve performance
-                // 5. Handle partial failures gracefully
+                let mut offset: i64 = 0;
+                const BATCH: i64 = 100;
+                let mut refreshed = 0u32;
+                let mut failures = 0u32;
 
-                info!(target: "jobs", job_id = %ctx.job_id, "all albums metadata refresh completed (placeholder)");
-                Ok(JobResult::Success)
+                loop {
+                    let albums = repo.list_monitored(BATCH, offset).await?;
+                    if albums.is_empty() {
+                        break;
+                    }
+                    offset += albums.len() as i64;
+
+                    for mut album in albums {
+                        let uuid = album.id.0;
+                        if !self.cache.try_mark_album_refreshed(uuid) {
+                            continue;
+                        }
+
+                        let mbid_str = match &album.musicbrainz_release_group_id {
+                            Some(m) => m.clone(),
+                            None => continue,
+                        };
+                        let mbid = match Uuid::parse_str(&mbid_str) {
+                            Ok(u) => u,
+                            Err(_) => continue,
+                        };
+
+                        match mb_client.lookup_album(mbid).await {
+                            Ok(mb_album) => {
+                                Self::apply_mb_album(&mut album, &mb_album);
+                                if let Err(e) = repo.update(album).await {
+                                    warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                          error = %e, "failed to persist album update");
+                                    failures += 1;
+                                } else {
+                                    refreshed += 1;
+                                }
+                            }
+                            Err(e) => {
+                                warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
+                                      error = %e, "MusicBrainz album lookup failed, continuing");
+                                failures += 1;
+                            }
+                        }
+                    }
+                }
+
+                info!(target: "jobs", job_id = %ctx.job_id, refreshed, failures, "all albums metadata refresh complete");
+
+                if failures > 0 {
+                    Ok(JobResult::Failure {
+                        error: format!("{} album(s) failed to refresh", failures),
+                        retry: true,
+                    })
+                } else {
+                    Ok(JobResult::Success)
+                }
             }
         }
     }
