@@ -1420,10 +1420,12 @@ impl Job for RefreshArtistJob {
                             Err(_) => continue,
                         };
 
-                        match mb_client.lookup_artist(mbid).await {
+                        let lookup_result = mb_client.lookup_artist(mbid).await;
+                        match lookup_result {
                             Ok(mb_artist) => {
                                 Self::apply_mb_artist(&mut artist, &mb_artist);
-                                match repo.update(artist).await {
+                                let update_result = repo.update(artist).await;
+                                match update_result {
                                     Err(e) => {
                                         warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
                                               error = %e, "failed to persist artist update");
@@ -1691,10 +1693,12 @@ impl Job for RefreshAlbumJob {
                             Err(_) => continue,
                         };
 
-                        match mb_client.lookup_album(mbid).await {
+                        let lookup_result = mb_client.lookup_album(mbid).await;
+                        match lookup_result {
                             Ok(mb_album) => {
                                 Self::apply_mb_album(&mut album, &mb_album);
-                                match repo.update(album).await {
+                                let update_result = repo.update(album).await;
+                                match update_result {
                                     Err(e) => {
                                         warn!(target: "jobs", job_id = %ctx.job_id, %mbid,
                                               error = %e, "failed to persist album update");
