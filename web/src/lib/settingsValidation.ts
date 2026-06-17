@@ -11,6 +11,12 @@ export interface ClassifiedFormError {
 	bannerMessage: string;
 }
 
+export interface ClassifiedSaveUiState {
+	formErrors: Record<string, string>;
+	saveStatus: 'idle' | 'error';
+	saveError: string;
+}
+
 function getBodyMessage(body: unknown): string {
 	if (typeof body === 'object' && body !== null && 'error' in body) {
 		return String((body as { error?: unknown }).error ?? '');
@@ -61,5 +67,25 @@ export function classifyFormError(error: unknown, rules: FieldValidationRule[]):
 	return {
 		fieldErrors,
 		bannerMessage: error instanceof Error ? error.message : 'Save failed.'
+	};
+}
+
+export function mapClassifiedSaveErrorToUiState(
+	classified: ClassifiedFormError,
+	currentFormErrors: Record<string, string>,
+	fallbackMessage = 'Save failed.'
+): ClassifiedSaveUiState {
+	if (Object.keys(classified.fieldErrors).length > 0) {
+		return {
+			formErrors: { ...currentFormErrors, ...classified.fieldErrors },
+			saveStatus: 'idle',
+			saveError: ''
+		};
+	}
+
+	return {
+		formErrors: currentFormErrors,
+		saveStatus: 'error',
+		saveError: classified.bannerMessage || fallbackMessage
 	};
 }
