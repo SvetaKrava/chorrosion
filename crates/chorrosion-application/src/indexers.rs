@@ -270,11 +270,10 @@ impl TorznabClient {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            IndexerError::Request(
-                "torznab search failed for primary and fallback request types".to_string(),
-            )
-        }))
+        match last_error {
+            Some(error) => Err(error),
+            None => Ok(vec![]),
+        }
     }
 }
 
