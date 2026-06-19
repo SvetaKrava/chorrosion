@@ -405,12 +405,18 @@ mod tests {
 
     #[test]
     fn path_matches_accepts_prefixed_and_unprefixed_routes() {
-        assert!(super::path_matches("/auth/forms/logout", "/auth/forms/logout"));
+        assert!(super::path_matches(
+            "/auth/forms/logout",
+            "/auth/forms/logout"
+        ));
         assert!(super::path_matches(
             "/api/v1/auth/forms/logout",
             "/auth/forms/logout"
         ));
-        assert!(!super::path_matches("/api/v1/auth/forms/login", "/auth/forms/logout"));
+        assert!(!super::path_matches(
+            "/api/v1/auth/forms/login",
+            "/auth/forms/logout"
+        ));
     }
 
     #[test]

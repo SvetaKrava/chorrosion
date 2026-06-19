@@ -1402,13 +1402,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].client_type is not supported")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].client_type is not supported"));
     }
 
     #[tokio::test]
@@ -1442,13 +1440,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].name cannot be empty")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].name cannot be empty"));
     }
 
     #[tokio::test]
@@ -1482,13 +1478,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].base_url is invalid")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].base_url is invalid"));
     }
 
     #[tokio::test]
