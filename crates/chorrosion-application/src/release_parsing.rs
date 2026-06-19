@@ -736,4 +736,223 @@ mod tests {
         let ranked = rank_releases(releases, &options);
         assert!(ranked[0].original_title.to_lowercase().contains("mqa"));
     }
+
+    // ========== Fixture-based tests for edge-case release names ==========
+
+    #[test]
+    fn fixture_multi_word_artist_with_feature() {
+        let parsed =
+            parse_release_title("The Beatles Feat. Paul McCartney - Abbey Road [FLAC]-GRPX");
+        assert_eq!(
+            parsed.artist.as_deref(),
+            Some("The Beatles Feat. Paul McCartney")
+        );
+        assert_eq!(parsed.album.as_deref(), Some("Abbey Road"));
+        assert_eq!(parsed.quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn fixture_alac_quality_parsing() {
+        let parsed = parse_release_title("Radiohead - In Rainbows [ALAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Radiohead"));
+        assert_eq!(parsed.album.as_deref(), Some("In Rainbows"));
+        assert_eq!(parsed.quality, AudioQuality::Alac);
+    }
+
+    #[test]
+    fn fixture_multiple_disc_notation() {
+        let parsed = parse_release_title("Pink Floyd - The Wall [CD1] [FLAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Pink Floyd"));
+        // Bracketed content is stripped during parsing
+        assert_eq!(parsed.album.as_deref(), Some("The Wall"));
+        assert_eq!(parsed.quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn fixture_extended_edition_notation() {
+        let parsed = parse_release_title("Daft Punk - Discovery (Deluxe Edition) [FLAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Daft Punk"));
+        // Parenthetical content is stripped during parsing
+        assert_eq!(parsed.album.as_deref(), Some("Discovery"));
+        assert_eq!(parsed.quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn fixture_bitrate_before_quality() {
+        let parsed = parse_release_title("Metallica - Master Of Puppets 320kbps [MP3]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Metallica"));
+        assert_eq!(parsed.album.as_deref(), Some("Master Of Puppets"));
+        assert_eq!(parsed.quality, AudioQuality::Mp3);
+        assert_eq!(parsed.bitrate_kbps, Some(320));
+    }
+
+    #[test]
+    fn fixture_minimal_release_name() {
+        let parsed = parse_release_title("Artist - Album [FLAC]");
+        assert_eq!(parsed.artist.as_deref(), Some("Artist"));
+        assert_eq!(parsed.album.as_deref(), Some("Album"));
+        assert_eq!(parsed.quality, AudioQuality::Flac);
+        assert_eq!(parsed.release_group, None);
+    }
+
+    #[test]
+    fn fixture_group_with_numbers_and_special_chars() {
+        let parsed = parse_release_title("Artist - Album 320kbps MP3-RLS_GRP.2024");
+        assert_eq!(parsed.release_group.as_deref(), Some("RLS_GRP.2024"));
+    }
+
+    #[test]
+    fn fixture_uppercase_quality_variants() {
+        let parsed_flac = parse_release_title("Artist - Album FLAC-GRP");
+        let parsed_alac = parse_release_title("Artist - Album ALAC-GRP");
+        let parsed_mp3 = parse_release_title("Artist - Album MP3 320-GRP");
+
+        assert_eq!(parsed_flac.quality, AudioQuality::Flac);
+        assert_eq!(parsed_alac.quality, AudioQuality::Alac);
+        assert_eq!(parsed_mp3.quality, AudioQuality::Mp3);
+    }
+
+    #[test]
+    fn fixture_remix_edition_in_album_name() {
+        let parsed =
+            parse_release_title("Deadmau5 - Raise Your Weapon (Skrillex Remix) 320kbps MP3-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Deadmau5"));
+        // Parenthetical remix info is stripped during parsing
+        assert_eq!(parsed.album.as_deref(), Some("Raise Your Weapon"));
+        assert_eq!(parsed.quality, AudioQuality::Mp3);
+        assert_eq!(parsed.bitrate_kbps, Some(320));
+    }
+
+    #[test]
+    fn fixture_year_in_title() {
+        let parsed = parse_release_title("The Who - Tommy (1969) [FLAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("The Who"));
+        // Year in parentheses is stripped during parsing
+        assert_eq!(parsed.album.as_deref(), Some("Tommy"));
+    }
+
+    #[test]
+    fn fixture_non_standard_bitrates() {
+        let parsed_128 = parse_release_title("Artist - Album 128kbps MP3-GRP");
+        let parsed_256 = parse_release_title("Artist - Album 256kbps MP3-GRP");
+        let parsed_flac_bitrate = parse_release_title("Artist - Album [FLAC 1411kbps]-GRP");
+
+        assert_eq!(parsed_128.bitrate_kbps, Some(128));
+        assert_eq!(parsed_256.bitrate_kbps, Some(256));
+        // FLAC bitrate notation may not extract, but should not error
+        assert_eq!(parsed_flac_bitrate.quality, AudioQuality::Flac);
+    }
+
+    #[test]
+    fn fixture_release_name_with_ampersand() {
+        let parsed =
+            parse_release_title("Simon & Garfunkel - Bridge Over Troubled Water [FLAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Simon & Garfunkel"));
+        assert_eq!(parsed.album.as_deref(), Some("Bridge Over Troubled Water"));
+    }
+
+    #[test]
+    fn fixture_artist_with_numbers() {
+        let parsed = parse_release_title("U2 - Achtung Baby [FLAC]-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("U2"));
+        assert_eq!(parsed.album.as_deref(), Some("Achtung Baby"));
+    }
+
+    #[test]
+    fn fixture_aac_quality_parsing() {
+        let parsed = parse_release_title("Artist - Album [AAC] 256kbps-GRPX");
+        assert_eq!(parsed.artist.as_deref(), Some("Artist"));
+        assert_eq!(parsed.album.as_deref(), Some("Album"));
+        assert_eq!(parsed.quality, AudioQuality::Aac);
+        assert_eq!(parsed.bitrate_kbps, Some(256));
+    }
+
+    #[test]
+    fn fixture_ranking_with_mixed_qualities_and_editions() {
+        let releases = vec![
+            parse_release_title("The Beatles - Abbey Road Standard Edition 128kbps MP3-GRP1"),
+            parse_release_title("The Beatles - Abbey Road Deluxe Edition 320kbps MP3-GRP2"),
+            parse_release_title("The Beatles - Abbey Road [FLAC]-GRP3"),
+            parse_release_title("The Beatles - Abbey Road Remastered 192kbps MP3-GRP4"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![AudioQuality::Flac, AudioQuality::Mp3],
+            min_bitrate_kbps: Some(256),
+            preferred_release_groups: vec!["GRP2".to_string()],
+            preferred_words: vec!["deluxe".to_string()],
+            custom_format_rules: vec![],
+        };
+
+        let filtered = filter_releases(&releases, &options);
+        let ranked = rank_releases(filtered, &options);
+
+        // Preferred group (GRP2) and deluxe edition with 320kbps should rank highest
+        // after minimum bitrate filtering
+        assert!(!ranked.is_empty());
+        // The 320kbps Deluxe Edition from preferred group should be present
+        assert!(ranked.iter().any(|r| r.bitrate_kbps == Some(320)));
+    }
+
+    #[test]
+    fn fixture_deduplication_preserves_highest_quality_per_key() {
+        let releases = vec![
+            parse_release_title("Pink Floyd - The Wall [FLAC]-GRP1"),
+            parse_release_title("Pink Floyd - The Wall [FLAC]-GRP2"),
+            parse_release_title("Pink Floyd - The Wall 192kbps MP3-GRP3"),
+            parse_release_title("Pink Floyd - The Wall 320kbps MP3-GRP4"),
+        ];
+
+        let deduped = deduplicate_releases(&releases);
+
+        // Should have 2 unique entries (FLAC and MP3), with highest quality per key
+        assert_eq!(deduped.len(), 2);
+        let has_flac = deduped.iter().any(|r| r.quality == AudioQuality::Flac);
+        let has_mp3_320 = deduped
+            .iter()
+            .any(|r| r.quality == AudioQuality::Mp3 && r.bitrate_kbps == Some(320));
+
+        assert!(has_flac);
+        assert!(has_mp3_320);
+    }
+
+    #[test]
+    fn fixture_handling_of_release_group_position_variants() {
+        let parsed_end = parse_release_title("Artist - Album 320kbps MP3-GRPX");
+        let parsed_brackets = parse_release_title("Artist - Album 320kbps MP3 [GRPX]");
+        let parsed_no_group = parse_release_title("Artist - Album 320kbps MP3");
+
+        assert_eq!(parsed_end.release_group.as_deref(), Some("GRPX"));
+        assert_eq!(parsed_brackets.quality, AudioQuality::Mp3);
+        assert_eq!(parsed_no_group.quality, AudioQuality::Mp3);
+    }
+
+    #[test]
+    fn fixture_comprehensive_fixture_ranking() {
+        // Comprehensive test with multiple release variants
+        let releases = vec![
+            parse_release_title("Daft Punk - Homework 128kbps MP3-OldGroup"),
+            parse_release_title("Daft Punk - Homework 192kbps MP3-OldGroup"),
+            parse_release_title("Daft Punk - Homework 320kbps MP3-PreferredGroup"),
+            parse_release_title("Daft Punk - Homework [FLAC]-PreferredGroup"),
+            parse_release_title("Daft Punk - Homework [ALAC]-OtherGroup"),
+        ];
+
+        let options = ReleaseFilterOptions {
+            preferred_qualities: vec![AudioQuality::Flac, AudioQuality::Alac, AudioQuality::Mp3],
+            min_bitrate_kbps: Some(192),
+            preferred_release_groups: vec!["PreferredGroup".to_string()],
+            preferred_words: vec![],
+            custom_format_rules: vec![],
+        };
+
+        let filtered = filter_releases(&releases, &options);
+        assert!(!filtered.is_empty());
+
+        let ranked = rank_releases(filtered, &options);
+        // FLAC should be first in ranking
+        assert_eq!(ranked[0].quality, AudioQuality::Flac);
+        // Preferred group should rank above others with same quality
+        assert_eq!(ranked[0].release_group.as_deref(), Some("PreferredGroup"));
+    }
 }
