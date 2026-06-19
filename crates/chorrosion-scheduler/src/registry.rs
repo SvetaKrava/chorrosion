@@ -1,3 +1,326 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Mock job for testing retryable failures
+    struct RetryableFailureJob {
+        attempt_count: Arc<AtomicU32>,
+        fail_on_attempt: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Job for RetryableFailureJob {
+        fn job_type(&self) -> &'static str {
+            "retryable-failure-test"
+        }
+
+        fn name(&self) -> String {
+            "Retryable Failure Test".to_string()
+        }
+
+        async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+            let attempt = self.attempt_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt < self.fail_on_attempt {
+                Ok(JobResult::Failure {
+                    error: format!("Transient failure on attempt {}", attempt),
+                    retry: true,
+                })
+            } else {
+                Ok(JobResult::Success)
+            }
+        }
+
+        fn is_retriable(&self) -> bool {
+            true
+        }
+
+        fn max_retries(&self) -> u32 {
+            3
+        }
+
+        fn retry_delay_seconds(&self) -> u64 {
+            1
+        }
+    }
+
+    /// Mock job for testing terminal failures (non-retryable)
+    struct TerminalFailureJob {
+        attempt_count: Arc<AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl Job for TerminalFailureJob {
+        fn job_type(&self) -> &'static str {
+            "terminal-failure-test"
+        }
+
+        fn name(&self) -> String {
+            "Terminal Failure Test".to_string()
+        }
+
+        async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+            let _ = self.attempt_count.fetch_add(1, Ordering::SeqCst);
+            Ok(JobResult::Failure {
+                error: "Terminal failure - not retryable".to_string(),
+                retry: false,
+            })
+        }
+
+        fn is_retriable(&self) -> bool {
+            false
+        }
+
+        fn max_retries(&self) -> u32 {
+            0
+        }
+
+        fn retry_delay_seconds(&self) -> u64 {
+            60
+        }
+    }
+
+    /// Mock job for testing panic/error execution paths
+    struct PanicJob {
+        attempt_count: Arc<AtomicU32>,
+        fail_on_attempt: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Job for PanicJob {
+        fn job_type(&self) -> &'static str {
+            "panic-test"
+        }
+
+        fn name(&self) -> String {
+            "Panic Test Job".to_string()
+        }
+
+        async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+            let attempt = self.attempt_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt < self.fail_on_attempt {
+                Err(anyhow::anyhow!("Transient error on attempt {}", attempt))
+            } else {
+                Ok(JobResult::Success)
+            }
+        }
+
+        fn is_retriable(&self) -> bool {
+            true
+        }
+
+        fn max_retries(&self) -> u32 {
+            3
+        }
+
+        fn retry_delay_seconds(&self) -> u64 {
+            1
+        }
+    }
+
+    /// Mock job for testing non-retriable error execution
+    struct NonRetriableErrorJob {
+        attempt_count: Arc<AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl Job for NonRetriableErrorJob {
+        fn job_type(&self) -> &'static str {
+            "non-retriable-error-test"
+        }
+
+        fn name(&self) -> String {
+            "Non-Retriable Error Test".to_string()
+        }
+
+        async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+            let _ = self.attempt_count.fetch_add(1, Ordering::SeqCst);
+            Err(anyhow::anyhow!("Non-retriable configuration error"))
+        }
+
+        fn is_retriable(&self) -> bool {
+            false
+        }
+
+        fn max_retries(&self) -> u32 {
+            0
+        }
+
+        fn retry_delay_seconds(&self) -> u64 {
+            60
+        }
+    }
+
+    #[tokio::test]
+    async fn retryable_failure_succeeds_on_retry() {
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(RetryableFailureJob {
+            attempt_count: attempt_count.clone(),
+            fail_on_attempt: 2, // Fail on attempt 1, succeed on attempt 2
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should have attempted twice (failed once, then succeeded)
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn terminal_failure_stops_immediately() {
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(TerminalFailureJob {
+            attempt_count: attempt_count.clone(),
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should have only attempted once (terminal failure)
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retryable_failures_exhaust_max_retries() {
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(RetryableFailureJob {
+            attempt_count: attempt_count.clone(),
+            fail_on_attempt: u32::MAX, // Always fail
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should have attempted max_retries() + 1 times
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 4); // 3 retries + 1 initial
+    }
+
+    #[tokio::test]
+    async fn retriable_error_retries_until_success() {
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(PanicJob {
+            attempt_count: attempt_count.clone(),
+            fail_on_attempt: 3, // Fail on attempts 1 and 2, succeed on 3
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should have attempted 3 times (fail, fail, succeed)
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn non_retriable_error_stops_immediately() {
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(NonRetriableErrorJob {
+            attempt_count: attempt_count.clone(),
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should have only attempted once
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn successful_job_completes_on_first_attempt() {
+        struct SuccessJob;
+
+        #[async_trait::async_trait]
+        impl Job for SuccessJob {
+            fn job_type(&self) -> &'static str {
+                "success-test"
+            }
+
+            fn name(&self) -> String {
+                "Success Test".to_string()
+            }
+
+            async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+                Ok(JobResult::Success)
+            }
+
+            fn is_retriable(&self) -> bool {
+                true
+            }
+
+            fn max_retries(&self) -> u32 {
+                3
+            }
+
+            fn retry_delay_seconds(&self) -> u64 {
+                60
+            }
+        }
+
+        let job = Arc::new(SuccessJob);
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+        // Success on first attempt - execution completes without error
+    }
+
+    #[tokio::test]
+    async fn backoff_delay_is_applied_between_retries() {
+        let start = Instant::now();
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(RetryableFailureJob {
+            attempt_count: attempt_count.clone(),
+            fail_on_attempt: 3, // Fail on attempts 1 and 2, succeed on 3
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        let elapsed = start.elapsed();
+
+        // With 1-second delays and 2 failures, should take at least 2 seconds
+        assert!(elapsed.as_secs() >= 2, "Backoff delay not applied properly");
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn max_retries_setting_is_respected() {
+        struct CustomMaxRetriesJob {
+            attempt_count: Arc<AtomicU32>,
+        }
+
+        #[async_trait::async_trait]
+        impl Job for CustomMaxRetriesJob {
+            fn job_type(&self) -> &'static str {
+                "custom-max-retries-test"
+            }
+
+            fn name(&self) -> String {
+                "Custom Max Retries Test".to_string()
+            }
+
+            async fn execute(&self, _ctx: JobContext) -> anyhow::Result<JobResult> {
+                let _ = self.attempt_count.fetch_add(1, Ordering::SeqCst);
+                Ok(JobResult::Failure {
+                    error: "Always fail".to_string(),
+                    retry: true,
+                })
+            }
+
+            fn is_retriable(&self) -> bool {
+                true
+            }
+
+            fn max_retries(&self) -> u32 {
+                2 // Custom limit: 2 retries (3 total attempts)
+            }
+
+            fn retry_delay_seconds(&self) -> u64 {
+                0
+            }
+        }
+
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let job = Arc::new(CustomMaxRetriesJob {
+            attempt_count: attempt_count.clone(),
+        });
+
+        JobRegistry::execute_job("test-job".to_string(), job).await;
+
+        // Should respect custom max_retries (2) + 1 initial = 3
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
+    }
+}
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::job::{Job, JobContext, JobResult};
 use std::collections::HashMap;
