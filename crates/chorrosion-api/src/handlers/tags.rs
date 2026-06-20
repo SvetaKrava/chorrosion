@@ -574,7 +574,10 @@ mod tests {
 
     #[test]
     fn parse_entity_type_accepts_case_insensitive_values() {
-        assert!(matches!(parse_entity_type("artist"), Ok(EntityType::Artist)));
+        assert!(matches!(
+            parse_entity_type("artist"),
+            Ok(EntityType::Artist)
+        ));
         assert!(matches!(parse_entity_type("ALBUM"), Ok(EntityType::Album)));
     }
 

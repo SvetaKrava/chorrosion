@@ -433,27 +433,33 @@ async fn detect_capabilities(
     config: &IndexerConfig,
 ) -> Result<IndexerCapabilities, IndexerError> {
     let xml = execute_api_request(client, config, "caps", None).await?;
-    let supports_search = xml.contains("search") || xml.contains("<searching>");
+    let xml_lower = xml.to_lowercase();
+
+    // Detect search support: look for search-related tags or explicit boolean
+    let supports_search = xml_lower.contains("<search")
+        || xml_lower.contains("<searching>")
+        || xml_lower.contains("supports_search=\"yes\"")
+        || xml_lower.contains("supportedparams=\"q\"");
+
     let supports_rss = true;
-    let supports_capabilities_detection = xml.contains("<caps") || xml.contains("<categories");
-    let supports_categories = xml.contains("<category");
 
-    let mut supported_categories = Vec::new();
-    if supports_categories {
-        for token in ["music", "audio/flac", "audio/mp3"] {
-            if xml.to_lowercase().contains(token) {
-                supported_categories.push(token.to_string());
-            }
-        }
-    }
+    // Detect capability detection support via presence of caps container
+    let supports_capabilities_detection = xml_lower.contains("<caps")
+        || xml_lower.contains("<categories")
+        || xml_lower.contains("<server");
 
-    if supported_categories.is_empty() {
-        supported_categories = vec![
-            "music".to_string(),
-            "audio/flac".to_string(),
-            "audio/mp3".to_string(),
-        ];
-    }
+    // Detect category support: look for actual category definitions
+    let supports_categories = xml_lower.contains("<category");
+
+    // Extract supported categories from caps if available, otherwise use defaults
+    let supported_categories = if supports_categories {
+        extract_supported_categories(&xml)
+    } else {
+        DEFAULT_MUSIC_CATEGORIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
 
     Ok(IndexerCapabilities {
         supports_search,
@@ -462,6 +468,77 @@ async fn detect_capabilities(
         supports_categories,
         supported_categories,
     })
+}
+
+const DEFAULT_MUSIC_CATEGORIES: &[&str] = &["music", "audio/flac", "audio/mp3"];
+
+// Text keywords that identify each default category when no numeric IDs are present
+const DEFAULT_CATEGORY_KEYWORDS: &[&[&str]] = &[
+    &["music"],
+    &["flac", "lossless"],
+    &["mp3"],
+];
+
+// Music-related category ID patterns with their pre-computed search strings.
+// Computed once at startup to avoid repeated allocations on every call.
+// Requires Rust 1.80+ (std::sync::LazyLock stabilised in 1.80).
+static ID_SEARCH_PATTERNS: std::sync::LazyLock<Vec<(String, String, String, &'static str)>> =
+    std::sync::LazyLock::new(|| {
+        [
+            ("3000", "music"),
+            ("3010", "audio/mp3"),
+            ("3020", "audio/flac"), // Some providers use 3020 as an alternative FLAC ID alongside 3040
+            ("3040", "audio/flac"),
+            ("5070", "audio/flac"), // Alternative ID range
+        ]
+        .iter()
+        .map(|(id, name)| {
+            (
+                format!("id=\"{}\"", id),
+                format!("id='{}'", id),
+                format!(">{}<", id),
+                *name,
+            )
+        })
+        .collect()
+    });
+
+fn extract_supported_categories(xml: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut categories = Vec::new();
+    let xml_lower = xml.to_lowercase();
+
+    for (attr_double, attr_single, text_node, name) in ID_SEARCH_PATTERNS.iter() {
+        if (xml_lower.contains(attr_double)
+            || xml_lower.contains(attr_single)
+            || xml_lower.contains(text_node))
+            && seen.insert(*name)
+        {
+            categories.push(name.to_string());
+        }
+    }
+
+    // Also check for text-based category names; runs alongside ID detection so
+    // that categories signalled only by keyword (and not by a numeric ID) are
+    // still picked up.  The HashSet guards against duplicates.
+    for (category, keywords) in DEFAULT_MUSIC_CATEGORIES
+        .iter()
+        .zip(DEFAULT_CATEGORY_KEYWORDS.iter())
+    {
+        if keywords.iter().any(|kw| xml_lower.contains(*kw)) && seen.insert(*category) {
+            categories.push(category.to_string());
+        }
+    }
+
+    // Ensure we always have at least the defaults for music indexers
+    if categories.is_empty() {
+        categories = DEFAULT_MUSIC_CATEGORIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+    }
+
+    categories
 }
 
 async fn execute_search(
@@ -495,10 +572,13 @@ async fn execute_search(
 
 fn map_category_to_indexer(category: &str, protocol: &IndexerProtocol) -> &'static str {
     let normalized = category.trim().to_lowercase();
+    // For Newznab/Torznab protocols, prefer standard category IDs that work across most providers
+    // Use 3040 for FLAC (most common), but fallback gracefully if provider uses different IDs
     match (protocol, normalized.as_str()) {
         (IndexerProtocol::Newznab | IndexerProtocol::Torznab, "music") => "3000",
         (IndexerProtocol::Newznab | IndexerProtocol::Torznab, "audio/mp3") => "3010",
         (IndexerProtocol::Newznab | IndexerProtocol::Torznab, "audio/flac") => "3040",
+        (IndexerProtocol::Newznab | IndexerProtocol::Torznab, "audio/lossless") => "3040", // Normalize lossless to FLAC category
         _ => "3000",
     }
 }
@@ -968,8 +1048,9 @@ struct RssRawItem {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_rss_feed, parse_search_results, GazelleClient, IndexerClient, IndexerConfig,
-        IndexerProtocol, IndexerSearchQuery, NewznabClient, TorznabClient,
+        extract_supported_categories, map_category_to_indexer, parse_rss_feed,
+        parse_search_results, GazelleClient, IndexerClient, IndexerConfig, IndexerProtocol,
+        IndexerSearchQuery, NewznabClient, TorznabClient, DEFAULT_MUSIC_CATEGORIES,
     };
     use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1578,6 +1659,114 @@ mod tests {
         assert_eq!(
             results[0].download_url.as_deref(),
             Some(expected_download.as_str())
+        );
+    }
+
+    #[test]
+    fn extract_categories_with_sparse_caps() {
+        // Test that capability detection works with minimal caps element
+        let sparse_xml = r#"<?xml version="1.0"?>
+        <caps>
+            <server appversion="1.0" title="TestIndexer" />
+        </caps>
+        "#;
+
+        // Should return sensible defaults even when no category info is present,
+        // with no duplicate entries.
+        let categories = extract_supported_categories(sparse_xml);
+        let unique: std::collections::HashSet<_> = categories.iter().collect();
+        assert_eq!(
+            categories.len(),
+            unique.len(),
+            "Categories should not contain duplicates"
+        );
+        assert_eq!(unique.len(), DEFAULT_MUSIC_CATEGORIES.len());
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+        assert!(categories.contains(&"audio/mp3".to_string()));
+    }
+
+    #[test]
+    fn newznab_extract_music_categories_from_ids() {
+        let xml_with_ids = r#"<?xml version="1.0"?>
+        <caps>
+            <categories>
+                <category id="3000" name="Music" />
+                <category id="3010" name="Music/MP3" />
+                <category id="3040" name="Music/Lossless" />
+            </categories>
+        </caps>
+        "#;
+
+        let categories = extract_supported_categories(xml_with_ids);
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/mp3".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+    }
+
+    #[test]
+    fn newznab_extract_categories_with_alternative_flac_id() {
+        // Some providers use 3020 for FLAC instead of 3040
+        let xml_alt_id = r#"<?xml version="1.0"?>
+        <caps>
+            <categories>
+                <category id="3000" name="Music" />
+                <category id="3020" name="Music/FLAC" />
+            </categories>
+        </caps>
+        "#;
+
+        let categories = extract_supported_categories(xml_alt_id);
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+    }
+
+    #[test]
+    fn extract_categories_no_duplicates_with_mixed_id_and_text() {
+        // XML with both numeric category IDs and text-based keywords; deduplication
+        // must prevent the same logical category from appearing more than once even
+        // when both detection paths match it.
+        let xml_mixed = r#"<?xml version="1.0"?>
+        <caps>
+            <categories>
+                <category id="3000" name="Music" />
+                <category id="3040" name="Music/Lossless" />
+                <category id="3020" name="Music/FLAC" />
+            </categories>
+        </caps>
+        "#;
+
+        let categories = extract_supported_categories(xml_mixed);
+        let unique: std::collections::HashSet<_> = categories.iter().collect();
+        assert_eq!(
+            categories.len(),
+            unique.len(),
+            "Categories should not contain duplicates"
+        );
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+    }
+
+    #[test]
+    fn newznab_defaults_when_categories_missing() {
+        let xml_no_cats = r#"<?xml version="1.0"?>
+        <caps>
+            <server title="TestIndexer" />
+        </caps>
+        "#;
+
+        let categories = extract_supported_categories(xml_no_cats);
+        assert_eq!(categories.len(), DEFAULT_MUSIC_CATEGORIES.len());
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+        assert!(categories.contains(&"audio/mp3".to_string()));
+    }
+
+    #[test]
+    fn category_mapping_normalizes_lossless_to_flac() {
+        assert_eq!(
+            map_category_to_indexer("audio/lossless", &IndexerProtocol::Newznab),
+            "3040"
         );
     }
 

@@ -913,7 +913,11 @@ pub async fn import_indexers(
             existing_item.protocol = protocol.as_str().to_string();
             existing_item.api_key = item.api_key.as_ref().and_then(|key| {
                 let trimmed = key.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
             });
             existing_item.enabled = item.enabled;
             existing_item.updated_at = Utc::now();
@@ -939,7 +943,11 @@ pub async fn import_indexers(
                 IndexerDefinition::new(item.name.trim(), item.base_url.trim(), protocol.as_str());
             new_item.api_key = item.api_key.as_ref().and_then(|key| {
                 let trimmed = key.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
             });
             new_item.enabled = item.enabled;
 
@@ -1254,13 +1262,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].protocol is invalid")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].protocol is invalid"));
     }
 
     #[tokio::test]
@@ -1292,13 +1298,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].name cannot be empty")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].name cannot be empty"));
     }
 
     #[tokio::test]
@@ -1330,13 +1334,11 @@ mod tests {
         let error: serde_json::Value =
             serde_json::from_slice(&body).expect("deserialize import error");
         assert_eq!(error["error"], "invalid import payload");
-        assert!(
-            error["details"]
-                .as_array()
-                .expect("details array")
-                .iter()
-                .any(|detail| detail == "items[0].base_url is invalid")
-        );
+        assert!(error["details"]
+            .as_array()
+            .expect("details array")
+            .iter()
+            .any(|detail| detail == "items[0].base_url is invalid"));
     }
 
     #[tokio::test]
