@@ -479,22 +479,17 @@ const DEFAULT_CATEGORY_KEYWORDS: &[&[&str]] = &[
     &["mp3"],
 ];
 
-fn extract_supported_categories(xml: &str) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut categories = Vec::new();
-    let xml_lower = xml.to_lowercase();
-
-    // Look for music-related category IDs in common ranges and explicit names
-    let music_patterns = [
-        ("3000", "music"),
-        ("3010", "audio/mp3"),
-        ("3020", "audio/flac"), // Some providers use 3020 as an alternative FLAC ID alongside 3040
-        ("3040", "audio/flac"),
-        ("5070", "audio/flac"), // Alternative ID range
-    ];
-
-    // Pre-compute all search strings before iterating
-    let id_patterns: Vec<_> = music_patterns
+// Music-related category ID patterns with their pre-computed search strings.
+// Computed once at startup to avoid repeated allocations on every call.
+static ID_SEARCH_PATTERNS: std::sync::LazyLock<Vec<(String, String, String, &'static str)>> =
+    std::sync::LazyLock::new(|| {
+        [
+            ("3000", "music"),
+            ("3010", "audio/mp3"),
+            ("3020", "audio/flac"), // Some providers use 3020 as an alternative FLAC ID alongside 3040
+            ("3040", "audio/flac"),
+            ("5070", "audio/flac"), // Alternative ID range
+        ]
         .iter()
         .map(|(id, name)| {
             (
@@ -504,9 +499,15 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
                 *name,
             )
         })
-        .collect();
+        .collect()
+    });
 
-    for (attr_double, attr_single, text_node, name) in &id_patterns {
+fn extract_supported_categories(xml: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut categories = Vec::new();
+    let xml_lower = xml.to_lowercase();
+
+    for (attr_double, attr_single, text_node, name) in ID_SEARCH_PATTERNS.iter() {
         if (xml_lower.contains(attr_double)
             || xml_lower.contains(attr_single)
             || xml_lower.contains(text_node))
@@ -1673,6 +1674,11 @@ mod tests {
         // with no duplicate entries.
         let categories = extract_supported_categories(sparse_xml);
         let unique: std::collections::HashSet<_> = categories.iter().collect();
+        assert_eq!(
+            categories.len(),
+            unique.len(),
+            "Categories should not contain duplicates"
+        );
         assert_eq!(unique.len(), DEFAULT_MUSIC_CATEGORIES.len());
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
