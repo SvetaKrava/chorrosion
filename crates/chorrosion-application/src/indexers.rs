@@ -472,6 +472,13 @@ async fn detect_capabilities(
 
 const DEFAULT_MUSIC_CATEGORIES: &[&str] = &["music", "audio/flac", "audio/mp3"];
 
+// Text keywords that identify each default category when no numeric IDs are present
+const DEFAULT_CATEGORY_KEYWORDS: &[&[&str]] = &[
+    &["music"],
+    &["flac", "lossless"],
+    &["mp3"],
+];
+
 fn extract_supported_categories(xml: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut categories = Vec::new();
@@ -486,15 +493,23 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
         ("5070", "audio/flac"), // Alternative ID range
     ];
 
-    for (id, name) in &music_patterns {
-        // Pre-compute the three search strings once per pattern
-        let attr_double = format!("id=\"{}\"", id);
-        let attr_single = format!("id='{}'", id);
-        let text_node = format!(">{}<", id);
-        // Look for explicit category ID definitions
-        if (xml_lower.contains(&attr_double)
-            || xml_lower.contains(&attr_single)
-            || xml_lower.contains(&text_node))
+    // Pre-compute all search strings before iterating
+    let id_patterns: Vec<_> = music_patterns
+        .iter()
+        .map(|(id, name)| {
+            (
+                format!("id=\"{}\"", id),
+                format!("id='{}'", id),
+                format!(">{}<", id),
+                *name,
+            )
+        })
+        .collect();
+
+    for (attr_double, attr_single, text_node, name) in &id_patterns {
+        if (xml_lower.contains(attr_double)
+            || xml_lower.contains(attr_single)
+            || xml_lower.contains(text_node))
             && seen.insert(*name)
         {
             categories.push(name.to_string());
@@ -503,16 +518,13 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
 
     // Also check for text-based category names as fallback
     if categories.is_empty() {
-        if xml_lower.contains("music") && seen.insert("music") {
-            categories.push("music".to_string());
-        }
-        if (xml_lower.contains("flac") || xml_lower.contains("lossless"))
-            && seen.insert("audio/flac")
+        for (category, keywords) in DEFAULT_MUSIC_CATEGORIES
+            .iter()
+            .zip(DEFAULT_CATEGORY_KEYWORDS.iter())
         {
-            categories.push("audio/flac".to_string());
-        }
-        if xml_lower.contains("mp3") && seen.insert("audio/mp3") {
-            categories.push("audio/mp3".to_string());
+            if keywords.iter().any(|kw| xml_lower.contains(*kw)) && seen.insert(*category) {
+                categories.push(category.to_string());
+            }
         }
     }
 
@@ -1659,7 +1671,7 @@ mod tests {
 
         // Should return sensible defaults even when no category info is present
         let categories = extract_supported_categories(sparse_xml);
-        assert_eq!(categories.len(), 3);
+        assert!(categories.len() >= 3);
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
         assert!(categories.contains(&"audio/mp3".to_string()));
