@@ -1671,7 +1671,7 @@ mod tests {
 
         // Should return sensible defaults even when no category info is present
         let categories = extract_supported_categories(sparse_xml);
-        assert!(categories.len() >= DEFAULT_MUSIC_CATEGORIES.len());
+        assert_eq!(categories.len(), DEFAULT_MUSIC_CATEGORIES.len());
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
         assert!(categories.contains(&"audio/mp3".to_string()));
@@ -1721,7 +1721,7 @@ mod tests {
         "#;
 
         let categories = extract_supported_categories(xml_no_cats);
-        assert_eq!(categories.len(), 3);
+        assert_eq!(categories.len(), DEFAULT_MUSIC_CATEGORIES.len());
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
         assert!(categories.contains(&"audio/mp3".to_string()));
