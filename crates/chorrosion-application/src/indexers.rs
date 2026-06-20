@@ -472,6 +472,7 @@ async fn detect_capabilities(
 }
 
 fn extract_supported_categories(xml: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut categories = Vec::new();
     let xml_lower = xml.to_lowercase();
 
@@ -485,14 +486,17 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
     ];
 
     for (id, name) in &music_patterns {
+        // Pre-compute the three search strings once per pattern
+        let attr_double = format!("id=\"{}\"", id);
+        let attr_single = format!("id='{}'", id);
+        let text_node = format!(">{}<", id);
         // Look for explicit category ID definitions
-        if xml_lower.contains(&format!("id=\"{}\"", id))
-            || xml_lower.contains(&format!("id='{}'", id))
-            || xml_lower.contains(&format!(">{}<", id))
+        if xml_lower.contains(&attr_double)
+            || xml_lower.contains(&attr_single)
+            || xml_lower.contains(&text_node)
         {
-            let name_str = name.to_string();
-            if !categories.contains(&name_str) {
-                categories.push(name_str);
+            if seen.insert(*name) {
+                categories.push(name.to_string());
             }
         }
     }
