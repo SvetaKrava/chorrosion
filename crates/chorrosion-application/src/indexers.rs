@@ -1048,7 +1048,7 @@ mod tests {
     use super::{
         extract_supported_categories, map_category_to_indexer, parse_rss_feed,
         parse_search_results, GazelleClient, IndexerClient, IndexerConfig, IndexerProtocol,
-        IndexerSearchQuery, NewznabClient, TorznabClient,
+        IndexerSearchQuery, NewznabClient, TorznabClient, DEFAULT_MUSIC_CATEGORIES,
     };
     use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1671,7 +1671,7 @@ mod tests {
 
         // Should return sensible defaults even when no category info is present
         let categories = extract_supported_categories(sparse_xml);
-        assert!(categories.len() >= 3);
+        assert!(categories.len() >= DEFAULT_MUSIC_CATEGORIES.len());
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
         assert!(categories.contains(&"audio/mp3".to_string()));
