@@ -490,7 +490,10 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
             || xml_lower.contains(&format!("id='{}'", id))
             || xml_lower.contains(&format!(">{}<", id))
         {
-            categories.push(name.to_string());
+            let name_str = name.to_string();
+            if !categories.contains(&name_str) {
+                categories.push(name_str);
+            }
         }
     }
 
@@ -1649,10 +1652,12 @@ mod tests {
         </caps>
         "#;
 
-        // This should not panic and should return reasonable defaults
-        let xml_lower = sparse_xml.to_lowercase();
-        assert!(xml_lower.contains("<server"));
-        assert!(xml_lower.contains("<caps"));
+        // Should return sensible defaults even when no category info is present
+        let categories = extract_supported_categories(sparse_xml);
+        assert_eq!(categories.len(), 3);
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+        assert!(categories.contains(&"audio/mp3".to_string()));
     }
 
     #[test]
