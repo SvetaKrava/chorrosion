@@ -488,7 +488,7 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
     let music_patterns = [
         ("3000", "music"),
         ("3010", "audio/mp3"),
-        ("3020", "audio/flac"), // Some providers use 3020 instead of 3040
+        ("3020", "audio/flac"), // Some providers use 3020 as an alternative FLAC ID alongside 3040
         ("3040", "audio/flac"),
         ("5070", "audio/flac"), // Alternative ID range
     ];
@@ -1661,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn newznab_capability_detection_with_sparse_caps() {
+    fn extract_categories_with_sparse_caps() {
         // Test that capability detection works with minimal caps element
         let sparse_xml = r#"<?xml version="1.0"?>
         <caps>
@@ -1669,9 +1669,11 @@ mod tests {
         </caps>
         "#;
 
-        // Should return sensible defaults even when no category info is present
+        // Should return sensible defaults even when no category info is present,
+        // with no duplicate entries.
         let categories = extract_supported_categories(sparse_xml);
-        assert_eq!(categories.len(), DEFAULT_MUSIC_CATEGORIES.len());
+        let unique: std::collections::HashSet<_> = categories.iter().collect();
+        assert_eq!(unique.len(), DEFAULT_MUSIC_CATEGORIES.len());
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
         assert!(categories.contains(&"audio/mp3".to_string()));
