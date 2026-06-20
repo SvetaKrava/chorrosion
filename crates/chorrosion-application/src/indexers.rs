@@ -481,6 +481,7 @@ const DEFAULT_CATEGORY_KEYWORDS: &[&[&str]] = &[
 
 // Music-related category ID patterns with their pre-computed search strings.
 // Computed once at startup to avoid repeated allocations on every call.
+// Requires Rust 1.80+ (std::sync::LazyLock stabilised in 1.80).
 static ID_SEARCH_PATTERNS: std::sync::LazyLock<Vec<(String, String, String, &'static str)>> =
     std::sync::LazyLock::new(|| {
         [
@@ -517,15 +518,15 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
         }
     }
 
-    // Also check for text-based category names as fallback
-    if categories.is_empty() {
-        for (category, keywords) in DEFAULT_MUSIC_CATEGORIES
-            .iter()
-            .zip(DEFAULT_CATEGORY_KEYWORDS.iter())
-        {
-            if keywords.iter().any(|kw| xml_lower.contains(*kw)) && seen.insert(*category) {
-                categories.push(category.to_string());
-            }
+    // Also check for text-based category names; runs alongside ID detection so
+    // that categories signalled only by keyword (and not by a numeric ID) are
+    // still picked up.  The HashSet guards against duplicates.
+    for (category, keywords) in DEFAULT_MUSIC_CATEGORIES
+        .iter()
+        .zip(DEFAULT_CATEGORY_KEYWORDS.iter())
+    {
+        if keywords.iter().any(|kw| xml_lower.contains(*kw)) && seen.insert(*category) {
+            categories.push(category.to_string());
         }
     }
 
@@ -1716,6 +1717,32 @@ mod tests {
         "#;
 
         let categories = extract_supported_categories(xml_alt_id);
+        assert!(categories.contains(&"music".to_string()));
+        assert!(categories.contains(&"audio/flac".to_string()));
+    }
+
+    #[test]
+    fn extract_categories_no_duplicates_with_mixed_id_and_text() {
+        // XML with both numeric category IDs and text-based keywords; deduplication
+        // must prevent the same logical category from appearing more than once even
+        // when both detection paths match it.
+        let xml_mixed = r#"<?xml version="1.0"?>
+        <caps>
+            <categories>
+                <category id="3000" name="Music" />
+                <category id="3040" name="Music/Lossless" />
+                <category id="3020" name="Music/FLAC" />
+            </categories>
+        </caps>
+        "#;
+
+        let categories = extract_supported_categories(xml_mixed);
+        let unique: std::collections::HashSet<_> = categories.iter().collect();
+        assert_eq!(
+            categories.len(),
+            unique.len(),
+            "Categories should not contain duplicates"
+        );
         assert!(categories.contains(&"music".to_string()));
         assert!(categories.contains(&"audio/flac".to_string()));
     }
