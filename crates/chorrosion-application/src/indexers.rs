@@ -455,11 +455,10 @@ async fn detect_capabilities(
     let supported_categories = if supports_categories {
         extract_supported_categories(&xml)
     } else {
-        vec![
-            "music".to_string(),
-            "audio/flac".to_string(),
-            "audio/mp3".to_string(),
-        ]
+        DEFAULT_MUSIC_CATEGORIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     };
 
     Ok(IndexerCapabilities {
@@ -470,6 +469,8 @@ async fn detect_capabilities(
         supported_categories,
     })
 }
+
+const DEFAULT_MUSIC_CATEGORIES: &[&str] = &["music", "audio/flac", "audio/mp3"];
 
 fn extract_supported_categories(xml: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
@@ -491,36 +492,36 @@ fn extract_supported_categories(xml: &str) -> Vec<String> {
         let attr_single = format!("id='{}'", id);
         let text_node = format!(">{}<", id);
         // Look for explicit category ID definitions
-        if xml_lower.contains(&attr_double)
+        if (xml_lower.contains(&attr_double)
             || xml_lower.contains(&attr_single)
-            || xml_lower.contains(&text_node)
+            || xml_lower.contains(&text_node))
+            && seen.insert(*name)
         {
-            if seen.insert(*name) {
-                categories.push(name.to_string());
-            }
+            categories.push(name.to_string());
         }
     }
 
     // Also check for text-based category names as fallback
     if categories.is_empty() {
-        if xml_lower.contains("music") {
+        if xml_lower.contains("music") && seen.insert("music") {
             categories.push("music".to_string());
         }
-        if xml_lower.contains("flac") || xml_lower.contains("lossless") {
+        if (xml_lower.contains("flac") || xml_lower.contains("lossless"))
+            && seen.insert("audio/flac")
+        {
             categories.push("audio/flac".to_string());
         }
-        if xml_lower.contains("mp3") {
+        if xml_lower.contains("mp3") && seen.insert("audio/mp3") {
             categories.push("audio/mp3".to_string());
         }
     }
 
     // Ensure we always have at least the defaults for music indexers
     if categories.is_empty() {
-        categories = vec![
-            "music".to_string(),
-            "audio/flac".to_string(),
-            "audio/mp3".to_string(),
-        ];
+        categories = DEFAULT_MUSIC_CATEGORIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
     }
 
     categories
